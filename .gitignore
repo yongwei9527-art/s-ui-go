@@ -1,0 +1,58 @@
+# Local Claude/session config
+.claude/
+
+# Build outputs
+# Keep release ZIP files under dist/ trackable; ignore expanded package folders and other local archives.
+/dist/*
+/frontend/dist/
+/web/html/
+*.zip
+*.tar.gz
+*.7z
+!/dist/
+!/dist/*.zip
+
+# Runtime binaries and release assets
+*.exe
+*.exe.bak-*
+*.bak-*
+*.dll
+*.so
+*.dylib
+/sui
+/sui-*
+/release-assets/
+
+# Runtime data
+/db/
+/dev-db/
+/logs/
+/cert/
+/%SUI_DB_FOLDER%/
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# Local environment/config
+*.env
+s-ui-windows.env
+
+# Node
+/frontend/node_modules/
+/frontend/.vite/
+
+# Go
+*.test
+coverage.out
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

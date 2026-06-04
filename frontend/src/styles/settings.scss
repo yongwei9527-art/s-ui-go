@@ -1,0 +1,64 @@
+/**
+ * src/styles/settings.scss
+ *
+ * Configures SASS variables and Vuetify overwrites
+ */
+
+// https://vuetifyjs.com/features/sass-variables/`
+// @use 'vuetify/settings' with (
+//   $color-pack: false
+// );
+@font-face {
+    font-display: swap;
+    font-family: 'Vazirmatn';
+    font-style: normal;
+    font-weight: 400;
+    src: url('@/assets/Vazirmatn-UI-NL-Regular.woff2') format('woff2');
+    unicode-range: U+0600-06FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE80-FEFC, U+0030-0039;
+}
+$body-font-family: "Inter", "Segoe UI", "Noto Sans SC", "Microsoft YaHei UI", "PingFang SC", "Vazirmatn", sans-serif;
+
+$typoOptions: text-h1, text-sm-h1, text-md-h1, text-lg-h1, text-h2, text-sm-h2,
+  text-md-h2, text-lg-h2, text-h3, text-sm-h3, text-md-h3, text-lg-h3, text-h4,
+  text-sm-h4, text-md-h4, text-lg-h4, text-h5, text-sm-h5, text-md-h5,
+  text-lg-h5, text-h6, text-sm-h6, text-md-h6, text-lg-h6, headline, title,
+  subtitle-1, subtitle-2, text-body-1, text-sm-body-1, text-md-body-1,
+  text-lg-body-1, text-body-2, text-sm-body-2, text-md-body-2, text-lg-body-2,
+  text-caption;
+body {
+  color: rgba(var(--v-theme-on-background), 0.86);
+  font-family: $body-font-family !important;
+  font-size: 16px;
+  letter-spacing: 0.01em;
+  @each $typoOption in $typoOptions {
+    .#{$typoOption} {
+      font-family: $body-font-family !important;
+    }
+  }
+}
+
+.v-application {
+  background:
+    radial-gradient(circle at 18% 12%, rgba(var(--v-theme-primary), 0.08), transparent 28%),
+    linear-gradient(135deg, rgb(var(--v-theme-background)) 0%, rgba(var(--v-theme-surface), 0.82) 100%) !important;
+  font-family: $body-font-family !important;
+}
+
+.v-btn {
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.v-card {
+  box-shadow: 0 12px 34px rgba(31, 45, 61, 0.08) !important;
+}
+
+.v-field {
+  border-radius: 14px;
+}
+
+.v-list-item-title,
+.v-btn,
+.v-field__input {
+  font-size: 0.96rem;
+}

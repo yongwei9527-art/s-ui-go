@@ -1,0 +1,16 @@
+[Unit]
+Description=S-UI Proxy Panel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/s-ui
+ExecStart=/opt/s-ui/sui
+Restart=on-failure
+RestartSec=10
+Environment=SUI_DB_FOLDER=db
+Environment=SUI_DEBUG=false
+
+[Install]
+WantedBy=multi-user.target
