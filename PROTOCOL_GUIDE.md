@@ -4,6 +4,334 @@
 
 > 简单结论：新手自建 VPS 优先选 `VLESS + Reality + TCP`；有 CDN 选 `VLESS/Trojan + TLS + WebSocket`；弱网和 UDP 选 `Hysteria2/TUIC`；本地代理入口选 `Mixed`；桌面全局代理选 `Tun`；软路由/网关透明代理选 `TProxy`。
 
+## 0. 新手实操教程：按场景配置协议组合
+
+这一节按“你现在有什么条件”来选协议，并给出面板中的配置步骤。后面的章节保留为参数解释、速查表和排错清单。
+
+### 0.1 配置前先确认 5 件事
+
+无论选择哪种组合，先确认：
+
+1. **服务器系统**：建议优先使用 Debian / Ubuntu 或 CentOS 系列。
+2. **端口是否放行**：云服务器安全组和系统防火墙都要放行对应端口。
+3. **是否有域名**：没有域名优先选 Reality；有域名和证书可以选 TLS。
+4. **是否走 CDN**：走 CDN 优先 WebSocket / gRPC；Reality 通常不放 CDN 后面。
+5. **客户端是否支持**：客户端内核太旧时，Reality、ECH、AnyTLS、TUIC 可能不可用。
+
+### 0.2 推荐选择路线
+
+```text
+没有域名 / 不想申请证书
+  → VLESS + Reality + TCP
+
+有域名，想走 CDN
+  → VLESS + TLS + WebSocket
+  → Trojan + TLS + WebSocket
+
+有域名，不走 CDN，想简单稳定
+  → Trojan + TLS + TCP
+
+移动网络、弱网、游戏、UDP
+  → Hysteria2 + TLS
+  → TUIC + TLS
+
+只给本机软件提供 HTTP/SOCKS 代理
+  → Mixed
+
+桌面全局代理
+  → Tun + DNS 接管
+
+软路由或网关透明代理
+  → TProxy + DNS 劫持
+```
+
+---
+
+## 0.3 方案一：VLESS + Reality + TCP（无域名/无证书首选）
+
+### 适合谁
+
+- 新手自建 VPS。
+- 没有域名，或不想配置证书。
+- 不准备使用 CDN。
+- 想要现代、稳定、性能较好的节点。
+
+### 服务端配置步骤
+
+1. 进入面板，打开 **TLS / 安全配置**。
+2. 新建 Reality 配置，生成或填写：
+   - `private_key`
+   - `public_key`
+   - `short_id`
+   - `server_name` / `SNI`
+3. Reality 的 `SNI` 建议填写一个真实、稳定的 HTTPS 域名。
+4. 新建入站，协议选择 `VLESS`。
+5. 监听端口建议使用 `443` 或其它已放行 TCP 端口。
+6. 传输层选择 `TCP`。
+7. 安全类型选择 `Reality`，绑定刚才的 Reality/TLS 配置。
+8. 用户 UUID 使用面板生成值，不要手动乱改。
+9. 如果客户端支持，`flow` 可使用：
+
+```text
+xtls-rprx-vision
+```
+
+10. 保存配置，重启核心或服务。
+
+### 客户端配置要点
+
+客户端侧必须和服务端一致：
+
+```text
+协议：VLESS
+地址：服务器 IP 或域名
+端口：服务端监听端口
+UUID：面板用户 UUID
+传输：TCP
+安全：Reality
+SNI：服务端 Reality server_name
+Public Key：服务端生成的 public_key
+Short ID：服务端 short_id
+Fingerprint/uTLS：chrome 或 firefox
+Flow：与服务端一致，例如 xtls-rprx-vision
+```
+
+### 常见错误
+
+- 把 `private_key` 填到客户端；客户端应填 `public_key`。
+- `short_id` 服务端和客户端不一致。
+- `SNI` 填了不存在或不稳定的站点。
+- 端口只在系统防火墙放行，云安全组没放行。
+- Reality 放到 CDN 后面，导致握手异常。
+
+---
+
+## 0.4 方案二：VLESS/Trojan + TLS + WebSocket（有域名/CDN 推荐）
+
+### 适合谁
+
+- 有域名。
+- 想使用 Cloudflare 等 CDN。
+- 想让流量表现得像普通 HTTPS 网站。
+
+### 域名和 CDN 准备
+
+1. 域名解析到服务器 IP，或开启 CDN 代理。
+2. CDN 中确认开启 WebSocket 支持。
+3. 选择 CDN 支持的 HTTPS 端口，例如常见的 `443`。
+4. 确保证书域名、SNI、Host 是同一个域名。
+
+### 服务端配置步骤
+
+1. 在面板中新建 TLS 配置。
+2. 证书可使用 ACME 申请，或手动填写证书路径。
+3. 新建入站，协议选择：
+   - `VLESS`：更现代，常用。
+   - `Trojan`：简单，兼容性好。
+4. 传输层选择 `WebSocket`。
+5. 设置 WebSocket Path，例如：
+
+```text
+/vless
+/trojan
+/ws
+```
+
+6. 设置 Host 为你的证书域名，例如：
+
+```text
+example.com
+```
+
+7. 开启 TLS，并设置 SNI 为同一个域名。
+8. 保存配置，重启核心或服务。
+
+### 客户端配置要点
+
+```text
+协议：VLESS 或 Trojan
+地址：域名，不建议直接填 IP
+端口：443 或你实际开放的 HTTPS 端口
+TLS：开启
+SNI：证书域名
+传输：WebSocket
+Path：服务端 Path，必须完全一致
+Host：证书域名/CDN 域名
+```
+
+### 常见错误
+
+- 服务端 Path 是 `/vless`，客户端写成 `vless` 或 `/VLESS`。
+- Host、SNI、证书域名不一致。
+- CDN 没开启 WebSocket。
+- CDN 使用了不支持的端口。
+- 同时在反向代理和面板里重复终止 TLS，导致配置混乱。
+
+---
+
+## 0.5 方案三：Trojan + TLS + TCP（有域名、想简单稳定）
+
+### 适合谁
+
+- 有域名和证书。
+- 不想折腾 WebSocket / gRPC / CDN。
+- 希望配置简单、客户端兼容性好。
+
+### 服务端配置步骤
+
+1. 准备域名并解析到服务器。
+2. 在面板中配置 TLS 证书。
+3. 新建入站，协议选择 `Trojan`。
+4. 监听端口推荐 `443`。
+5. 传输层保持 `TCP`。
+6. 开启 TLS，SNI 填证书域名。
+7. 设置 Trojan 密码。
+8. 保存并重启服务。
+
+### 客户端配置要点
+
+```text
+协议：Trojan
+地址：证书域名
+端口：443
+密码：服务端 Trojan 密码
+TLS：开启
+SNI：证书域名
+传输：TCP
+```
+
+### 常见错误
+
+- 用 IP 连接，但证书是域名证书。
+- 忘记开启 TLS。
+- 密码不一致。
+- 证书过期或证书链不完整。
+
+---
+
+## 0.6 方案四：Hysteria2 + TLS（弱网、UDP、移动网络）
+
+### 适合谁
+
+- 移动网络、跨境高丢包线路。
+- 游戏、语音、视频等需要 UDP 的场景。
+- 服务器和客户端都允许 UDP。
+
+### 服务端配置步骤
+
+1. 准备域名和 TLS 证书。
+2. 云安全组放行 UDP 端口，例如 `443/udp` 或自定义 UDP 端口。
+3. 系统防火墙放行同一个 UDP 端口。
+4. 新建入站，协议选择 `Hysteria2`。
+5. 开启 TLS，SNI 填证书域名。
+6. 设置用户密码。
+7. 如果启用端口跳跃 `mport/server_ports`，建议同时设置 `hop_interval`。
+8. 如启用 `salamander obfs`，客户端和服务端混淆密码必须一致。
+
+### 客户端配置要点
+
+```text
+协议：Hysteria2
+地址：域名或服务器 IP
+端口：服务端 UDP 端口
+密码：服务端用户密码
+TLS：开启
+SNI：证书域名
+Obfs：如服务端开启，客户端必须一致
+```
+
+### 常见错误
+
+- 只放行了 TCP，没放行 UDP。
+- 云安全组放行了，系统防火墙没放行。
+- 运营商或网络环境屏蔽 UDP。
+- 带宽参数乱填过大，反而变慢。
+
+---
+
+## 0.7 方案五：TUIC + TLS（低延迟、UDP、游戏）
+
+### 适合谁
+
+- 需要低延迟 UDP。
+- 客户端支持 TUIC。
+- 想在弱网环境尝试 QUIC 类协议。
+
+### 服务端配置步骤
+
+1. 准备域名和 TLS 证书。
+2. 放行 UDP 端口。
+3. 新建入站，协议选择 `TUIC`。
+4. 开启 TLS，SNI 填证书域名。
+5. 设置 UUID 和 Password。
+6. `congestion_control` 不确定时可先使用：
+
+```text
+cubic
+```
+
+7. `udp_relay_mode` 不懂时保持默认或留空。
+
+### 客户端配置要点
+
+```text
+协议：TUIC
+地址：域名或服务器 IP
+端口：服务端 UDP 端口
+UUID：服务端 UUID
+Password：服务端 Password
+TLS：开启
+SNI：证书域名
+Congestion Control：与服务端一致
+```
+
+### 常见错误
+
+- UUID 和 Password 只填了一个。
+- 端口按 TCP 放行，实际需要 UDP。
+- 客户端内核太旧不支持当前 TUIC 参数。
+- 强制 network=tcp，导致协议不可用。
+
+---
+
+## 0.8 本地入口：Mixed / Tun / TProxy 怎么选
+
+### Mixed
+
+适合只给本机软件提供 HTTP + SOCKS 代理。
+
+推荐：
+
+```text
+监听地址：127.0.0.1
+监听端口：7890
+用途：浏览器、Telegram、开发工具等手动设置代理的软件
+```
+
+不要直接监听公网 `0.0.0.0`，除非你知道如何做访问控制。
+
+### Tun
+
+适合 Windows / macOS / Linux 桌面全局代理。
+
+重点：
+
+- 需要管理员权限。
+- 必须处理 DNS，否则容易 DNS 泄漏。
+- 不要同时运行多个 Tun 类代理。
+
+### TProxy
+
+适合 Linux 网关、OpenWrt、软路由透明代理。
+
+重点：
+
+- 需要 iptables/nftables 和策略路由。
+- 必须排除局域网、服务器 IP、面板地址。
+- DNS 劫持和分流规则必须配套。
+
+---
+
 ## 1. 面板中的组合模型
 
 S-UI 面板里的一个节点通常由下面几部分组成：
