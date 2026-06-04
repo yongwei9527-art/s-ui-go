@@ -55,20 +55,91 @@ Release 页面：<https://github.com/yongwei9527-art/s-ui-go/releases/tag/v1.4.2
 
 ### Linux
 
-推荐先安装基础依赖，再运行安装脚本。
+以下只列出常用服务器系统的详细安装步骤。安装时建议使用 `root` 用户，或确保当前用户具备 `sudo` 权限。
 
-| 发行版 | 安装基础依赖 |
-| --- | --- |
-| Debian / Ubuntu | `sudo apt update -y && sudo apt install -y curl wget tar unzip` |
-| CentOS / Rocky / AlmaLinux / Oracle Linux | `sudo yum install -y curl wget tar unzip` |
-| Fedora | `sudo dnf install -y curl wget tar unzip` |
-| Arch / Manjaro | `sudo pacman -Syu --noconfirm curl wget tar unzip` |
+#### Debian / Ubuntu
 
-通用安装命令：
+1. 更新软件源并安装基础依赖：
+
+```bash
+sudo apt update -y
+sudo apt install -y curl wget tar unzip
+```
+
+2. 下载安装脚本：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/latest-project-upload/install.sh -o install.sh
+```
+
+3. 执行安装脚本：
+
+```bash
 sudo bash install.sh
+```
+
+4. 按脚本提示设置以下内容：
+
+- Web 面板端口
+- Web 面板访问路径
+- 订阅服务端口
+- 订阅访问路径
+- 管理员账号和密码
+
+5. 安装完成后访问面板：
+
+```text
+http://服务器IP:面板端口/面板路径/
+```
+
+如果安装时保持默认值，则为：
+
+```text
+http://服务器IP:2095/app/
+```
+
+#### CentOS / Rocky / AlmaLinux / Oracle Linux
+
+1. 安装基础依赖：
+
+```bash
+sudo yum install -y curl wget tar unzip
+```
+
+2. 如果系统启用了防火墙，放行面板和订阅端口。以下以默认端口 `2095`、`2096` 为例：
+
+```bash
+sudo firewall-cmd --permanent --add-port=2095/tcp
+sudo firewall-cmd --permanent --add-port=2096/tcp
+sudo firewall-cmd --reload
+```
+
+如果安装时自定义了端口，请把上面的 `2095`、`2096` 换成你的实际端口。
+
+3. 下载安装脚本：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/latest-project-upload/install.sh -o install.sh
+```
+
+4. 执行安装脚本：
+
+```bash
+sudo bash install.sh
+```
+
+5. 按脚本提示设置面板端口、访问路径、订阅端口、订阅路径、管理员账号和密码。
+
+6. 安装完成后访问面板：
+
+```text
+http://服务器IP:面板端口/面板路径/
+```
+
+如果安装时保持默认值，则为：
+
+```text
+http://服务器IP:2095/app/
 ```
 
 ### macOS
