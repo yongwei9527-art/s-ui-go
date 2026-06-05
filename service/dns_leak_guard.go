@@ -272,6 +272,9 @@ func EnsureDNSLeakGuard(dnsConfig map[string]interface{}, mode string, remoteDet
 	if !serverTags[localDNSTag] {
 		servers = append(servers, defaultLocalDNSServer())
 	}
+	if err := normalizeDNSServerDetours(servers); err != nil {
+		return err
+	}
 	dnsConfig["servers"] = servers
 
 	serverTags, err = dnsServerTags(servers)
@@ -398,6 +401,19 @@ func dnsServerTags(servers []interface{}) (map[string]bool, error) {
 		}
 	}
 	return tags, nil
+}
+
+func normalizeDNSServerDetours(servers []interface{}) error {
+	for _, item := range servers {
+		server, ok := item.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("dns.servers must contain JSON objects")
+		}
+		if detour, _ := server["detour"].(string); detour == "direct" {
+			delete(server, "detour")
+		}
+	}
+	return nil
 }
 
 func ensureLocalDNSRule(rules []interface{}) []interface{} {

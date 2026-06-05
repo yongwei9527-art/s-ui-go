@@ -199,3 +199,43 @@ func TestDefaultDNSLeakGuardConfigDetourPolicy(t *testing.T) {
 		t.Fatalf("remote-dns detour = %v, want proxy", got)
 	}
 }
+
+func TestEnsureDNSLeakGuardRemovesLegacyDirectDetour(t *testing.T) {
+	dns := map[string]interface{}{
+		"servers": []interface{}{
+			map[string]interface{}{"tag": remoteDNSTag, "type": "tls", "server": "1.1.1.1", "server_port": float64(853), "detour": "direct"},
+			map[string]interface{}{"tag": localDNSTag, "type": "udp", "server": "223.5.5.5", "server_port": float64(53)},
+		},
+	}
+
+	if err := EnsureDNSLeakGuard(dns, DNSLeakGuardModeRecommended, "direct"); err != nil {
+		t.Fatal(err)
+	}
+	remoteServer := findDNSServer(dns["servers"].([]interface{}), remoteDNSTag)
+	if remoteServer == nil {
+		t.Fatal("remote-dns server not found")
+	}
+	if _, ok := remoteServer["detour"]; ok {
+		t.Fatalf("legacy direct detour should be removed: %+v", remoteServer)
+	}
+}
+
+func TestEnsureDNSLeakGuardPreservesExplicitProxyDetour(t *testing.T) {
+	dns := map[string]interface{}{
+		"servers": []interface{}{
+			map[string]interface{}{"tag": remoteDNSTag, "type": "tls", "server": "1.1.1.1", "server_port": float64(853), "detour": "proxy"},
+			map[string]interface{}{"tag": localDNSTag, "type": "udp", "server": "223.5.5.5", "server_port": float64(53)},
+		},
+	}
+
+	if err := EnsureDNSLeakGuard(dns, DNSLeakGuardModeRecommended, "direct"); err != nil {
+		t.Fatal(err)
+	}
+	remoteServer := findDNSServer(dns["servers"].([]interface{}), remoteDNSTag)
+	if remoteServer == nil {
+		t.Fatal("remote-dns server not found")
+	}
+	if got := remoteServer["detour"]; got != "proxy" {
+		t.Fatalf("remote-dns detour = %v, want proxy", got)
+	}
+}
