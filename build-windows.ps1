@@ -222,6 +222,7 @@ if ($Package) {
     New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
     Copy-Item $output $packageDir -Force
     Copy-Item "RELEASE_NOTES.md" $packageDir -Force -ErrorAction SilentlyContinue
+    Copy-Item "PROTOCOL_GUIDE.md" $packageDir -Force -ErrorAction SilentlyContinue
 
     if ($System -eq "windows") {
         Copy-Item "s-ui-windows.xml" $packageDir -Force -ErrorAction SilentlyContinue

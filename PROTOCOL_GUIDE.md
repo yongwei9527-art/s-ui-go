@@ -45,6 +45,53 @@
   → TProxy + DNS 劫持
 ```
 
+### 0.2.1 面板通用设置顺序
+
+不管选择哪种协议，都建议按下面顺序配置，避免“协议填对了但端口、证书或客户端参数不一致”：
+
+1. **放行端口**：先在云服务器安全组放行端口，再在系统防火墙放行同一个端口；Hysteria2 / TUIC 必须放行 UDP。
+2. **准备安全配置**：需要证书的组合先配置 TLS / ACME；Reality 先生成 `private_key`、`public_key`、`short_id`；ECH 先准备 `ech.config`。
+3. **新建入站**：选择协议，填写监听地址、端口、用户 UUID / 密码 / Password。
+4. **选择传输层**：TCP、WebSocket、gRPC、HTTPUpgrade、QUIC 等按推荐组合选择，Path / Host / service_name 必须和客户端一致。
+5. **绑定安全配置**：TLS / Reality / ECH 与入站绑定后，确认 `server_name` / `SNI` 不为空且和证书或 Reality 目标一致。
+6. **保存并重启核心**：保存入站后重启 sing-box / S-UI 服务，再生成订阅或分享链接。
+7. **客户端核对**：客户端地址、端口、协议、UUID/密码、SNI、Path、Host、Public Key、Short ID 必须与服务端一致。
+
+### 0.2.2 更新协议速填表
+
+本项目当前协议类型和传输类型来自面板类型定义与 sing-box 依赖组合。新手可以先按下表填写，能跑通后再调整高级参数。
+
+| 目标 | 入站协议 | 安全配置 | 传输层 | 关键字段 | 备注 |
+| --- | --- | --- | --- | --- | --- |
+| 无域名 VPS | `VLESS` | `Reality` | `TCP` | UUID、`server_name/SNI`、`public_key`、`short_id`、`flow=xtls-rprx-vision` | 不建议放 CDN 后面。 |
+| CDN HTTPS | `VLESS` / `Trojan` | `TLS` | `WebSocket` | 域名证书、`SNI`、`Host`、`Path` | Host / SNI / 证书域名尽量一致。 |
+| CDN gRPC | `VLESS` / `Trojan` | `TLS` | `gRPC` | 域名证书、`SNI`、`service_name` | 需要 CDN 和客户端都支持 gRPC。 |
+| 简单稳定 | `Trojan` | `TLS` | `TCP` | Trojan 密码、证书域名、`SNI` | 配置少，适合有域名用户。 |
+| 兼容旧客户端 | `VMess` | `TLS` | `WebSocket` / `gRPC` | UUID、`alter_id=0`、Path/Host 或 service_name | 新建节点不优先推荐。 |
+| 弱网/UDP | `Hysteria2` | `TLS` | UDP 内置 | 密码、UDP 端口、SNI、可选 `obfs`、`mport/server_ports` | 只放行 TCP 会不可用。 |
+| 低延迟 UDP | `TUIC` | `TLS` | UDP 内置 | UUID、Password、`congestion_control=cubic`、SNI | UUID 和 Password 都要填。 |
+| 新 TLS 类方案 | `AnyTLS` | `TLS` | TCP | 密码、证书、SNI、`padding_scheme` | 要求客户端内核较新。 |
+| TLS 握手中转 | `ShadowTLS` | 外层握手 | TCP | version、password、handshake server/port | 通常与其它代理链路配合，非新手首选。 |
+| 本机代理入口 | `Mixed` | 不需要 | 本地监听 | `127.0.0.1:7890` | 不要无认证暴露公网。 |
+| 桌面全局代理 | `Tun` | 按出站决定 | 虚拟网卡 | 管理员权限、DNS 接管、路由排除 | 避免多个 Tun 同时运行。 |
+| 软路由透明代理 | `TProxy` | 按出站决定 | 透明代理 | iptables/nftables、策略路由、DNS 劫持 | 需要排除局域网和服务器 IP。 |
+
+### 0.2.3 最容易配错的字段
+
+| 字段 | 应该怎么填 | 常见错误 |
+| --- | --- | --- |
+| `listen` | 服务端监听地址，新手通常填 `0.0.0.0` 或留默认 | 只监听 `127.0.0.1`，外部客户端连不上。 |
+| `listen_port` | 服务端实际端口，必须和防火墙一致 | 面板端口、订阅端口、节点端口混用。 |
+| `server_name` / `SNI` | TLS 填证书域名；Reality 填稳定 HTTPS 目标域名 | 客户端 SNI 与服务端/证书不一致。 |
+| WebSocket `path` | 以 `/` 开头，客户端完全一致 | 大小写不一致或少写 `/`。 |
+| WebSocket `Host` | CDN/证书域名 | Host 填 IP，导致 CDN 或证书校验失败。 |
+| gRPC `service_name` | 服务端和客户端完全一致 | 客户端留空或拼写不同。 |
+| Reality `public_key` | 客户端填写服务端生成的 public key | 把 private key 填进客户端。 |
+| Reality `short_id` | 从服务端 short_id 列表中选择一个 | 服务端和客户端不一致。 |
+| ECH `config` | 有 ECH 配置才启用 | 只开 enabled 但 config 为空。 |
+| TUIC `congestion_control` | 不确定先用 `cubic` | 填客户端不支持的值。 |
+| Hysteria2 / TUIC 端口 | 云安全组和系统防火墙都放行 UDP | 只放行 TCP。 |
+
 ---
 
 ## 0.3 方案一：VLESS + Reality + TCP（无域名/无证书首选）

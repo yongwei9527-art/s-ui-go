@@ -76,6 +76,7 @@ if /i "%keep_data%"=="Y" (
     if exist "%INSTALL_DIR%\s-ui-windows.xml" del "%INSTALL_DIR%\s-ui-windows.xml" >nul 2>&1
     if exist "%INSTALL_DIR%\s-ui-windows.env" del "%INSTALL_DIR%\s-ui-windows.env" >nul 2>&1
     if exist "%INSTALL_DIR%\README.md" del "%INSTALL_DIR%\README.md" >nul 2>&1
+    if exist "%INSTALL_DIR%\PROTOCOL_GUIDE.md" del "%INSTALL_DIR%\PROTOCOL_GUIDE.md" >nul 2>&1
     if exist "%INSTALL_DIR%\s-ui-windows.bat" del "%INSTALL_DIR%\s-ui-windows.bat" >nul 2>&1
     echo 数据文件已保留在：%INSTALL_DIR%
 ) else (

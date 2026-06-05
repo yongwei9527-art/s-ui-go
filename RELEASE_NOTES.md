@@ -19,7 +19,8 @@
 - Linux 一键安装脚本的 Release 下载源切换到当前仓库：`yongwei9527-art/s-ui-go`。
 - 构建脚本增加 `-NonInteractive` 参数，适合自动化生成发布包。
 - macOS 发布包统一命名为 `s-ui-macos-*.zip`，便于用户识别。
-- 发布包内包含 `RELEASE_NOTES.md`，方便离线查看说明。
+- 发布包内包含 `RELEASE_NOTES.md` 和 `PROTOCOL_GUIDE.md`，方便离线查看发布说明、协议设置和组合建议。
+- 协议指南补充面板通用设置顺序、协议速填表和易错字段清单，覆盖 VLESS Reality、TLS WebSocket/gRPC、Hysteria2、TUIC、AnyTLS、Tun、TProxy 等组合。
 
 #### DNS 防泄漏
 
@@ -60,7 +61,8 @@ This release provides the following amd64 packages:
 - Linux one-click installer now downloads release assets from `yongwei9527-art/s-ui-go`.
 - Build script now supports `-NonInteractive` for automated packaging.
 - macOS packages are named as `s-ui-macos-*.zip` for clearer platform recognition.
-- Release packages include `RELEASE_NOTES.md` for offline reference.
+- Release packages include `RELEASE_NOTES.md` and `PROTOCOL_GUIDE.md` for offline release notes, protocol setup, and combination guidance.
+- The protocol guide now includes a common panel setup flow, quick-fill tables, and common misconfiguration checks for VLESS Reality, TLS WebSocket/gRPC, Hysteria2, TUIC, AnyTLS, Tun, TProxy, and related combinations.
 
 #### DNS leak guard
 

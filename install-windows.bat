@@ -53,6 +53,7 @@ copy /y "s-ui-windows.xml" "%INSTALL_DIR%\" >nul
 copy /y "s-ui-windows.bat" "%INSTALL_DIR%\" >nul
 copy /y "uninstall-windows.bat" "%INSTALL_DIR%\" >nul
 if exist "README.md" copy /y "README.md" "%INSTALL_DIR%\" >nul
+if exist "PROTOCOL_GUIDE.md" copy /y "PROTOCOL_GUIDE.md" "%INSTALL_DIR%\" >nul
 if exist "libcronet.dll" copy /y "libcronet.dll" "%INSTALL_DIR%\" >nul
 
 set "ARCH=%PROCESSOR_ARCHITECTURE%"

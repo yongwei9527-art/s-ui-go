@@ -217,6 +217,7 @@ fi
 chmod +x "$INSTALL_DIR/sui"
 
 if [ -f "README.md" ]; then cp -f "README.md" "$INSTALL_DIR/README.md"; fi
+if [ -f "PROTOCOL_GUIDE.md" ]; then cp -f "PROTOCOL_GUIDE.md" "$INSTALL_DIR/PROTOCOL_GUIDE.md"; fi
 
 say '正在执行数据库迁移...\n' 'Running database migration...\n'
 cd "$INSTALL_DIR"
