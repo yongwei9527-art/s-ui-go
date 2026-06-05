@@ -799,24 +799,39 @@ Tun/TProxy：必须接管 DNS
 
 ## 8. 依赖模块是否要更新
 
-当前建议：**不要在本次发布前大范围升级协议依赖**。
+当前状态：**已完成一轮兼容范围内的协议依赖更新**。
+
+已更新并通过测试 / 构建检查的模块：
+
+- `github.com/quic-go/quic-go`：`v0.59.0` → `v0.59.1`
+- `github.com/sagernet/quic-go`：`v0.59.0-sing-box-mod.4` → `v0.59.0-sing-box-mod.5`
+- `github.com/sagernet/sing-shadowsocks`：`v0.2.8` → `v0.2.9`
+- `github.com/sagernet/sing-shadowsocks2`：`v0.2.1` → `v0.2.2`
+- `github.com/sagernet/sing-shadowtls`：伪版本 → `v0.2.1`
+- 已移除 `github.com/quic-go/quic-go => v0.57.1` 的 `replace` 固定。
+
+暂不更新的模块：
+
+- `github.com/sagernet/sing-box` 保持 `v1.13.12`。
+- `github.com/sagernet/sing-tun` 保持 `v0.8.9`。
 
 原因：
 
-- 当前依赖围绕 `sing-box v1.13.12`，协议字段和前后端类型已经有耦合。
-- 大范围升级可能导致 JSON 字段变化，破坏订阅、Clash 导出、保存配置和前端默认值。
-- QUIC/TUIC/Hysteria2/Naive 相关依赖变动风险较高。
+- `sing-box v1.13.13` 在当前 Windows 构建环境下会调用 `sing-tun` 的 `MyInterface()`。
+- `sing-tun v0.8.10` 及当前可获取的更新分支接口已变为 `MyInterfaces()`，导致 Windows 编译失败。
+- 因此本项目当前选择保留可编译、可测试通过的组合：`sing-box v1.13.12` + `sing-tun v0.8.9`。
 
-需要重点验证：
-
-- `go.mod` 中 `github.com/quic-go/quic-go` 依赖图是 `v0.59.0`，但 replace 固定到 `v0.57.1`。
-- 这可能影响 TUIC、Hysteria/Hysteria2、Naive QUIC。
-- 不建议盲目删除 replace；建议先跑 smoke tests。
-
-建议策略：
+已完成验证：
 
 ```text
-本次发布：不大升级依赖，只修明确 bug。
-发布前：重点测试 QUIC 相关协议。
-下个版本：单独开分支升级 sing-box / QUIC / uTLS，并逐项回归协议转换。
+[x] go test ./...
+[x] Windows 发布标签构建检查
+```
+
+后续建议：
+
+```text
+下个版本：继续观察 sing-box / sing-tun 是否发布兼容稳定组合。
+发布前：重点测试 QUIC、TUIC、Hysteria2、Naive、ShadowTLS、Tun / Redirect / TProxy。
+如果 sing-box v1.13.13 后续修复 Windows 依赖接口，再单独升级核心并重跑完整回归。
 ```
