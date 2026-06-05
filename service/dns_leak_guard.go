@@ -170,9 +170,9 @@ func NormalizeDNSLeakGuardMode(mode string) string {
 }
 
 // DefaultDNSLeakGuardConfig returns a fresh sing-box DNS configuration that avoids
-// falling back to the system resolver by default. The detour parameter is kept
-// explicit because server-side core config and client subscription config may
-// choose different bootstrap policies.
+// falling back to the system resolver by default. The detour parameter is only
+// applied when it points to an explicit outbound; leaving direct empty lets
+// sing-box use its built-in direct dialer during DNS transport initialization.
 func DefaultDNSLeakGuardConfig(remoteDetour string) map[string]interface{} {
 	return map[string]interface{}{
 		"servers": []interface{}{
@@ -561,17 +561,17 @@ func containsNumber(value interface{}, target int) bool {
 }
 
 func defaultRemoteDNSServer(detour string) map[string]interface{} {
-	if detour == "" {
-		detour = "direct"
-	}
-	return map[string]interface{}{
+	server := map[string]interface{}{
 		"tag":         remoteDNSTag,
 		"type":        "tls",
 		"server":      "1.1.1.1",
 		"server_port": 853,
-		"detour":      detour,
 		"tls":         map[string]interface{}{},
 	}
+	if detour != "" && detour != "direct" {
+		server["detour"] = detour
+	}
+	return server
 }
 
 func defaultLocalDNSServer() map[string]interface{} {
@@ -580,7 +580,6 @@ func defaultLocalDNSServer() map[string]interface{} {
 		"type":        "udp",
 		"server":      "223.5.5.5",
 		"server_port": 53,
-		"detour":      "direct",
 	}
 }
 

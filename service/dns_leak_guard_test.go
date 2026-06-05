@@ -27,7 +27,7 @@ func TestEnsureRouteDNSHijackStrictForcesRemoteResolver(t *testing.T) {
 func TestEnsureRouteDNSHijackRecommendedPreservesExplicitResolver(t *testing.T) {
 	route := map[string]interface{}{
 		"default_domain_resolver": "local-dns",
-		"rules": []interface{}{},
+		"rules":                   []interface{}{},
 	}
 
 	if err := EnsureRouteDNSHijack(route, DNSLeakGuardModeRecommended); err != nil {
@@ -155,5 +155,47 @@ func TestDefaultConfigReportPassesRecommended(t *testing.T) {
 	}
 	if !report.Passed {
 		t.Fatalf("default recommended report should pass: %+v", report.Checks)
+	}
+}
+
+func TestDefaultConfigOmitsDirectDNSDetour(t *testing.T) {
+	var coreConfig map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(defaultConfig), &coreConfig); err != nil {
+		t.Fatal(err)
+	}
+	dnsConfig, err := decodeObjectSection("dns", coreConfig["dns"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	servers, err := getObjectSlice(dnsConfig, "servers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range servers {
+		server := item.(map[string]interface{})
+		if detour, _ := server["detour"].(string); detour == "direct" {
+			t.Fatalf("default DNS server %q must not use direct detour", server["tag"])
+		}
+	}
+}
+
+func TestDefaultDNSLeakGuardConfigDetourPolicy(t *testing.T) {
+	directDNS := DefaultDNSLeakGuardConfig("direct")
+	directServers := directDNS["servers"].([]interface{})
+	for _, item := range directServers {
+		server := item.(map[string]interface{})
+		if _, ok := server["detour"]; ok {
+			t.Fatalf("direct DNS server %q should omit detour", server["tag"])
+		}
+	}
+
+	proxyDNS := DefaultDNSLeakGuardConfig("proxy")
+	proxyServers := proxyDNS["servers"].([]interface{})
+	remoteServer := findDNSServer(proxyServers, remoteDNSTag)
+	if remoteServer == nil {
+		t.Fatal("remote-dns server not found")
+	}
+	if got := remoteServer["detour"]; got != "proxy" {
+		t.Fatalf("remote-dns detour = %v, want proxy", got)
 	}
 }

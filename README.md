@@ -2,7 +2,7 @@
 
 > 基于开源 S-UI / s-ui-go 项目整理的社区构建版本，提供 Windows、Linux、macOS 发布包和常用安装脚本。
 
-[![Release](https://img.shields.io/badge/release-v1.4.2-blue)](https://github.com/yongwei9527-art/s-ui-go/releases/tag/v1.4.2)
+[![Release](https://img.shields.io/badge/release-v1.4.2.3-blue)](https://github.com/yongwei9527-art/s-ui-go/releases/tag/v1.4.2.3)
 [![License](https://img.shields.io/badge/license-GPL--3.0-green)](LICENSE)
 
 ## 目录
@@ -65,15 +65,15 @@
 
 ## 下载
 
-最新版本：**v1.4.2**
+最新版本：**v1.4.2.3**
 
-Release 页面：<https://github.com/yongwei9527-art/s-ui-go/releases/tag/v1.4.2>
+Release 页面：<https://github.com/yongwei9527-art/s-ui-go/releases/tag/v1.4.2.3>
 
 | 系统 | 架构 | 下载文件 |
 | --- | --- | --- |
-| Windows | amd64 | [`s-ui-windows-amd64.zip`](https://github.com/yongwei9527-art/s-ui-go/releases/download/v1.4.2/s-ui-windows-amd64.zip) |
-| Linux | amd64 | [`s-ui-linux-amd64.zip`](https://github.com/yongwei9527-art/s-ui-go/releases/download/v1.4.2/s-ui-linux-amd64.zip) |
-| macOS | amd64 | [`s-ui-macos-amd64.zip`](https://github.com/yongwei9527-art/s-ui-go/releases/download/v1.4.2/s-ui-macos-amd64.zip) |
+| Windows | amd64 | [`s-ui-windows-amd64.zip`](https://github.com/yongwei9527-art/s-ui-go/releases/download/v1.4.2.3/s-ui-windows-amd64.zip) |
+| Linux | amd64 | [`s-ui-linux-amd64.zip`](https://github.com/yongwei9527-art/s-ui-go/releases/download/v1.4.2.3/s-ui-linux-amd64.zip) |
+| macOS | amd64 | [`s-ui-macos-amd64.zip`](https://github.com/yongwei9527-art/s-ui-go/releases/download/v1.4.2.3/s-ui-macos-amd64.zip) |
 
 ## 快速安装
 
@@ -378,7 +378,7 @@ It provides:
 
 Download the latest release from:
 
-<https://github.com/yongwei9527-art/s-ui-go/releases/tag/v1.4.2>
+<https://github.com/yongwei9527-art/s-ui-go/releases/tag/v1.4.2.3>
 
 ## 致谢与许可
 
