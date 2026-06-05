@@ -11,7 +11,7 @@ import (
 	"github.com/yongwei9527-art/s-ui-go/database/model"
 	"github.com/yongwei9527-art/s-ui-go/util/common"
 
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -67,10 +67,10 @@ func OpenDB(dbPath string) error {
 	if strings.Contains(dbPath, "?") {
 		sep = "&"
 	}
-	// _cache_size=-200 caps each connection's page cache at ~200 KiB
-	// (default is ~2 MiB), reducing memory amplification if a connection
-	// escapes the pool.
-	dsn := dbPath + sep + "_busy_timeout=10000&_journal_mode=WAL&_cache_size=-200"
+	// Use modernc.org/sqlite via github.com/glebarez/sqlite so release packages
+	// can be built without CGO. The _pragma parameters configure busy timeout,
+	// WAL mode, and a small per-connection page cache.
+	dsn := dbPath + sep + "_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_pragma=cache_size(-200)"
 	db, err = gorm.Open(sqlite.Open(dsn), c)
 	if err != nil {
 		return err

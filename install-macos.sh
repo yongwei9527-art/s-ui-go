@@ -48,7 +48,7 @@ detect_default_language() {
   if [[ "$env_lang" == zh* ]]; then
     printf 'zh'
   else
-    printf 'en'
+    printf 'zh'
   fi
 }
 
@@ -94,6 +94,56 @@ say() {
   fi
 }
 
+normalize_url_path() {
+  local url_path="$1"
+  if [[ -z "$url_path" ]]; then
+    printf '/'
+    return
+  fi
+  if [[ "${url_path:0:1}" != "/" ]]; then
+    url_path="/${url_path}"
+  fi
+  if [[ "${url_path: -1}" != "/" ]]; then
+    url_path="${url_path}/"
+  fi
+  printf '%s' "$url_path"
+}
+
+print_sui_failure_hint() {
+  local output="$1"
+  if [[ -n "$output" ]]; then printf '%s\n' "$output"; fi
+}
+
+run_sui_required() {
+  local zh_desc="$1"
+  local en_desc="$2"
+  local output=""
+  shift 2
+  if ! output=$(./sui "$@" 2>&1); then
+    if is_zh; then
+      printf '错误：%s失败。\n' "$zh_desc"
+    else
+      printf 'Error: %s failed.\n' "$en_desc"
+    fi
+    print_sui_failure_hint "$output"
+    exit 1
+  fi
+  if [[ -n "$output" ]]; then printf '%s\n' "$output"; fi
+}
+
+run_sui_optional() {
+  local zh_desc="$1"
+  local en_desc="$2"
+  local output=""
+  shift 2
+  if ! output=$(./sui "$@" 2>&1); then
+    say '%s未完成，可能是全新安装或旧数据库不存在。\n' '%s was not completed, possibly because this is a fresh install or the old database does not exist.\n' "$zh_desc"
+    if [[ -n "$output" ]]; then printf '%s\n' "$output"; fi
+    return 0
+  fi
+  if [[ -n "$output" ]]; then printf '%s\n' "$output"; fi
+}
+
 select_install_language
 
 printf '========================================\n'
@@ -126,6 +176,7 @@ if [ -n "$input_panel_port" ]; then PANEL_PORT="$input_panel_port"; fi
 say '面板路径，默认 %s：' 'Panel path, default %s: ' "$PANEL_PATH"
 read -r input_panel_path
 if [ -n "$input_panel_path" ]; then PANEL_PATH="$input_panel_path"; fi
+PANEL_PATH="$(normalize_url_path "$PANEL_PATH")"
 
 say '订阅端口，默认 %s：' 'Subscription port, default %s: ' "$SUB_PORT"
 read -r input_sub_port
@@ -134,6 +185,7 @@ if [ -n "$input_sub_port" ]; then SUB_PORT="$input_sub_port"; fi
 say '订阅路径，默认 %s：' 'Subscription path, default %s: ' "$SUB_PATH"
 read -r input_sub_path
 if [ -n "$input_sub_path" ]; then SUB_PATH="$input_sub_path"; fi
+SUB_PATH="$(normalize_url_path "$SUB_PATH")"
 
 say '管理员用户名，默认 admin：' 'Admin username, default admin: '
 read -r ADMIN_USERNAME
@@ -168,19 +220,13 @@ if [ -f "README.md" ]; then cp -f "README.md" "$INSTALL_DIR/README.md"; fi
 
 say '正在执行数据库迁移...\n' 'Running database migration...\n'
 cd "$INSTALL_DIR"
-if ! ./sui migrate; then
-  say '警告：数据库迁移失败，或当前是新数据库。\n' 'Warning: database migration failed, or this is a new database.\n'
-fi
+run_sui_optional '数据库迁移' 'database migration' migrate
 
 say '正在应用配置...\n' 'Applying configuration...\n'
-if ! ./sui setting -port "$PANEL_PORT" -path "$PANEL_PATH" -subPort "$SUB_PORT" -subPath "$SUB_PATH"; then
-  say '警告：网络配置应用失败。\n' 'Warning: network configuration failed.\n'
-fi
+run_sui_required '应用面板和订阅配置' 'applying panel and subscription settings' setting -port "$PANEL_PORT" -path "$PANEL_PATH" -subPort "$SUB_PORT" -subPath "$SUB_PATH"
 
 say '正在设置管理员账号...\n' 'Setting admin credentials...\n'
-if ! ./sui admin -username "$ADMIN_USERNAME" -password "$ADMIN_PASSWORD"; then
-  say '警告：管理员账号设置失败。\n' 'Warning: admin credentials setup failed.\n'
-fi
+run_sui_required '设置管理员账号' 'setting admin credentials' admin -username "$ADMIN_USERNAME" -password "$ADMIN_PASSWORD"
 unset ADMIN_PASSWORD
 
 cat > "$CONFIG_FILE" <<EOF

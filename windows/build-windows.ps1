@@ -122,15 +122,7 @@ try {
     Write-Host "正在构建后端：$System/$Architecture ..." -ForegroundColor Yellow
     & go @buildArgs
     if ($LASTEXITCODE -ne 0) {
-        if (!$NoCGO) {
-            Write-Host "CGO 构建失败，正在关闭 CGO 后重试..." -ForegroundColor Yellow
-            $env:CGO_ENABLED = "0"
-            & go @buildArgs
-            if ($LASTEXITCODE -ne 0) { throw "关闭 CGO 后仍然构建失败" }
-            Write-Host "构建成功：已关闭 CGO，部分依赖 CGO 的功能可能受限。" -ForegroundColor Yellow
-        } else {
-            throw "后端构建失败"
-        }
+        throw "后端构建失败"
     } else {
         if ($env:CGO_ENABLED -eq "1") {
             Write-Host "构建成功：已启用 CGO。" -ForegroundColor Green
@@ -167,6 +159,7 @@ if ($Package) {
         Copy-Item "README.md" $packageDir -Force -ErrorAction SilentlyContinue
         Copy-Item "install-linux.sh" $packageDir -Force -ErrorAction SilentlyContinue
         Copy-Item "uninstall-linux.sh" $packageDir -Force -ErrorAction SilentlyContinue
+        Copy-Item "s-ui.sh" $packageDir -Force -ErrorAction SilentlyContinue
         Copy-Item "s-ui.service" $packageDir -Force -ErrorAction SilentlyContinue
         Compress-Archive -Path "$packageDir\*" -DestinationPath "dist\s-ui-$System-$Architecture.zip" -Force
         Write-Host "已生成压缩包：dist\s-ui-$System-$Architecture.zip" -ForegroundColor Green

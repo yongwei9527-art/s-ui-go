@@ -7,6 +7,9 @@ npm run build
 cd ..
 echo "Backend"
 
+export CGO_ENABLED="${CGO_ENABLED:-0}"
+echo "CGO_ENABLED=$CGO_ENABLED"
+
 mkdir -p web/html
 rm -fr web/html/*
 cp -R frontend/dist/* web/html/

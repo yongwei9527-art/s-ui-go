@@ -51,7 +51,7 @@ detect_default_language() {
     if [[ "$env_lang" == zh* ]]; then
         echo "zh"
     else
-        echo "en"
+        echo "zh"
     fi
 }
 
@@ -108,6 +108,58 @@ prompt_text() {
     fi
 }
 
+get_server_ip() {
+    local ip=""
+    if command -v curl >/dev/null 2>&1; then
+        ip="$(curl -fsSL --max-time 3 https://api.ipify.org 2>/dev/null || true)"
+    fi
+    if [[ -z "$ip" ]]; then
+        ip="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+    fi
+    printf '%s' "$ip"
+}
+
+format_host() {
+    local host="$1"
+    if [[ "$host" == *:* && "${host:0:1}" != "[" ]]; then
+        printf '[%s]' "$host"
+    else
+        printf '%s' "$host"
+    fi
+}
+
+normalize_url_path() {
+    local url_path="$1"
+    if [[ -z "$url_path" ]]; then
+        printf '/'
+        return
+    fi
+    if [[ "${url_path:0:1}" != "/" ]]; then
+        url_path="/${url_path}"
+    fi
+    if [[ "${url_path: -1}" != "/" ]]; then
+        url_path="${url_path}/"
+    fi
+    printf '%s' "$url_path"
+}
+
+print_generated_urls() {
+    local server_ip server_host panel_port panel_path sub_port sub_path
+    server_ip="$(get_server_ip)"
+    panel_port="${config_port:-2095}"
+    panel_path="$(normalize_url_path "${config_path:-/app/}")"
+    sub_port="${config_subPort:-2096}"
+    sub_path="$(normalize_url_path "${config_subPath:-/sub/}")"
+
+    if [[ -n "$server_ip" ]]; then
+        server_host="$(format_host "$server_ip")"
+        say "自动生成的面板完整地址：${green}http://%s:%s%s${plain}\n" "Generated panel URL: ${green}http://%s:%s%s${plain}\n" "$server_host" "$panel_port" "$panel_path"
+        say "自动生成的订阅完整地址：${green}http://%s:%s%s${plain}\n" "Generated subscription URL: ${green}http://%s:%s%s${plain}\n" "$server_host" "$sub_port" "$sub_path"
+    else
+        say "未能自动读取服务器 IP，请将 localhost 替换为服务器公网 IP。\n" "Failed to detect server IP automatically. Please replace localhost with your server public IP.\n"
+    fi
+}
+
 is_yes() {
     local answer lower_answer
     answer="${1:-}"
@@ -123,6 +175,80 @@ is_yes() {
         ;;
     esac
     return 1
+}
+
+print_sui_command_output() {
+    local output="$1"
+    if [[ -n "$output" ]]; then
+        printf '%s\n' "$output"
+    fi
+}
+
+print_sui_failure_hint() {
+    local output="$1"
+    print_sui_command_output "$output"
+}
+
+run_sui_required() {
+    local zh_desc="$1"
+    local en_desc="$2"
+    local output=""
+    shift 2
+    if ! output=$(/usr/local/s-ui/sui "$@" 2>&1); then
+        if is_zh; then
+            printf "${red}%s失败。${plain}\n" "$zh_desc"
+        else
+            printf "${red}%s failed.${plain}\n" "$en_desc"
+        fi
+        print_sui_failure_hint "$output"
+        exit 1
+    fi
+    print_sui_command_output "$output"
+}
+
+run_sui_required_silent() {
+    local zh_desc="$1"
+    local en_desc="$2"
+    local output=""
+    shift 2
+    if ! output=$(/usr/local/s-ui/sui "$@" 2>&1); then
+        if is_zh; then
+            printf "${red}%s失败。${plain}\n" "$zh_desc"
+        else
+            printf "${red}%s failed.${plain}\n" "$en_desc"
+        fi
+        print_sui_failure_hint "$output"
+        exit 1
+    fi
+}
+
+run_sui_optional() {
+    local zh_desc="$1"
+    local en_desc="$2"
+    local output=""
+    shift 2
+    if ! output=$(/usr/local/s-ui/sui "$@" 2>&1); then
+        if is_zh; then
+            printf "${yellow}%s未完成，可能是全新安装或旧数据库不存在。${plain}\n" "$zh_desc"
+        else
+            printf "${yellow}%s was not completed, possibly because this is a fresh install or the old database does not exist.${plain}\n" "$en_desc"
+        fi
+        print_sui_command_output "$output"
+        return 0
+    fi
+    print_sui_command_output "$output"
+}
+
+ensure_localized_manager_script() {
+    local script_path="$1"
+    if [[ ! -f "$script_path" ]]; then
+        say "${red}发布包内缺少 s-ui.sh 管理脚本，无法继续安装。请重新打包并确保 Linux 发布包包含中文管理脚本。${plain}\n" "${red}s-ui.sh management script is missing from the package. Cannot continue. Please rebuild the Linux package with the localized management script included.${plain}\n"
+        exit 1
+    fi
+    if ! grep -q "S-UI 管理脚本" "$script_path" || ! grep -q "请输入选项 \[0-20\]" "$script_path"; then
+        say "${red}检测到 s-ui.sh 管理脚本仍为旧英文版，已停止安装以避免落地英文菜单。请先更新 latest-project-upload 分支中的 s-ui.sh，或重新打包包含中文管理脚本的 Linux 发布包。${plain}\n" "${red}Detected an old English s-ui.sh management script. Installation stopped to avoid installing the English menu. Please update s-ui.sh in the latest-project-upload branch, or rebuild the Linux package with the localized management script.${plain}\n"
+        exit 1
+    fi
 }
 
 select_install_language
@@ -178,7 +304,7 @@ install_base() {
 
 config_after_install() {
     say "${yellow}正在执行数据库迁移...${plain}\n" "${yellow}Migration... ${plain}\n"
-    /usr/local/s-ui/sui migrate
+    run_sui_optional "数据库迁移" "database migration" migrate
 
     say "${yellow}安装/更新完成！为了安全，建议修改面板配置。${plain}\n" "${yellow}Install/update finished! For security it's recommended to modify panel settings ${plain}\n"
     read -r -p "$(prompt_text "是否继续修改配置 [y/n]? " "Do you want to continue with the modification [y/n]? ")" config_confirm
@@ -201,7 +327,7 @@ config_after_install() {
         [ -z "$config_path" ] || params+=("-path" "$config_path")
         [ -z "$config_subPort" ] || params+=("-subPort" "$config_subPort")
         [ -z "$config_subPath" ] || params+=("-subPath" "$config_subPath")
-        /usr/local/s-ui/sui setting "${params[@]}"
+        run_sui_required "应用面板和订阅配置" "applying panel and subscription settings" setting "${params[@]}"
 
         read -r -p "$(prompt_text "是否修改管理员账号密码 [y/n]? " "Do you want to change admin credentials [y/n]? ")" admin_confirm
         if is_yes "${admin_confirm}"; then
@@ -211,24 +337,25 @@ config_after_install() {
 
             # Set credentials
             say "${yellow}正在初始化，请稍候...${plain}\n" "${yellow}Initializing, please wait...${plain}\n"
-            /usr/local/s-ui/sui admin -username "${config_account}" -password "${config_password}"
+            run_sui_required "设置管理员账号密码" "setting admin credentials" admin -username "${config_account}" -password "${config_password}"
         else
             say "${yellow}当前管理员账号信息：${plain}\n" "${yellow}Your current admin credentials: ${plain}\n"
-            /usr/local/s-ui/sui admin -show
+            run_sui_required "读取管理员账号信息" "reading admin credentials" admin -show
         fi
     else
         say "${red}已取消...${plain}\n" "${red}cancel...${plain}\n"
         if [[ ! -f "/usr/local/s-ui/db/s-ui.db" ]]; then
             local usernameTemp=$(head -c 6 /dev/urandom | base64)
             local passwordTemp=$(head -c 6 /dev/urandom | base64)
+            run_sui_required "生成随机管理员账号密码" "generating random admin credentials" admin -username "${usernameTemp}" -password "${passwordTemp}"
             say "检测到全新安装，将为安全起见生成随机登录信息：\n" "this is a fresh installation,will generate random login info for security concerns:\n"
             echo -e "###############################################"
             say "${green}用户名：%s${plain}\n" "${green}username:%s${plain}\n" "$usernameTemp"
             say "${green}密码：%s${plain}\n" "${green}password:%s${plain}\n" "$passwordTemp"
             echo -e "###############################################"
             say "${red}如果忘记登录信息，可以输入 ${green}s-ui${red} 打开配置菜单。${plain}\n" "${red}if you forgot your login info,you can type ${green}s-ui${red} for configuration menu${plain}\n"
-            /usr/local/s-ui/sui admin -username "${usernameTemp}" -password "${passwordTemp}"
         else
+            run_sui_required_silent "检查现有面板配置" "checking existing panel settings" setting -show
             say "${red}这是升级安装，将保留旧配置；如果忘记登录信息，可以输入 ${green}s-ui${red} 打开配置菜单。${plain}\n" "${red} this is your upgrade,will keep old settings,if you forgot your login info,you can type ${green}s-ui${red} for configuration menu${plain}\n"
         fi
     fi
@@ -283,21 +410,62 @@ install_s-ui() {
     unzip -oq s-ui-linux-$(arch).zip -d s-ui-linux-$(arch)
     rm s-ui-linux-$(arch).zip -f
 
+    manager_script_tmp="/tmp/s-ui-manager.sh"
+    manager_script_url="https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/latest-project-upload/s-ui.sh"
+    if wget -q --no-check-certificate -O "$manager_script_tmp" "$manager_script_url"; then
+        cp -f "$manager_script_tmp" s-ui-linux-$(arch)/s-ui.sh
+        rm -f "$manager_script_tmp"
+        say "已更新中文管理脚本。\n" "Updated localized management script.\n"
+    else
+        rm -f "$manager_script_tmp"
+        say "警告：中文管理脚本下载失败，将使用发布包内置脚本。\n" "Warning: failed to download localized management script, using bundled script instead.\n"
+    fi
+
+    ensure_localized_manager_script "s-ui-linux-$(arch)/s-ui.sh"
+
     chmod +x s-ui-linux-$(arch)/sui s-ui-linux-$(arch)/s-ui.sh
     cp s-ui-linux-$(arch)/s-ui.sh /usr/bin/s-ui
     mkdir -p /usr/local/s-ui
     cp -rf s-ui-linux-$(arch)/* /usr/local/s-ui/
-    cp -f s-ui-linux-$(arch)/*.service /etc/systemd/system/
+    cat >/etc/systemd/system/s-ui.service <<EOF_SERVICE
+[Unit]
+Description=S-UI Proxy Panel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/usr/local/s-ui
+ExecStart=/usr/local/s-ui/sui
+Restart=on-failure
+RestartSec=10
+Environment=SUI_DB_FOLDER=db
+Environment=SUI_DEBUG=false
+
+[Install]
+WantedBy=multi-user.target
+EOF_SERVICE
     rm -rf s-ui-linux-$(arch)
 
     config_after_install
     prepare_services
 
-    systemctl enable s-ui --now
+    if ! systemctl enable s-ui --now; then
+        say "${red}s-ui 服务启动失败，请查看下面的 systemd 状态信息。${plain}\n" "${red}s-ui service failed to start. Please check the systemd status below.${plain}\n"
+        systemctl status s-ui -l --no-pager || true
+        exit 1
+    fi
+    sleep 2
+    if ! systemctl is-active --quiet s-ui; then
+        say "${red}s-ui 服务未处于运行状态，请查看下面的 systemd 状态信息。${plain}\n" "${red}s-ui service is not running. Please check the systemd status below.${plain}\n"
+        systemctl status s-ui -l --no-pager || true
+        exit 1
+    fi
 
     say "${green}s-ui %s${plain} 安装完成，当前已启动运行。\n" "${green}s-ui %s${plain} installation finished, it is up and running now...\n" "$last_version"
+    print_generated_urls
     say "可通过以下 URL 访问面板：${green}\n" "You may access the Panel with following URL(s):${green}\n"
-    /usr/local/s-ui/sui uri
+    run_sui_required "获取面板访问地址" "getting panel URL" uri
     echo -e "${plain}"
     echo -e ""
     s-ui help

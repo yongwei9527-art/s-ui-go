@@ -19,7 +19,7 @@ import (
 	"github.com/yongwei9527-art/s-ui-go/logger"
 	"github.com/yongwei9527-art/s-ui-go/util/common"
 
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 

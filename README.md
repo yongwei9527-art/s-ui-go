@@ -8,6 +8,7 @@
 ## 目录
 
 - [项目说明](#项目说明)
+- [相比原始版本的改进点](#相比原始版本的改进点)
 - [下载](#下载)
 - [快速安装](#快速安装)
 - [默认访问地址](#默认访问地址)
@@ -30,6 +31,37 @@
 - TLS / ECH / WebSocket / TUIC / Hysteria2 订阅转换兼容性
 
 > 说明：本项目是社区整理版本，非官方原版。生产环境使用前请自行评估风险。
+
+## 相比原始版本的改进点
+
+### 改进亮点速览
+
+为了让新用户快速看懂本版本相对原始版本做了哪些增强，这里先给出简要总结：
+
+- **更容易下载使用**：提供 Windows、Linux、macOS 三端 amd64 发布包。
+- **更容易安装维护**：补齐安装、卸载、服务管理和 Windows 构建脚本。
+- **更适合新手部署**：README 增加下载、安装、默认地址、构建、验证和安全提醒。
+- **安装后显示更直观**：Linux 安装脚本和管理菜单默认中文显示，并在安装完成后自动读取服务器 IP 生成完整访问地址。
+- **更方便选择协议**：新增协议组合指南，按 VPS、CDN、弱网、全局代理、软路由等场景给出建议。
+- **配置细节更稳妥**：修正 ACME / TLS 默认 `server_name` 取值，并明确订阅兼容和 DNS 防泄漏方向。
+
+如果以原始 S-UI / s-ui-go 开源版本或初始整理版本作为对比，我的改进重点不是单纯改名字，而是把项目整理成“下载后能安装、安装后能管理、出问题能按文档排查”的社区构建版本。主要改进点如下：
+
+| 改进方向 | 我的改进内容 |
+| --- | --- |
+| 跨平台发布 | 整理 Windows、Linux、macOS 三端 amd64 发布包，并统一压缩包命名。 |
+| 安装与卸载 | 补充和整理 Windows、Linux、macOS 的安装、卸载、服务管理脚本。 |
+| 安装后汉化 | 将 Linux 安装流程、常用提示和 `s-ui` 管理菜单改为默认中文显示。 |
+| 自动生成访问地址 | 安装完成后自动读取服务器公网 IP，并生成 `http://服务器IP:端口/路径/` 形式的完整面板地址和订阅地址。 |
+| Windows 构建 | 完善 Windows PowerShell 构建脚本，支持指定系统/架构、打包、跳过前端构建、非交互构建和清理候选查看。 |
+| README 文档 | 重新梳理 README 结构，加入目录、下载链接、快速安装、默认访问地址、源码构建、验证运行、脚本说明、安全提醒、许可说明等内容。 |
+| Linux 安装说明 | 单独补充 Debian / Ubuntu、CentOS / Rocky / AlmaLinux / Oracle Linux 的安装步骤和防火墙端口提示。 |
+| 协议选择指南 | 新增 [协议组合建议方案](PROTOCOL_GUIDE.md)，按自建 VPS、CDN、弱网、全局代理、软路由等场景给出推荐组合。 |
+| ACME / TLS 配置 | 修正 ACME 默认 `server_name` 取值逻辑，改为优先使用第一个域名。 |
+| 订阅与 DNS 说明 | 在项目说明和文档中明确 TLS / ECH / WebSocket / TUIC / Hysteria2 订阅兼容性，以及 DNS 防泄漏检查方向。 |
+| 发布与合规提示 | 补充 Release 版本、发布说明、致谢、GPL-3.0 许可和“非官方社区版”风险提醒。 |
+
+简单来说，本版本的核心改进可以概括为：**跨平台打包更完整、安装维护更方便、协议配置文档更清晰、TLS/ACME 细节更稳妥、对新手更友好**。
 
 ## 下载
 
@@ -86,16 +118,32 @@ sudo bash install.sh
 - 订阅访问路径
 - 管理员账号和密码
 
-5. 安装完成后访问面板：
+5. 安装完成后，脚本会自动读取服务器 IP，并输出可直接访问的完整面板地址，例如：
 
 ```text
-http://服务器IP:面板端口/面板路径/
+公网完整地址：
+http://服务器公网IP:2095/app/
 ```
 
-如果安装时保持默认值，则为：
+如果安装完成后想再次查看地址，可以在服务器上执行：
+
+```bash
+s-ui
+```
+
+然后选择 **10. 查看面板设置和访问地址**。
+
+也可以手动读取服务器公网 IP 并拼接默认访问地址：
+
+```bash
+SERVER_IP="$(curl -fsSL https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')"
+echo "http://${SERVER_IP}:2095/app/"
+```
+
+如果安装时保持默认端口和路径，则完整地址格式为：
 
 ```text
-http://服务器IP:2095/app/
+http://服务器公网IP:2095/app/
 ```
 
 #### CentOS / Rocky / AlmaLinux / Oracle Linux
@@ -130,16 +178,32 @@ sudo bash install.sh
 
 5. 按脚本提示设置面板端口、访问路径、订阅端口、订阅路径、管理员账号和密码。
 
-6. 安装完成后访问面板：
+6. 安装完成后，脚本会自动读取服务器 IP，并输出可直接访问的完整面板地址，例如：
 
 ```text
-http://服务器IP:面板端口/面板路径/
+公网完整地址：
+http://服务器公网IP:2095/app/
 ```
 
-如果安装时保持默认值，则为：
+如果安装完成后想再次查看地址，可以在服务器上执行：
+
+```bash
+s-ui
+```
+
+然后选择 **10. 查看面板设置和访问地址**。
+
+也可以手动读取服务器公网 IP 并拼接默认访问地址：
+
+```bash
+SERVER_IP="$(curl -fsSL https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')"
+echo "http://${SERVER_IP}:2095/app/"
+```
+
+如果安装时保持默认端口和路径，则完整地址格式为：
 
 ```text
-http://服务器IP:2095/app/
+http://服务器公网IP:2095/app/
 ```
 
 ### macOS
@@ -187,8 +251,9 @@ sudo ./install-macos.sh
 
 ```powershell
 .\build-windows.ps1 -System windows -Architecture amd64 -Package -NonInteractive
-.\build-windows.ps1 -System linux -Architecture amd64 -NoCGO -Package -NonInteractive
-.\build-windows.ps1 -System darwin -Architecture amd64 -NoCGO -Package -NonInteractive
+# Linux/macOS 包可以在 Windows 上使用纯 Go SQLite 驱动关闭 CGO 交叉构建。
+.\build-windows.ps1 -System linux -Architecture amd64 -NoCGO -SkipFrontend -Package -NonInteractive
+.\build-windows.ps1 -System darwin -Architecture amd64 -NoCGO -SkipFrontend -Package -NonInteractive
 ```
 
 生成文件：
@@ -205,7 +270,7 @@ sudo ./install-macos.sh
 | --- | --- |
 | `-System windows\|linux\|darwin` | 目标系统 |
 | `-Architecture amd64\|arm64\|386\|arm` | 目标架构 |
-| `-NoCGO` | 关闭 CGO，适合跨系统构建 Linux/macOS 包 |
+| `-NoCGO` | 关闭 CGO，适合从 Windows 交叉构建 Linux/macOS 包 |
 | `-SkipFrontend` | 跳过前端构建，需要已有 `web/html/` |
 | `-Package` | 生成 `dist/*.zip` 发布压缩包 |
 | `-NonInteractive` | 构建完成后不等待输入 |

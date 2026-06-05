@@ -85,24 +85,18 @@ if "%arch_choice%"=="3" set "GOARCH_VALUE=386"
 
 echo.
 echo 正在构建后端：windows/%GOARCH_VALUE% ...
-set CGO_ENABLED=1
+set CGO_ENABLED=0
 set GOOS=windows
 set GOARCH=%GOARCH_VALUE%
 set "OUTPUT=sui-windows-%GOARCH_VALUE%.exe"
 
 go build -ldflags "-w -s" -tags "with_quic,with_grpc,with_utls,with_acme,with_gvisor,with_tailscale" -o "%OUTPUT%" main.go
 if errorlevel 1 (
-    echo 警告：CGO 构建失败，正在尝试关闭 CGO 重新构建...
-    set CGO_ENABLED=0
-    go build -ldflags "-w -s" -tags "with_quic,with_grpc,with_utls,with_acme,with_gvisor,with_tailscale" -o "%OUTPUT%" main.go
-    if errorlevel 1 (
-        echo 错误：后端构建失败。
-        pause
-        exit /b 1
-    )
-    echo 构建成功：已关闭 CGO，部分依赖 CGO 的功能可能受限。
+    echo 错误：后端构建失败。
+    pause
+    exit /b 1
 ) else (
-    echo 构建成功：已启用 CGO。
+    echo 构建成功：已关闭 CGO。
 )
 
 copy /y "%OUTPUT%" "sui.exe" >nul

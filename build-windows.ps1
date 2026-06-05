@@ -34,7 +34,7 @@ if ($Help) {
     Write-Host "  arm      ARM 32 位，仅 Linux 常用"
     Write-Host ""
     Write-Host "参数："
-    Write-Host "  -NoCGO                关闭 CGO，适合跨系统构建 Linux/macOS 包"
+    Write-Host "  -NoCGO                关闭 CGO，适合从 Windows 交叉构建 Linux/macOS 包"
     Write-Host "  -SkipFrontend         跳过前端构建；需要已有 web/html 嵌入资源"
     Write-Host "  -Package              生成 dist/*.zip 发布压缩包"
     Write-Host "  -NonInteractive       构建完成后不等待输入"
@@ -194,15 +194,7 @@ try {
     Write-Host "正在构建后端：$System/$Architecture ..." -ForegroundColor Yellow
     & go @buildArgs
     if ($LASTEXITCODE -ne 0) {
-        if (!$NoCGO) {
-            Write-Host "CGO 构建失败，正在关闭 CGO 后重试..." -ForegroundColor Yellow
-            $env:CGO_ENABLED = "0"
-            & go @buildArgs
-            if ($LASTEXITCODE -ne 0) { throw "关闭 CGO 后仍然构建失败" }
-            Write-Host "构建成功：已关闭 CGO，部分依赖 CGO 的功能可能受限。" -ForegroundColor Yellow
-        } else {
-            throw "后端构建失败"
-        }
+        throw "后端构建失败"
     } else {
         if ($env:CGO_ENABLED -eq "1") {
             Write-Host "构建成功：已启用 CGO。" -ForegroundColor Green

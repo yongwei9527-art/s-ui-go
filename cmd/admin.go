@@ -18,9 +18,9 @@ func resetAdmin() {
 	userService := service.UserService{}
 	err = userService.UpdateFirstUser("admin", "admin")
 	if err != nil {
-		fmt.Println("reset admin credentials failed:", err)
+		fmt.Println("重置管理员账号密码失败：", err)
 	} else {
-		fmt.Println("reset admin credentials success")
+		fmt.Println("重置管理员账号密码成功")
 	}
 }
 
@@ -35,9 +35,9 @@ func updateAdmin(username string, password string) {
 		userService := service.UserService{}
 		err := userService.UpdateFirstUser(username, password)
 		if err != nil {
-			fmt.Println("reset admin credentials failed:", err)
+			fmt.Println("设置管理员账号密码失败：", err)
 		} else {
-			fmt.Println("reset admin credentials success")
+			fmt.Println("设置管理员账号密码成功")
 		}
 	}
 }
@@ -51,14 +51,14 @@ func showAdmin() {
 	userService := service.UserService{}
 	userModel, err := userService.GetFirstUser()
 	if err != nil {
-		fmt.Println("get current user info failed,error info:", err)
+		fmt.Println("获取当前管理员信息失败：", err)
 		return
 	}
 	username := userModel.Username
 	if username == "" || userModel.Password == "" {
-		fmt.Println("current username or password is empty")
+		fmt.Println("当前用户名或密码为空")
 	}
-	fmt.Println("First admin credentials:")
-	fmt.Println("\tUsername:\t", username)
-	fmt.Println("\tPassword:\t", "<hidden>")
+	fmt.Println("当前管理员账号信息：")
+	fmt.Println("\t用户名：\t", username)
+	fmt.Println("\t密码：\t", "<已隐藏>")
 }
