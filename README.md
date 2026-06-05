@@ -44,7 +44,7 @@
 - **更适合新手部署**：README 增加下载、安装、默认地址、构建、验证和安全提醒。
 - **安装后显示更直观**：Linux 安装脚本和管理菜单默认中文显示，并在安装完成后自动读取服务器 IP 生成完整访问地址。
 - **更方便选择协议**：新增协议组合指南，按 VPS、CDN、弱网、全局代理、软路由等场景给出建议。
-- **配置细节更稳妥**：修正 ACME / TLS 默认 `server_name` 取值，并明确订阅兼容和 DNS 防泄漏方向。
+- **配置细节更稳妥**：修正 ACME / TLS 默认 `server_name` 取值，明确订阅兼容和 DNS 防泄漏方向，并清理 Go 静态检查提示。
 
 如果以原始 S-UI / s-ui-go 开源版本或初始整理版本作为对比，我的改进重点不是单纯改名字，而是把项目整理成“下载后能安装、安装后能管理、出问题能按文档排查”的社区构建版本。主要改进点如下：
 
@@ -60,6 +60,7 @@
 | 协议选择指南 | 新增 [协议组合建议方案](PROTOCOL_GUIDE.md)，按自建 VPS、CDN、弱网、全局代理、软路由等场景给出推荐组合。 |
 | ACME / TLS 配置 | 修正 ACME 默认 `server_name` 取值逻辑，改为优先使用第一个域名。 |
 | 订阅与 DNS 说明 | 在项目说明和文档中明确 TLS / ECH / WebSocket / TUIC / Hysteria2 订阅兼容性，以及 DNS 防泄漏检查方向。 |
+| Go 静态检查清理 | 根据 IDE 提示处理 `database/backup.go` 与 `service/dns_leak_guard.go` 中的 QF1003 建议，保持逻辑不变并提升可读性。 |
 | 发布与合规提示 | 补充 Release 版本、发布说明、致谢、GPL-3.0 许可和“非官方社区版”风险提醒。 |
 
 简单来说，本版本的核心改进可以概括为：**跨平台打包更完整、安装维护更方便、协议配置文档更清晰、TLS/ACME 细节更稳妥、对新手更友好**。
@@ -432,6 +433,7 @@ It provides:
 - Web panel experience in Chinese and English
 - Install, uninstall, and service management scripts
 - Basic DNS leak guard checks
+- Go static analysis cleanup for backup export and DNS leak guard route handling
 - Subscription conversion compatibility for TLS, ECH, WebSocket, TUIC, and Hysteria2
 
 Download the latest release from:

@@ -332,10 +332,11 @@ func EnsureRouteDNSHijack(routeConfig map[string]interface{}, mode string) error
 	if _, ok := routeConfig["auto_detect_interface"]; !ok {
 		routeConfig["auto_detect_interface"] = true
 	}
-	if mode == DNSLeakGuardModeStrict {
+	switch mode {
+	case DNSLeakGuardModeStrict:
 		routeConfig["auto_detect_interface"] = true
 		routeConfig["default_domain_resolver"] = remoteDNSTag
-	} else if mode == DNSLeakGuardModeRecommended {
+	case DNSLeakGuardModeRecommended:
 		if resolver, _ := routeConfig["default_domain_resolver"].(string); resolver == "" {
 			routeConfig["default_domain_resolver"] = remoteDNSTag
 		}

@@ -26,9 +26,10 @@ import (
 func GetDb(exclude string) ([]byte, error) {
 	exclude_changes, exclude_stats := false, false
 	for _, table := range strings.Split(exclude, ",") {
-		if table == "changes" {
+		switch table {
+		case "changes":
 			exclude_changes = true
-		} else if table == "stats" {
+		case "stats":
 			exclude_stats = true
 		}
 	}
