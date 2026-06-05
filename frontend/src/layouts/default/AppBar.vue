@@ -35,10 +35,6 @@
         </v-list-item>
       </v-list>
     </v-menu>
-    <v-btn class="admin-btn" variant="text">
-      <v-icon icon="mdi-account" start />{{ $t('pages.admins') }}
-      <v-icon icon="mdi-chevron-down" end />
-    </v-btn>
   </v-app-bar>
 </template>
 
@@ -134,20 +130,9 @@ const isActiveTheme = (th: string) => {
   font-weight: 700;
 }
 
-.admin-btn {
-  border-radius: 999px;
-  color: rgba(var(--v-theme-on-surface), 0.82);
-  font-weight: 700;
-  padding-inline: 10px;
-}
-
 @media (max-width: 600px) {
   .app-bar {
     padding-inline: 6px;
-  }
-
-  .admin-btn {
-    display: none;
   }
 
   .language-switch {

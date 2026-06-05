@@ -13,6 +13,7 @@
 - [快速安装](#快速安装)
 - [默认访问地址](#默认访问地址)
 - [协议选择建议](#协议选择建议)
+- [SNI 伪装域名参考](#sni-伪装域名参考)
 - [从源码构建](#从源码构建)
 - [验证与运行](#验证与运行)
 - [脚本说明](#脚本说明)
@@ -242,6 +243,63 @@ sudo ./install-macos.sh
 | 本地软件代理 | `Mixed` |
 | Windows/macOS 全局代理 | `Tun + DNS 接管` |
 | 软路由或网关 | `TProxy + DNS 劫持` |
+
+
+## SNI 伪装域名参考
+
+如果发现节点不能使用，或延迟显示 `-1`，可以随机挑选下方域名用于 SNI，直到节点正常使用为止；也可以参考视频教程中同一模式的域名填写，确保可用。
+
+```text
+aws.com
+bing.com
+snap.licdn.com
+devblogs.microsoft.com
+cdn.bizibly.com
+www.apple.com
+ts1.tc.mm.bing.net
+fpinit.itunes.apple.com
+go.microsoft.com
+catalog.gamepass.com
+gray-config-prod.api.arc-cdn.net
+apps.mzstatic.com
+tag.demandbase.com
+r.bing.com
+tag-logger.demandbase.com
+cdn-dynmedia-1.microsoft.com
+services.digitaleast.mobi
+gray.video-player.arcpublishing.com
+azure.microsoft.com
+beacon.gtv-pub.com
+amd.com
+www.microsoft.com
+www.cloudflare.com
+www.amazon.com
+www.google.com
+www.youtube.com
+www.github.com
+www.linkedin.com
+www.office.com
+www.live.com
+www.netflix.com
+www.paypal.com
+www.spotify.com
+www.adobe.com
+www.oracle.com
+www.ibm.com
+www.intel.com
+www.nvidia.com
+www.dropbox.com
+www.slack.com
+www.zoom.us
+cdn.jsdelivr.net
+cdnjs.cloudflare.com
+ajax.googleapis.com
+fonts.googleapis.com
+storage.googleapis.com
+api.github.com
+assets.msn.com
+login.microsoftonline.com
+```
 
 ## 从源码构建
 
