@@ -479,7 +479,27 @@ func (s *SettingService) Save(tx *gorm.DB, data json.RawMessage) error {
 				return err
 			}
 		}
-		err = tx.Model(model.Setting{}).Where("key = ?", key).Update("value", obj).Error
+		if key == "dnsLeakGuardMode" {
+			obj = NormalizeDNSLeakGuardMode(obj)
+		}
+
+		setting := &model.Setting{}
+		err = tx.Model(model.Setting{}).Where("key = ?", key).First(setting).Error
+		if database.IsNotFound(err) {
+			if _, ok := defaultValueMap[key]; !ok {
+				continue
+			}
+			err = tx.Create(&model.Setting{Key: key, Value: obj}).Error
+			if err != nil {
+				return err
+			}
+			continue
+		} else if err != nil {
+			return err
+		}
+
+		setting.Value = obj
+		err = tx.Save(setting).Error
 		if err != nil {
 			return err
 		}

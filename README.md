@@ -1,6 +1,6 @@
-# s-ui-go 社区版
+# s-ui-go 社区构建版
 
-> 基于开源 S-UI / s-ui-go 项目整理的社区构建版本，提供 Windows、Linux、macOS 发布包和常用安装脚本。
+> 基于开源 S-UI / s-ui-go 项目的社区维护构建，提供 Windows、Linux、macOS 发布包、安装脚本、服务管理脚本及相关配置说明。
 
 [![Release](https://img.shields.io/badge/release-v1.4.2.3-blue)](https://github.com/yongwei9527-art/s-ui-go/releases/tag/v1.4.2.3)
 [![License](https://img.shields.io/badge/license-GPL--3.0-green)](LICENSE)
@@ -8,12 +8,13 @@
 ## 目录
 
 - [项目说明](#项目说明)
-- [相比原始版本的改进点](#相比原始版本的改进点)
+- [维护内容与差异](#维护内容与差异)
 - [下载](#下载)
 - [快速安装](#快速安装)
 - [默认访问地址](#默认访问地址)
 - [协议选择建议](#协议选择建议)
-- [SNI 伪装域名参考](#sni-伪装域名参考)
+- [DNS 防泄露说明](#dns-防泄露说明)
+- [SNI 域名参考](#sni-域名参考)
 - [从源码构建](#从源码构建)
 - [验证与运行](#验证与运行)
 - [脚本说明](#脚本说明)
@@ -23,47 +24,47 @@
 
 ## 项目说明
 
-本仓库面向 `yongwei9527-art/s-ui-go` 发布，主要整理和增强以下内容：
+本仓库面向 `yongwei9527-art/s-ui-go` 发布，主要维护以下内容：
 
 - Windows / Linux / macOS 三端 amd64 发布压缩包
 - 中文 / English Web 面板体验
 - Windows、Linux、macOS 安装、卸载和服务管理脚本
-- DNS 防泄漏基础检查能力
+- DNS 防泄露检查、模式配置与操作说明
 - TLS / ECH / WebSocket / TUIC / Hysteria2 订阅转换兼容性
 
 > 说明：本项目是社区整理版本，非官方原版。生产环境使用前请自行评估风险。
 
-## 相比原始版本的改进点
+## 维护内容与差异
 
-### 改进亮点速览
+### 维护范围概览
 
-为了让新用户快速看懂本版本相对原始版本做了哪些增强，这里先给出简要总结：
+本节列出该社区构建相对上游版本及早期整理版本的主要维护范围和功能性调整：
 
-- **更容易下载使用**：提供 Windows、Linux、macOS 三端 amd64 发布包。
-- **更容易安装维护**：补齐安装、卸载、服务管理和 Windows 构建脚本。
-- **更适合新手部署**：README 增加下载、安装、默认地址、构建、验证和安全提醒。
-- **安装后显示更直观**：Linux 安装脚本和管理菜单默认中文显示，并在安装完成后自动读取服务器 IP 生成完整访问地址。
-- **更方便选择协议**：新增协议组合指南，按 VPS、CDN、弱网、全局代理、软路由等场景给出建议。
-- **配置细节更稳妥**：修正 ACME / TLS 默认 `server_name` 取值，明确订阅兼容和 DNS 防泄漏方向，并清理 Go 静态检查提示。
+- **发布交付**：提供 Windows、Linux、macOS 三端 amd64 发布包，并统一压缩包命名。
+- **部署维护**：整理安装、卸载、服务管理和 Windows 构建脚本，降低跨平台部署维护成本。
+- **文档结构**：补充下载、安装、默认地址、构建、验证、安全提醒和许可证说明。
+- **安装反馈**：Linux 安装流程和管理菜单默认使用中文提示，并在安装完成后输出面板访问地址和订阅地址。
+- **协议说明**：提供协议组合配置参考，按 VPS、CDN、弱网、桌面代理、网关透明代理等场景说明适用方案。
+- **配置一致性**：修正 ACME / TLS 默认 `server_name` 取值，补充订阅兼容性和 DNS 防泄露说明，并清理部分 Go 静态检查提示。
 
-如果以原始 S-UI / s-ui-go 开源版本或初始整理版本作为对比，我的改进重点不是单纯改名字，而是把项目整理成“下载后能安装、安装后能管理、出问题能按文档排查”的社区构建版本。主要改进点如下：
+主要维护内容如下：
 
-| 改进方向 | 我的改进内容 |
+| 维护方向 | 具体内容 |
 | --- | --- |
 | 跨平台发布 | 整理 Windows、Linux、macOS 三端 amd64 发布包，并统一压缩包命名。 |
 | 安装与卸载 | 补充和整理 Windows、Linux、macOS 的安装、卸载、服务管理脚本。 |
 | 安装后汉化 | 将 Linux 安装流程、常用提示和 `s-ui` 管理菜单改为默认中文显示。 |
 | 自动生成访问地址 | 安装完成后自动读取服务器公网 IP，并生成 `http://服务器IP:端口/路径/` 形式的完整面板地址和订阅地址。 |
 | Windows 构建 | 完善 Windows PowerShell 构建脚本，支持指定系统/架构、打包、跳过前端构建、非交互构建和清理候选查看。 |
-| README 文档 | 重新梳理 README 结构，加入目录、下载链接、快速安装、默认访问地址、源码构建、验证运行、脚本说明、安全提醒、许可说明等内容。 |
+| README 文档 | 梳理 README 结构，加入目录、下载链接、快速安装、默认访问地址、源码构建、验证运行、脚本说明、安全提醒、许可说明等内容。 |
 | Linux 安装说明 | 单独补充 Debian / Ubuntu、CentOS / Rocky / AlmaLinux / Oracle Linux 的安装步骤和防火墙端口提示。 |
 | 协议选择指南 | 新增 [协议组合建议方案](PROTOCOL_GUIDE.md)，按自建 VPS、CDN、弱网、全局代理、软路由等场景给出推荐组合。 |
 | ACME / TLS 配置 | 修正 ACME 默认 `server_name` 取值逻辑，改为优先使用第一个域名。 |
-| 订阅与 DNS 说明 | 在项目说明和文档中明确 TLS / ECH / WebSocket / TUIC / Hysteria2 订阅兼容性，以及 DNS 防泄漏检查方向。 |
+| 订阅与 DNS 说明 | 在项目说明和文档中明确 TLS / ECH / WebSocket / TUIC / Hysteria2 订阅兼容性，以及 DNS 防泄露检查方向。 |
 | Go 静态检查清理 | 根据 IDE 提示处理 `database/backup.go` 与 `service/dns_leak_guard.go` 中的 QF1003 建议，保持逻辑不变并提升可读性。 |
 | 发布与合规提示 | 补充 Release 版本、发布说明、致谢、GPL-3.0 许可和“非官方社区版”风险提醒。 |
 
-简单来说，本版本的核心改进可以概括为：**跨平台打包更完整、安装维护更方便、协议配置文档更清晰、TLS/ACME 细节更稳妥、对新手更友好**。
+上述调整的目标是提升跨平台交付、安装维护、协议配置说明、TLS/ACME 默认配置和安全提示的一致性。
 
 ## 下载
 
@@ -246,9 +247,23 @@ sudo ./install-macos.sh
 | 软路由或网关 | `TProxy + DNS 劫持` |
 
 
-## SNI 伪装域名参考
+## DNS 防泄露说明
 
-如果发现节点不能使用，或延迟显示 `-1`，可以随机挑选下方域名用于 SNI，直到节点正常使用为止；也可以参考视频教程中同一模式的域名填写，确保可用。
+面板提供 DNS 防泄露模式配置和检查能力，用于降低系统或客户端绕过核心 DNS 模块直接解析域名的风险。相关说明见：
+
+- [DNS 防泄露模式说明与操作指南](DNS_LEAK_GUARD_GUIDE.md)
+
+模式概览：
+
+| 模式 | 适用场景 | 说明 |
+| --- | --- | --- |
+| 关闭 | 完全手动维护 DNS 与路由规则 | 不自动补齐 DNS 防泄露配置，仍可执行检查。 |
+| 推荐 | 通用部署场景 | 使用加密远程 DNS、DNS 劫持和本地域名规则，兼顾兼容性。 |
+| 严格 | 对 DNS 出口一致性要求较高的场景 | 在推荐模式基础上强制默认域名解析器使用 `remote-dns`。 |
+
+## SNI 域名参考
+
+以下域名仅作为 TLS / Reality 场景下的 SNI 候选参考。实际配置应优先使用与证书、目标站点或部署方案一致且可稳定访问的 HTTPS 域名，并在客户端连接前完成可用性验证。
 
 ```text
 aws.com
@@ -432,7 +447,7 @@ It provides:
 - Release packages for Windows, Linux, and macOS amd64
 - Web panel experience in Chinese and English
 - Install, uninstall, and service management scripts
-- Basic DNS leak guard checks
+- DNS leak guard checks, mode configuration, and operation guide
 - Go static analysis cleanup for backup export and DNS leak guard route handling
 - Subscription conversion compatibility for TLS, ECH, WebSocket, TUIC, and Hysteria2
 

@@ -22,11 +22,11 @@
 - 发布包内包含 `RELEASE_NOTES.md` 和 `PROTOCOL_GUIDE.md`，方便离线查看发布说明、协议设置和组合建议。
 - 协议指南补充面板通用设置顺序、协议速填表和易错字段清单，覆盖 VLESS Reality、TLS WebSocket/gRPC、Hysteria2、TUIC、AnyTLS、Tun、TProxy 等组合。
 
-#### DNS 防泄漏
+#### DNS 防泄露
 
-- 增加 DNS 防泄漏基础逻辑与校验能力。
+- 增加 DNS 防泄露基础逻辑与校验能力。
 - 增加 DNS hijack / resolver 相关检查，降低订阅配置中的 DNS 泄漏风险。
-- 增加 DNS 防泄漏相关单元测试。
+- 增加 DNS 防泄露相关单元测试。
 
 #### 订阅转换修复
 

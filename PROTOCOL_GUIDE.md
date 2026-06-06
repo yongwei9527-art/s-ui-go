@@ -1,41 +1,41 @@
 # S-UI 协议组合建议方案
 
-本文面向新手，说明在 S-UI 面板中常见代理协议如何组合，什么时候用，TLS / Reality / ECH / Transport / Mux / DNS 应该怎么配，以及常见错误。
+本文说明 S-UI 面板中常见代理协议的组合方式、适用场景、TLS / Reality / ECH / Transport / Mux / DNS 配置要点，以及常见配置问题。
 
-> 简单结论：新手自建 VPS 优先选 `VLESS + Reality + TCP`；有 CDN 选 `VLESS/Trojan + TLS + WebSocket`；弱网和 UDP 选 `Hysteria2/TUIC`；本地代理入口选 `Mixed`；桌面全局代理选 `Tun`；软路由/网关透明代理选 `TProxy`。
+> 快速建议：无域名自建 VPS 可优先评估 `VLESS + Reality + TCP`；CDN 场景可评估 `VLESS/Trojan + TLS + WebSocket`；弱网和 UDP 场景可评估 `Hysteria2/TUIC`；本地代理入口使用 `Mixed`；桌面全局代理使用 `Tun`；软路由或网关透明代理使用 `TProxy`。
 
-## 0. 新手实操教程：按场景配置协议组合
+## 0. 按场景配置协议组合
 
-这一节按“你现在有什么条件”来选协议，并给出面板中的配置步骤。后面的章节保留为参数解释、速查表和排错清单。
+本节按部署条件选择协议组合，并给出面板中的配置步骤。后续章节提供参数解释、速查表和排错清单。
 
-### 0.1 配置前先确认 5 件事
+### 0.1 配置前检查项
 
 无论选择哪种组合，先确认：
 
 1. **服务器系统**：建议优先使用 Debian / Ubuntu 或 CentOS 系列。
 2. **端口是否放行**：云服务器安全组和系统防火墙都要放行对应端口。
-3. **是否有域名**：没有域名优先选 Reality；有域名和证书可以选 TLS。
-4. **是否走 CDN**：走 CDN 优先 WebSocket / gRPC；Reality 通常不放 CDN 后面。
+3. **域名与证书条件**：无域名时优先评估 Reality；具备域名和证书时可评估 TLS 方案。
+4. **CDN 使用需求**：CDN 场景优先评估 WebSocket / gRPC；Reality 通常不适合部署在 CDN 后方。
 5. **客户端是否支持**：客户端内核太旧时，Reality、ECH、AnyTLS、TUIC 可能不可用。
 
 ### 0.2 推荐选择路线
 
 ```text
-没有域名 / 不想申请证书
+无域名 / 无证书
   → VLESS + Reality + TCP
 
-有域名，想走 CDN
+有域名，需要经过 CDN
   → VLESS + TLS + WebSocket
   → Trojan + TLS + WebSocket
 
-有域名，不走 CDN，想简单稳定
+有域名，不经过 CDN，要求低配置复杂度
   → Trojan + TLS + TCP
 
 移动网络、弱网、游戏、UDP
   → Hysteria2 + TLS
   → TUIC + TLS
 
-只给本机软件提供 HTTP/SOCKS 代理
+仅为本机软件提供 HTTP/SOCKS 代理
   → Mixed
 
 桌面全局代理
@@ -47,7 +47,7 @@
 
 ### 0.2.1 面板通用设置顺序
 
-不管选择哪种协议，都建议按下面顺序配置，避免“协议填对了但端口、证书或客户端参数不一致”：
+选择任一协议组合时，建议按以下顺序配置，避免端口、证书或客户端参数不一致：
 
 1. **放行端口**：先在云服务器安全组放行端口，再在系统防火墙放行同一个端口；Hysteria2 / TUIC 必须放行 UDP。
 2. **准备安全配置**：需要证书的组合先配置 TLS / ACME；Reality 先生成 `private_key`、`public_key`、`short_id`；ECH 先准备 `ech.config`。
@@ -59,28 +59,28 @@
 
 ### 0.2.2 更新协议速填表
 
-本项目当前协议类型和传输类型来自面板类型定义与 sing-box 依赖组合。新手可以先按下表填写，能跑通后再调整高级参数。
+本项目当前协议类型和传输类型来自面板类型定义与 sing-box 依赖组合。建议先按照下表完成基础配置，确认可用后再调整高级参数。
 
 | 目标 | 入站协议 | 安全配置 | 传输层 | 关键字段 | 备注 |
 | --- | --- | --- | --- | --- | --- |
 | 无域名 VPS | `VLESS` | `Reality` | `TCP` | UUID、`server_name/SNI`、`public_key`、`short_id`、`flow=xtls-rprx-vision` | 不建议放 CDN 后面。 |
 | CDN HTTPS | `VLESS` / `Trojan` | `TLS` | `WebSocket` | 域名证书、`SNI`、`Host`、`Path` | Host / SNI / 证书域名尽量一致。 |
 | CDN gRPC | `VLESS` / `Trojan` | `TLS` | `gRPC` | 域名证书、`SNI`、`service_name` | 需要 CDN 和客户端都支持 gRPC。 |
-| 简单稳定 | `Trojan` | `TLS` | `TCP` | Trojan 密码、证书域名、`SNI` | 配置少，适合有域名用户。 |
+| 低复杂度 TLS | `Trojan` | `TLS` | `TCP` | Trojan 密码、证书域名、`SNI` | 配置项较少，适合已有域名和证书的场景。 |
 | 兼容旧客户端 | `VMess` | `TLS` | `WebSocket` / `gRPC` | UUID、`alter_id=0`、Path/Host 或 service_name | 新建节点不优先推荐。 |
 | 弱网/UDP | `Hysteria2` | `TLS` | UDP 内置 | 密码、UDP 端口、SNI、可选 `obfs`、`mport/server_ports` | 只放行 TCP 会不可用。 |
 | 低延迟 UDP | `TUIC` | `TLS` | UDP 内置 | UUID、Password、`congestion_control=cubic`、SNI | UUID 和 Password 都要填。 |
 | 新 TLS 类方案 | `AnyTLS` | `TLS` | TCP | 密码、证书、SNI、`padding_scheme` | 要求客户端内核较新。 |
-| TLS 握手中转 | `ShadowTLS` | 外层握手 | TCP | version、password、handshake server/port | 通常与其它代理链路配合，非新手首选。 |
-| 本机代理入口 | `Mixed` | 不需要 | 本地监听 | `127.0.0.1:7890` | 不要无认证暴露公网。 |
+| TLS 握手中转 | `ShadowTLS` | 外层握手 | TCP | version、password、handshake server/port | 通常与其它代理链路配合，不作为通用首选。 |
+| 本机代理入口 | `Mixed` | 不需要 | 本地监听 | `127.0.0.1:7890` | 避免在无认证情况下暴露至公网。 |
 | 桌面全局代理 | `Tun` | 按出站决定 | 虚拟网卡 | 管理员权限、DNS 接管、路由排除 | 避免多个 Tun 同时运行。 |
 | 软路由透明代理 | `TProxy` | 按出站决定 | 透明代理 | iptables/nftables、策略路由、DNS 劫持 | 需要排除局域网和服务器 IP。 |
 
-### 0.2.3 最容易配错的字段
+### 0.2.3 常见易错字段
 
-| 字段 | 应该怎么填 | 常见错误 |
+| 字段 | 推荐填写方式 | 常见错误 |
 | --- | --- | --- |
-| `listen` | 服务端监听地址，新手通常填 `0.0.0.0` 或留默认 | 只监听 `127.0.0.1`，外部客户端连不上。 |
+| `listen` | 服务端监听地址，远程访问场景通常使用 `0.0.0.0` 或默认值 | 只监听 `127.0.0.1`，外部客户端无法连接。 |
 | `listen_port` | 服务端实际端口，必须和防火墙一致 | 面板端口、订阅端口、节点端口混用。 |
 | `server_name` / `SNI` | TLS 填证书域名；Reality 填稳定 HTTPS 目标域名 | 客户端 SNI 与服务端/证书不一致。 |
 | WebSocket `path` | 以 `/` 开头，客户端完全一致 | 大小写不一致或少写 `/`。 |
@@ -88,20 +88,20 @@
 | gRPC `service_name` | 服务端和客户端完全一致 | 客户端留空或拼写不同。 |
 | Reality `public_key` | 客户端填写服务端生成的 public key | 把 private key 填进客户端。 |
 | Reality `short_id` | 从服务端 short_id 列表中选择一个 | 服务端和客户端不一致。 |
-| ECH `config` | 有 ECH 配置才启用 | 只开 enabled 但 config 为空。 |
-| TUIC `congestion_control` | 不确定先用 `cubic` | 填客户端不支持的值。 |
+| ECH `config` | 存在有效 ECH 配置时再启用 | 已启用 ECH，但 `config` 为空。 |
+| TUIC `congestion_control` | 未确认客户端兼容性时可使用 `cubic` | 填写客户端不支持的值。 |
 | Hysteria2 / TUIC 端口 | 云安全组和系统防火墙都放行 UDP | 只放行 TCP。 |
 
 ---
 
-## 0.3 方案一：VLESS + Reality + TCP（无域名/无证书首选）
+## 0.3 方案一：VLESS + Reality + TCP（无域名/无证书场景）
 
 ### 适合谁
 
-- 新手自建 VPS。
-- 没有域名，或不想配置证书。
+- 自建 VPS。
+- 无域名，或不计划配置证书。
 - 不准备使用 CDN。
-- 想要现代、稳定、性能较好的节点。
+- 需要较新的协议能力和较好的性能表现。
 
 ### 服务端配置步骤
 
@@ -116,7 +116,7 @@
 5. 监听端口建议使用 `443` 或其它已放行 TCP 端口。
 6. 传输层选择 `TCP`。
 7. 安全类型选择 `Reality`，绑定刚才的 Reality/TLS 配置。
-8. 用户 UUID 使用面板生成值，不要手动乱改。
+8. 用户 UUID 建议使用面板生成值，避免服务端与客户端不一致。
 9. 如果客户端支持，`flow` 可使用：
 
 ```text
@@ -145,11 +145,11 @@ Flow：与服务端一致，例如 xtls-rprx-vision
 
 ### 常见错误
 
-- 把 `private_key` 填到客户端；客户端应填 `public_key`。
+- 客户端误填 `private_key`；客户端应填写 `public_key`。
 - `short_id` 服务端和客户端不一致。
 - `SNI` 填了不存在或不稳定的站点。
-- 端口只在系统防火墙放行，云安全组没放行。
-- Reality 放到 CDN 后面，导致握手异常。
+- 端口只在系统防火墙放行，云安全组未放行。
+- Reality 部署在 CDN 后方，导致握手异常。
 
 ---
 
@@ -158,8 +158,8 @@ Flow：与服务端一致，例如 xtls-rprx-vision
 ### 适合谁
 
 - 有域名。
-- 想使用 Cloudflare 等 CDN。
-- 想让流量表现得像普通 HTTPS 网站。
+- 使用 Cloudflare 等 CDN。
+- 需要 HTTPS 形态的传输层表现。
 
 ### 域名和 CDN 准备
 
@@ -174,7 +174,7 @@ Flow：与服务端一致，例如 xtls-rprx-vision
 2. 证书可使用 ACME 申请，或手动填写证书路径。
 3. 新建入站，协议选择：
    - `VLESS`：更现代，常用。
-   - `Trojan`：简单，兼容性好。
+   - `Trojan`：配置项较少，客户端兼容性较好。
 4. 传输层选择 `WebSocket`。
 5. 设置 WebSocket Path，例如：
 
@@ -197,7 +197,7 @@ example.com
 
 ```text
 协议：VLESS 或 Trojan
-地址：域名，不建议直接填 IP
+地址：域名，通常不建议直接填写 IP
 端口：443 或你实际开放的 HTTPS 端口
 TLS：开启
 SNI：证书域名
@@ -210,19 +210,19 @@ Host：证书域名/CDN 域名
 
 - 服务端 Path 是 `/vless`，客户端写成 `vless` 或 `/VLESS`。
 - Host、SNI、证书域名不一致。
-- CDN 没开启 WebSocket。
+- CDN 未开启 WebSocket。
 - CDN 使用了不支持的端口。
-- 同时在反向代理和面板里重复终止 TLS，导致配置混乱。
+- 同时在反向代理和面板中终止 TLS，导致链路职责不清。
 
 ---
 
-## 0.5 方案三：Trojan + TLS + TCP（有域名、想简单稳定）
+## 0.5 方案三：Trojan + TLS + TCP（有域名、低复杂度部署）
 
 ### 适合谁
 
 - 有域名和证书。
-- 不想折腾 WebSocket / gRPC / CDN。
-- 希望配置简单、客户端兼容性好。
+- 不需要 WebSocket / gRPC / CDN。
+- 希望减少传输层参数并提升客户端兼容性。
 
 ### 服务端配置步骤
 
@@ -289,10 +289,10 @@ Obfs：如服务端开启，客户端必须一致
 
 ### 常见错误
 
-- 只放行了 TCP，没放行 UDP。
-- 云安全组放行了，系统防火墙没放行。
+- 只放行了 TCP，未放行 UDP。
+- 云安全组已放行，但系统防火墙未放行。
 - 运营商或网络环境屏蔽 UDP。
-- 带宽参数乱填过大，反而变慢。
+- 带宽参数超过实际链路能力，导致体验下降。
 
 ---
 
@@ -317,7 +317,7 @@ Obfs：如服务端开启，客户端必须一致
 cubic
 ```
 
-7. `udp_relay_mode` 不懂时保持默认或留空。
+7. 未确认 `udp_relay_mode` 含义时，建议保持默认或留空。
 
 ### 客户端配置要点
 
@@ -334,14 +334,14 @@ Congestion Control：与服务端一致
 
 ### 常见错误
 
-- UUID 和 Password 只填了一个。
+- UUID 和 Password 未同时配置。
 - 端口按 TCP 放行，实际需要 UDP。
 - 客户端内核太旧不支持当前 TUIC 参数。
-- 强制 network=tcp，导致协议不可用。
+- 强制设置 `network=tcp`，导致协议不可用。
 
 ---
 
-## 0.8 本地入口：Mixed / Tun / TProxy 怎么选
+## 0.8 本地入口：Mixed / Tun / TProxy 选择建议
 
 ### Mixed
 
@@ -355,7 +355,7 @@ Congestion Control：与服务端一致
 用途：浏览器、Telegram、开发工具等手动设置代理的软件
 ```
 
-不要直接监听公网 `0.0.0.0`，除非你知道如何做访问控制。
+除非已配置明确的访问控制策略，否则不建议直接监听公网地址 `0.0.0.0`。
 
 ### Tun
 
@@ -364,8 +364,8 @@ Congestion Control：与服务端一致
 重点：
 
 - 需要管理员权限。
-- 必须处理 DNS，否则容易 DNS 泄漏。
-- 不要同时运行多个 Tun 类代理。
+- 必须处理 DNS，否则可能出现 DNS 泄漏。
+- 避免同时运行多个 Tun 类代理。
 
 ### TProxy
 
@@ -412,30 +412,30 @@ S-UI 面板里的一个节点通常由下面几部分组成：
 
 | 使用场景 | 推荐组合 | 难度 | 重点 |
 | --- | --- | --- | --- |
-| 新手自建 VPS，无 CDN | VLESS + Reality + TCP | 中 | 不需要证书，不适合 CDN |
+| 自建 VPS，无 CDN | VLESS + Reality + TCP | 中 | 不需要证书，不适合 CDN |
 | 有域名，想走 CDN | VLESS + TLS + WebSocket | 中 | Path / Host / SNI 必须一致 |
-| 想简单稳定 | Trojan + TLS + TCP | 低 | 需要域名和证书 |
+| 低复杂度部署 | Trojan + TLS + TCP | 低 | 需要域名和证书 |
 | 老客户端兼容 | VMess + TLS + WebSocket | 中 | 新建节点不优先推荐 |
 | 弱网 / 高丢包 / 移动网络 | Hysteria2 + TLS | 中 | 必须开放 UDP |
 | 游戏 / 低延迟 / UDP | TUIC + TLS | 中 | UUID、密码、UDP 端口要对 |
-| 轻量代理 | Shadowsocks + AEAD/2022 | 低 | 伪装能力弱 |
-| 高 HTTPS 伪装 | Naive + TLS | 中高 | 常配合 Caddy |
+| 轻量代理 | Shadowsocks + AEAD/2022 | 低 | 协议特征较明显 |
+| HTTPS 形态代理 | Naive + TLS | 中高 | 常配合 Caddy |
 | 新 TLS 类方案 | AnyTLS + TLS | 中 | 需要新内核支持 |
 | 本地软件代理 | Mixed | 低 | HTTP + SOCKS 混合入口 |
 | Windows/macOS 全局代理 | Tun + DNS 接管 | 中 | 需要管理员权限，避免 DNS 泄漏 |
 | 软路由 / 网关 | TProxy + DNS 劫持 | 高 | 需要 iptables/nftables 和策略路由 |
-| 简单 TCP 透明代理 | Redirect | 中 | 主要处理 TCP，UDP 能力有限 |
+| TCP 透明代理 | Redirect | 中 | 主要处理 TCP，UDP 能力有限 |
 
-## 3. 新手最推荐方案
+## 3. 常用推荐方案
 
 ### 3.1 自建 VPS，无 CDN：VLESS + Reality + TCP
 
 适合：
 
 - 个人 VPS
-- 不想申请证书
-- 不想配置 CDN
-- 想要现代、稳定、性能好的方案
+- 无证书配置需求
+- 不使用 CDN
+- 需要较新的协议能力和较好的性能表现
 
 推荐配置：
 
@@ -454,22 +454,22 @@ Public Key / Private Key：由面板生成后正确填写
 
 - Reality 的 SNI 和目标站不匹配。
 - Public Key / Short ID 填错。
-- 客户端没有启用 uTLS。
+- 客户端未启用 uTLS。
 - Flow 服务端和客户端不一致。
 - 把 Reality 放到 CDN 后面使用，通常不合适。
 
 DNS 建议：
 
-- 开启 DNS 防泄漏。
+- 开启 DNS 防泄露。
 - 代理域名通过远程 DNS 或代理解析。
-- 不要让系统 DNS 直接解析需要代理的域名。
+- 避免由系统 DNS 直接解析需要代理的域名。
 
 ### 3.2 有域名和 CDN：VLESS/Trojan + TLS + WebSocket
 
 适合：
 
 - Cloudflare 等 CDN 中转
-- 想伪装成普通 HTTPS 网站
+- 需要 HTTPS 形态的传输层表现
 - 有域名和证书
 
 推荐配置：
@@ -488,17 +488,16 @@ CDN：开启 WebSocket
 
 - Path 客户端和服务端不一致。
 - Host / SNI / 证书域名不一致。
-- CDN 没开启 WebSocket。
+- CDN 未开启 WebSocket。
 - 使用了 CDN 不支持的端口。
-- 后端和反代重复终止 TLS，配置混乱。
+- 后端和反向代理重复终止 TLS，导致链路职责不清。
 
-### 3.3 想简单稳定：Trojan + TLS + TCP
+### 3.3 低复杂度部署：Trojan + TLS + TCP
 
 适合：
 
-- 新手
 - 有域名和证书
-- 不想研究太多参数
+- 希望减少传输层参数
 
 推荐配置：
 
@@ -534,7 +533,7 @@ SNI：证书域名
 传输：QUIC/UDP
 TLS：开启
 UDP 端口：服务器防火墙和云安全组必须放行
-带宽参数：按实际带宽设置，不要乱填过高
+带宽参数：按实际带宽设置，避免超过链路承载能力
 ```
 
 Hysteria2 额外建议：
@@ -549,12 +548,12 @@ TUIC 额外建议：
 ```text
 uuid 和 password 必须同时存在。
 congestion_control 可先用 cubic。
-udp_relay_mode 不懂就保持默认或留空。
+未确认 udp_relay_mode 含义时保持默认或留空。
 ```
 
 常见错误：
 
-- 只开放 TCP，没开放 UDP。
+- 只开放 TCP，未开放 UDP。
 - 云安全组漏放 UDP。
 - 网络环境屏蔽 UDP。
 - TLS 证书或 SNI 错误。
@@ -630,7 +629,7 @@ chacha20-ietf-poly1305
 
 - 不建议使用老旧非 AEAD 算法。
 - 2022 方法需要正确的服务端 password 和用户 password。
-- Shadowsocks 轻量快速，但伪装能力弱。
+- Shadowsocks 资源占用较低，但协议特征较明显。
 
 ### Hysteria2
 
@@ -662,8 +661,8 @@ TUIC + TLS + congestion_control=cubic/bbr/new_reno
 
 - 必须开放 UDP。
 - 必须 TLS。
-- uuid 和 password 都要有。
-- 不要强制 network=tcp。
+- uuid 和 password 均需配置。
+- 避免强制设置 `network=tcp`。
 
 ### Naive
 
@@ -692,7 +691,7 @@ AnyTLS + TLS
 
 - 需要较新的 sing-box / 客户端内核。
 - SNI、证书、密码必须一致。
-- 不要当作普通 Trojan/VLESS 使用。
+- 避免按普通 Trojan/VLESS 节点方式配置。
 
 ### HTTP / SOCKS / Mixed
 
@@ -726,8 +725,8 @@ Mixed 监听 127.0.0.1:7890
 必须注意：
 
 - 需要管理员权限。
-- 需要 DNS 接管，否则容易 DNS 泄漏。
-- 不要同时运行多个 Tun 类代理。
+- 需要 DNS 接管，否则可能出现 DNS 泄漏。
+- 避免同时运行多个 Tun 类代理。
 
 ### TProxy / Redirect
 
@@ -746,7 +745,7 @@ TProxy：
 Redirect：
 
 ```text
-更适合简单 TCP 透明代理，UDP 能力有限。
+适用于 TCP 透明代理场景，UDP 能力有限。
 ```
 
 必须排除：
@@ -765,7 +764,7 @@ DNS 服务器地址，按实际配置决定
 
 必须确认：
 
-- 证书没过期。
+- 证书未过期。
 - SNI 和证书域名一致。
 - 证书链完整。
 - 客户端信任证书。
@@ -799,14 +798,14 @@ DNS 服务器地址，按实际配置决定
 
 ## 6. DNS 建议
 
-推荐开启 DNS 防泄漏功能。
+推荐开启 DNS 防泄露功能。
 
 ### 推荐模式
 
 ```text
 recommended：适合大多数用户，自动补齐 DNS 和 hijack。
-strict：生产环境更安全，会强制 default_domain_resolver 使用 remote-dns。
-off：不建议普通用户关闭。
+strict：适用于对 DNS 出口一致性要求较高的场景，会强制 default_domain_resolver 使用 remote-dns。
+off：关闭自动补齐，适用于完全手动维护 DNS 与路由规则的场景。
 ```
 
 ### 基本原则
@@ -821,7 +820,7 @@ Tun/TProxy：必须接管 DNS
 ### 常见错误
 
 - 只代理 TCP，不处理 DNS。
-- Tun 开了但 DNS 没接管。
+- Tun 已启用但 DNS 未接管。
 - 浏览器开启自己的 DoH 绕过代理。
 - 路由器 DHCP 下发了错误 DNS。
 - 代理服务器域名被错误地通过代理解析，导致回环。
@@ -840,7 +839,7 @@ Tun/TProxy：必须接管 DNS
 [ ] ECH enabled 但 config 空时能 warning
 [ ] TLS enabled 但 server_name 空时能 warning
 [ ] Reality enabled 但 public_key 空时能 warning
-[ ] DNS-sensitive outbound 没有 DNS hijack 时能 warning
+[ ] DNS-sensitive outbound 缺少 DNS hijack 时能 warning
 [ ] Clash 导出没有丢失关键字段
 ```
 

@@ -50,8 +50,6 @@
           <div class="dns-leak-copy">
             <div class="text-subtitle-1 font-weight-bold">{{ $t('dns.leakGuard') }}</div>
             <div class="text-body-2">{{ $t('dns.leakGuardDesc') }}</div>
-            <div class="text-caption text-medium-emphasis mt-1">{{ leakGuardModeHelp }}</div>
-            <div class="text-caption text-medium-emphasis mt-1">{{ $t('dns.leakGuardSubscriptionNote') }}</div>
           </div>
           <div class="dns-leak-actions">
             <v-select
@@ -60,13 +58,16 @@
               :label="$t('dns.leakGuardMode')"
               density="compact"
               hide-details
+              :loading="leakGuardModeSaving"
+              :disabled="leakGuardModeSaving"
+              @update:model-value="saveLeakGuardMode"
               class="dns-mode-select"
             />
             <v-btn
               color="primary"
               variant="flat"
               prepend-icon="mdi-shield-sync"
-              :disabled="dnsLeakGuardMode == 'off'"
+              :disabled="dnsLeakGuardMode == 'off' || leakGuardModeSaving"
               @click="requestApplyLeakGuardTemplate">
               {{ $t('dns.applyLeakGuard') }}
             </v-btn>
@@ -120,7 +121,7 @@
     <v-col cols="12" justify="center" align="center">
       <v-btn color="primary" @click="showDnsModal(-1)" style="margin: 0 5px;">{{ $t('dns.add') }}</v-btn>
       <v-btn color="primary" @click="showDnsRuleModal(-1)" style="margin: 0 5px;">{{ $t('dns.rule.add') }}</v-btn>
-      <v-btn variant="outlined" color="warning" @click="saveConfig" :loading="loading" :disabled="stateChange">
+      <v-btn variant="outlined" color="warning" @click="saveConfig" :loading="loading" :disabled="stateChange || leakGuardModeSaving">
         {{ $t('actions.save') }}
       </v-btn>
     </v-col>
@@ -320,6 +321,7 @@ const loading = ref(false)
 const settings = ref(<any>{})
 const dnsLeakGuardMode = ref('recommended')
 const oldDnsLeakGuardMode = ref('recommended')
+const leakGuardModeSaving = ref(false)
 const leakGuardCheckLoading = ref(false)
 const leakGuardReport = ref<any>(null)
 const leakGuardConfirm = ref({ visible: false })
@@ -344,8 +346,11 @@ const dnsLeakGuardModes = computed(() => [
   { title: i18n.global.t('dns.leakGuardModes.strict'), value: 'strict' },
 ])
 
-const leakGuardModeHelp = computed(() => i18n.global.t(`dns.leakGuardModeHelp.${dnsLeakGuardMode.value}`))
 const leakGuardChecks = computed(() => leakGuardReport.value?.checks ?? [])
+
+const normalizeLeakGuardMode = (mode: unknown) => {
+  return ['off', 'recommended', 'strict'].includes(String(mode)) ? String(mode) : 'recommended'
+}
 
 const appConfig = computed((): Config => {
   return <Config> Data().config
@@ -374,7 +379,7 @@ const loadSettings = async () => {
   const msg = await HttpUtils.get('api/settings')
   if (!msg.success) return
   settings.value = msg.obj ?? {}
-  dnsLeakGuardMode.value = settings.value.dnsLeakGuardMode ?? 'recommended'
+  dnsLeakGuardMode.value = normalizeLeakGuardMode(settings.value.dnsLeakGuardMode)
   oldDnsLeakGuardMode.value = dnsLeakGuardMode.value
 }
 
@@ -386,6 +391,33 @@ const loadLeakGuardReport = async () => {
   } finally {
     leakGuardCheckLoading.value = false
   }
+}
+
+const persistLeakGuardMode = async (mode: unknown, refreshReport = true) => {
+  if (leakGuardModeSaving.value) return false
+  const nextMode = normalizeLeakGuardMode(mode)
+  const previousMode = oldDnsLeakGuardMode.value
+  if (nextMode == previousMode) return true
+
+  leakGuardModeSaving.value = true
+  try {
+    const msg = await HttpUtils.post('api/save', { object: 'settings', action: 'set', data: JSON.stringify({ dnsLeakGuardMode: nextMode }) })
+    if (msg.success) {
+      settings.value = { ...settings.value, ...(msg.obj?.settings ?? {}), dnsLeakGuardMode: nextMode }
+      dnsLeakGuardMode.value = nextMode
+      oldDnsLeakGuardMode.value = nextMode
+      if (refreshReport) await loadLeakGuardReport()
+    } else {
+      dnsLeakGuardMode.value = previousMode
+    }
+    return msg.success
+  } finally {
+    leakGuardModeSaving.value = false
+  }
+}
+
+const saveLeakGuardMode = async (mode: unknown) => {
+  await persistLeakGuardMode(mode)
 }
 
 const tsTags = computed((): string[] => {
@@ -411,10 +443,7 @@ const saveConfig = async () => {
   let success = true
   const modeChanged = dnsLeakGuardMode.value != oldDnsLeakGuardMode.value
   if (modeChanged) {
-    settings.value.dnsLeakGuardMode = dnsLeakGuardMode.value
-    const msg = await HttpUtils.post('api/save', { object: 'settings', action: 'set', data: JSON.stringify(settings.value) })
-    success = msg.success
-    if (success) oldDnsLeakGuardMode.value = dnsLeakGuardMode.value
+    success = await persistLeakGuardMode(dnsLeakGuardMode.value, false)
   }
   if (success) {
     const dnsChanged = !FindDiff.deepCompare(appConfig.value.dns,oldConfig.value.dns)

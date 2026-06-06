@@ -223,6 +223,7 @@ if ($Package) {
     Copy-Item $output $packageDir -Force
     Copy-Item "RELEASE_NOTES.md" $packageDir -Force -ErrorAction SilentlyContinue
     Copy-Item "PROTOCOL_GUIDE.md" $packageDir -Force -ErrorAction SilentlyContinue
+    Copy-Item "DNS_LEAK_GUARD_GUIDE.md" $packageDir -Force -ErrorAction SilentlyContinue
 
     if ($System -eq "windows") {
         Copy-Item "s-ui-windows.xml" $packageDir -Force -ErrorAction SilentlyContinue
