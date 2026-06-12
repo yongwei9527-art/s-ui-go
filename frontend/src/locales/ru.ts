@@ -96,7 +96,7 @@ export default {
   },
   inbounds: {
     defaultProtocolNoticeTitle: "Default protocol template notice",
-    defaultProtocolNoticeDesc: "Fresh installs automatically create VLESS Reality, Hysteria2, TUIC, Trojan TLS default inbounds and a default-user client. Hysteria2/TUIC require the corresponding UDP ports to be allowed in the VPS firewall and cloud security group. Self-signed TLS templates enable insecure by default; use a real domain and certificate for production.",
+    defaultProtocolNoticeDesc: "Fresh installs automatically create VLESS Reality, Hysteria2, TUIC, Trojan TLS, VMess WS TLS, Shadowsocks 2022, Naive TLS, AnyTLS, and Hysteria TLS default inbounds plus a default-user client. Hysteria/Hysteria2/TUIC require UDP ports to be allowed in the VPS firewall and cloud security group. Self-signed TLS templates enable insecure by default; use a real domain and certificate for production. Mixed/SOCKS/HTTP are not created by default to avoid open-proxy exposure.",
     hysteria2Notice: "Hysteria2 uses UDP. Allow the current listen port as UDP in the VPS firewall and cloud security group. Keep Ignore Client Bandwidth enabled; if disabled, enter valid upload and download bandwidth.",
     tuicNotice: "TUIC uses UDP. Allow the current listen port as UDP in the VPS firewall and cloud security group. Recommended values: cubic, auth_timeout 3s, heartbeat 10s.",
     hysteria2BandwidthWarning: "When Ignore Client Bandwidth is disabled, upload and download bandwidth must both be greater than 0.",
@@ -220,7 +220,7 @@ export default {
     resetDays: "Дней до сброса",
     nextReset: "Следующий сброс",
     defaultUserNoticeTitle: "Default user notice",
-    defaultUserNoticeDesc: "Fresh installs automatically create default-user and bind it to the default VLESS Reality, Hysteria2, TUIC, and Trojan TLS inbounds. Use the QR button for subscription and single-node QR codes. Hysteria2/TUIC require UDP to be allowed, and self-signed TLS nodes require clients to allow insecure.",
+    defaultUserNoticeDesc: "Fresh installs automatically create default-user and bind it to the default VLESS Reality, Hysteria2, TUIC, Trojan TLS, VMess WS TLS, Shadowsocks 2022, Naive TLS, AnyTLS, and Hysteria TLS inbounds. Use the QR button for subscription and single-node QR codes. UDP protocols require UDP to be allowed, and self-signed TLS nodes require clients to allow insecure.",
     clickQrCopy: "Click the QR code or copy button to copy the link",
   },
   bulk: {

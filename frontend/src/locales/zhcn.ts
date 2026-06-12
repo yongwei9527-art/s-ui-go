@@ -126,7 +126,7 @@ export default {
   },
   inbounds: {
     defaultProtocolNoticeTitle: "默认协议模板提示",
-    defaultProtocolNoticeDesc: "全新安装会自动生成 VLESS Reality、Hysteria2、TUIC、Trojan TLS 默认入站和 default-user 客户端。Hysteria2/TUIC 需要在 VPS 防火墙和云安全组放行对应 UDP 端口；自签 TLS 模板默认开启 insecure，正式使用建议替换为真实域名和证书。",
+    defaultProtocolNoticeDesc: "全新安装会自动生成 VLESS Reality、Hysteria2、TUIC、Trojan TLS、VMess WS TLS、Shadowsocks 2022、Naive TLS、AnyTLS、Hysteria TLS 默认入站和 default-user 客户端。Hysteria/Hysteria2/TUIC 需要放行对应 UDP 端口；自签 TLS 模板默认开启 insecure，正式使用建议替换为真实域名和证书。Mixed/SOCKS/HTTP 不默认公网创建，避免开放代理风险。",
     hysteria2Notice: "Hysteria2 使用 UDP，请在 VPS 防火墙和云安全组放行当前监听端口的 UDP 流量。推荐开启“忽略客户端带宽”；如关闭，请填写有效上传/下载带宽。",
     tuicNotice: "TUIC 使用 UDP，请在 VPS 防火墙和云安全组放行当前监听端口的 UDP 流量。推荐保持 cubic、auth_timeout 3s、heartbeat 10s。",
     hysteria2BandwidthWarning: "关闭“忽略客户端带宽”后，必须填写大于 0 的上传和下载带宽。",
@@ -250,7 +250,7 @@ export default {
     resetDays: "重置天数",
     nextReset: "下次重置",
     defaultUserNoticeTitle: "默认用户提示",
-    defaultUserNoticeDesc: "全新安装会自动生成 default-user，并绑定默认 VLESS Reality、Hysteria2、TUIC、Trojan TLS 入站。点击二维码可查看订阅和单节点二维码；Hysteria2/TUIC 需要放行 UDP，自签 TLS 节点客户端需要允许 insecure。",
+    defaultUserNoticeDesc: "全新安装会自动生成 default-user，并绑定默认 VLESS Reality、Hysteria2、TUIC、Trojan TLS、VMess WS TLS、Shadowsocks 2022、Naive TLS、AnyTLS、Hysteria TLS 入站。点击二维码可查看订阅和单节点二维码；UDP 协议需要放行 UDP，自签 TLS 节点客户端需要允许 insecure。",
     clickQrCopy: "点击二维码或复制按钮复制链接",
   },
   bulk: {

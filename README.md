@@ -50,7 +50,7 @@
 | 协议选择指南 | 新增 [协议组合建议方案](PROTOCOL_GUIDE.md)，按自建 VPS、CDN、弱网、全局代理、软路由等场景给出推荐组合。 |
 | ACME / TLS 配置 | 修正 ACME 默认 `server_name` 取值逻辑，改为优先使用第一个域名。 |
 | 订阅与 DNS 说明 | 在项目说明和文档中明确 TLS / ECH / WebSocket / TUIC / Hysteria2 订阅兼容性，以及 DNS 防泄露检查方向。 |
-| 首次初始化默认模板 | 全新安装后自动生成 Reality/TLS 模板、VLESS Reality、Hysteria2、TUIC、Trojan TLS 默认入站，以及绑定这些入站的默认客户端；导出地址会在 VPS 初始化时自动检测服务器地址，避免写死 IP。 |
+| 首次初始化默认模板 | 全新安装后自动生成 Reality/TLS 模板、VLESS Reality、Hysteria2、TUIC、Trojan TLS、VMess WS TLS、Shadowsocks 2022、Naive TLS、AnyTLS、Hysteria TLS 默认入站，以及绑定这些入站的默认客户端；导出地址会在 VPS 初始化时自动检测服务器地址，避免写死 IP。Mixed/SOCKS/HTTP 不默认公网创建，避免开放代理风险。 |
 | 运行稳定性加固 | 加强 sing-box core start/stop 并发保护、corePtr 空值保护、cron panic recover、订阅服务异常日志和默认端口预检查，降低 VPS 运行时面板或 core 崩溃风险。 |
 | Go 静态检查清理 | 根据 IDE 提示处理 `database/backup.go` 与 `service/dns_leak_guard.go` 中的 QF1003 建议，保持逻辑不变并提升可读性。 |
 | 发布与合规提示 | 补充 Release 版本、发布说明、致谢、GPL-3.0 许可和“非官方社区版”风险提醒。 |

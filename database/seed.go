@@ -80,8 +80,24 @@ func seedDefaultTlsTemplates(tx *gorm.DB) (map[string]seededTLS, error) {
 	if err != nil {
 		return nil, err
 	}
+	vmessWSTLS, err := buildSelfSignedTLS("tls-vmess-ws", "snap.licdn.com", []string{"http/1.1"})
+	if err != nil {
+		return nil, err
+	}
+	naiveTLS, err := buildSelfSignedTLS("tls-naive", "snap.licdn.com", []string{"h2", "http/1.1"})
+	if err != nil {
+		return nil, err
+	}
+	anyTLSTLS, err := buildSelfSignedTLS("tls-anytls", "snap.licdn.com", []string{"http/1.1"})
+	if err != nil {
+		return nil, err
+	}
+	hysteriaTLS, err := buildSelfSignedTLS("tls-hysteria", "tls1.tcm.mmbing.net", []string{"h3"})
+	if err != nil {
+		return nil, err
+	}
 
-	templates := []model.Tls{realityTLS, hy2TLS, tuicTLS, trojanTLS, trojanWSTLS}
+	templates := []model.Tls{realityTLS, hy2TLS, tuicTLS, trojanTLS, trojanWSTLS, vmessWSTLS, naiveTLS, anyTLSTLS, hysteriaTLS}
 	seeded := make(map[string]seededTLS, len(templates))
 
 	for _, tpl := range templates {
@@ -186,6 +202,12 @@ func seedDefaultInbounds(tx *gorm.DB, tlsTemplates map[string]seededTLS, seedHos
 	hy2Port := availableListenPort("udp", 4443)
 	tuicPort := availableListenPort("udp", 51225)
 	trojanPort := availableListenPort("tcp", 30600)
+	vmessPort := availableListenPort("tcp", 44305)
+	shadowsocksPort := availableListenPort("tcp", 44306)
+	naivePort := availableListenPort("tcp", 44307)
+	anyTLSPort := availableListenPort("tcp", 44308)
+	hysteriaPort := availableListenPort("udp", 44309)
+	shadowsocksServerPassword := randomBase64(16)
 
 	inbounds := []json.RawMessage{
 		inboundJSON("vless", inboundTag("vless-reality", vlessPort), tlsTemplates["reality-vless"].id, map[string]interface{}{
@@ -214,6 +236,50 @@ func seedDefaultInbounds(tx *gorm.DB, tlsTemplates map[string]seededTLS, seedHos
 			"listen_port": trojanPort,
 			"transport":   map[string]interface{}{},
 		}, []map[string]interface{}{{"server": seedHost, "server_port": trojanPort, "remark": inboundTag("trojan-tls", trojanPort), "tls": true, "insecure": true}}),
+		inboundJSON("vmess", inboundTag("vmess-ws-tls", vmessPort), tlsTemplates["tls-vmess-ws"].id, map[string]interface{}{
+			"listen":      "0.0.0.0",
+			"listen_port": vmessPort,
+			"transport": map[string]interface{}{
+				"type": "ws",
+				"path": "/vmess",
+				"headers": map[string]interface{}{
+					"Host": "snap.licdn.com",
+				},
+			},
+		}, []map[string]interface{}{{"server": seedHost, "server_port": vmessPort, "remark": inboundTag("vmess-ws-tls", vmessPort), "tls": true, "insecure": true}}),
+		inboundJSON("shadowsocks", inboundTag("ss-2022", shadowsocksPort), 0, map[string]interface{}{
+			"listen":      "0.0.0.0",
+			"listen_port": shadowsocksPort,
+			"method":      "2022-blake3-aes-128-gcm",
+			"password":    shadowsocksServerPassword,
+		}, []map[string]interface{}{{"server": seedHost, "server_port": shadowsocksPort, "remark": inboundTag("ss-2022", shadowsocksPort)}}),
+		inboundJSON("naive", inboundTag("naive-tls", naivePort), tlsTemplates["tls-naive"].id, map[string]interface{}{
+			"listen":      "0.0.0.0",
+			"listen_port": naivePort,
+		}, []map[string]interface{}{{"server": seedHost, "server_port": naivePort, "remark": inboundTag("naive-tls", naivePort), "tls": true, "insecure": true}}),
+		inboundJSON("anytls", inboundTag("anytls", anyTLSPort), tlsTemplates["tls-anytls"].id, map[string]interface{}{
+			"listen":      "0.0.0.0",
+			"listen_port": anyTLSPort,
+			"padding_scheme": []string{
+				"stop=8",
+				"0=30-30",
+				"1=100-400",
+				"2=400-500,c,500-1000,c,500-1000,c,500-1000,c,500-1000",
+				"3=9-9,500-1000",
+				"4=500-1000",
+				"5=500-1000",
+				"6=500-1000",
+				"7=500-1000",
+			},
+		}, []map[string]interface{}{{"server": seedHost, "server_port": anyTLSPort, "remark": inboundTag("anytls", anyTLSPort), "tls": true, "insecure": true}}),
+		inboundJSON("hysteria", inboundTag("hysteria-tls", hysteriaPort), tlsTemplates["tls-hysteria"].id, map[string]interface{}{
+			"listen":       "0.0.0.0",
+			"listen_port":  hysteriaPort,
+			"up_mbps":      50,
+			"down_mbps":    100,
+			"udp_fragment": true,
+			"udp_timeout":  "5m",
+		}, []map[string]interface{}{{"server": seedHost, "server_port": hysteriaPort, "remark": inboundTag("hysteria-tls", hysteriaPort), "tls": true, "insecure": true}}),
 	}
 
 	seededInbounds := make([]model.Inbound, 0, len(inbounds))
@@ -222,11 +288,13 @@ func seedDefaultInbounds(tx *gorm.DB, tlsTemplates map[string]seededTLS, seedHos
 		if err := inbound.UnmarshalJSON(raw); err != nil {
 			return nil, err
 		}
-		var tlsModel model.Tls
-		if err := tx.Model(&model.Tls{}).Where("id = ?", inbound.TlsId).First(&tlsModel).Error; err != nil {
-			return nil, err
+		if inbound.TlsId > 0 {
+			var tlsModel model.Tls
+			if err := tx.Model(&model.Tls{}).Where("id = ?", inbound.TlsId).First(&tlsModel).Error; err != nil {
+				return nil, err
+			}
+			inbound.Tls = &tlsModel
 		}
-		inbound.Tls = &tlsModel
 		if err := util.FillOutJson(&inbound, seedHost); err != nil {
 			return nil, err
 		}
@@ -302,17 +370,44 @@ func seedDefaultClient(tx *gorm.DB, inbounds []model.Inbound, seedHost string) e
 		return err
 	}
 	password := common.Random(10)
+	shadowsocksPassword := randomBase64(32)
+	shadowsocks16Password := randomBase64(16)
 	config := map[string]interface{}{
 		"vless": map[string]interface{}{
 			"name": defaultTemplateClientName,
 			"uuid": clientUUID.String(),
 			"flow": "xtls-rprx-vision",
 		},
+		"vmess": map[string]interface{}{
+			"name":    defaultTemplateClientName,
+			"uuid":    clientUUID.String(),
+			"alterId": 0,
+		},
+		"shadowsocks": map[string]interface{}{
+			"name":     defaultTemplateClientName,
+			"password": shadowsocksPassword,
+		},
+		"shadowsocks16": map[string]interface{}{
+			"name":     defaultTemplateClientName,
+			"password": shadowsocks16Password,
+		},
 		"trojan": map[string]interface{}{
 			"name":     defaultTemplateClientName,
 			"password": password,
 		},
+		"naive": map[string]interface{}{
+			"username": defaultTemplateClientName,
+			"password": password,
+		},
+		"hysteria": map[string]interface{}{
+			"name":     defaultTemplateClientName,
+			"auth_str": password,
+		},
 		"hysteria2": map[string]interface{}{
+			"name":     defaultTemplateClientName,
+			"password": password,
+		},
+		"anytls": map[string]interface{}{
 			"name":     defaultTemplateClientName,
 			"password": password,
 		},
@@ -440,6 +535,14 @@ func randomHex(byteLen int) string {
 		return common.Random(byteLen * 2)
 	}
 	return hex.EncodeToString(buf)
+}
+
+func randomBase64(byteLen int) string {
+	buf := make([]byte, byteLen)
+	if _, err := rand.Read(buf); err != nil {
+		return common.Random(byteLen)
+	}
+	return base64.StdEncoding.EncodeToString(buf)
 }
 
 func pemLines(pem []byte) []string {
