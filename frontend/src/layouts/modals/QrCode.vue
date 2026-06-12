@@ -31,18 +31,24 @@
               <v-col style="text-align: center;">
                 <v-chip>{{ $t('setting.sub') }}</v-chip><br />
                 <QrcodeVue :value="clientSub" :size="size" @click="copyToClipboard(clientSub)" :margin="1" style="border-radius: 1rem; cursor: copy;" />
+                <div class="text-caption text-medium-emphasis">{{ $t('client.clickQrCopy') }}</div>
+                <v-text-field dir="ltr" density="compact" variant="underlined" readonly hide-details :model-value="clientSub" append-inner-icon="mdi-content-copy" @click:append-inner="copyToClipboard(clientSub)" />
               </v-col>
             </v-row>
             <v-row>
               <v-col style="text-align: center;">
                 <v-chip>{{ $t('setting.jsonSub') }}</v-chip><br />
                 <QrcodeVue :value="clientSub + '?format=json'" :size="size" @click="copyToClipboard(clientSub + '?format=json')" :margin="1" style="border-radius: 1rem; cursor: copy;" />
+                <div class="text-caption text-medium-emphasis">{{ $t('client.clickQrCopy') }}</div>
+                <v-text-field dir="ltr" density="compact" variant="underlined" readonly hide-details :model-value="clientSub + '?format=json'" append-inner-icon="mdi-content-copy" @click:append-inner="copyToClipboard(clientSub + '?format=json')" />
               </v-col>
             </v-row>
             <v-row>
               <v-col style="text-align: center;">
                 <v-chip>{{ $t('setting.clashSub') }}</v-chip><br />
                 <QrcodeVue :value="clientSub + '?format=clash'" :size="size" @click="copyToClipboard(clientSub + '?format=clash')" :margin="1" style="border-radius: 1rem; cursor: copy;" />
+                <div class="text-caption text-medium-emphasis">{{ $t('client.clickQrCopy') }}</div>
+                <v-text-field dir="ltr" density="compact" variant="underlined" readonly hide-details :model-value="clientSub + '?format=clash'" append-inner-icon="mdi-content-copy" @click:append-inner="copyToClipboard(clientSub + '?format=clash')" />
               </v-col>
             </v-row>
             <v-row>
@@ -57,6 +63,8 @@
               <v-col style="text-align: center;">
                 <v-chip>{{ l.remark?? $t('client.' + l.type) }}</v-chip><br />
                 <QrcodeVue :value="l.uri" :size="size" @click="copyToClipboard(l.uri)" :margin="1" style="border-radius: .5rem; cursor: copy;" />
+                <div class="text-caption text-medium-emphasis">{{ $t('client.clickQrCopy') }}</div>
+                <v-text-field dir="ltr" density="compact" variant="underlined" readonly hide-details :model-value="l.uri" append-inner-icon="mdi-content-copy" @click:append-inner="copyToClipboard(l.uri)" />
               </v-col>
             </v-row>
           </v-window-item>

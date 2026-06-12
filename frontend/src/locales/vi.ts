@@ -219,6 +219,9 @@ export default {
     autoReset: "Tự động đặt lại",
     resetDays: "Số ngày đặt lại",
     nextReset: "Đặt lại lần sau",
+    defaultUserNoticeTitle: "Default user notice",
+    defaultUserNoticeDesc: "Fresh installs automatically create default-user and bind it to the default VLESS Reality, Hysteria2, TUIC, and Trojan TLS inbounds. Use the QR button for subscription and single-node QR codes. Hysteria2/TUIC require UDP to be allowed, and self-signed TLS nodes require clients to allow insecure.",
+    clickQrCopy: "Click the QR code or copy button to copy the link",
   },
   bulk: {
     order: "Sắp xếp",

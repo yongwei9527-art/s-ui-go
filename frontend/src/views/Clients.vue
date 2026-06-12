@@ -35,6 +35,20 @@
     :tag="stats.tag"
     @close="closeStats"
   />
+  <v-row>
+    <v-col cols="12">
+      <v-alert
+        color="primary"
+        icon="mdi-account-key-outline"
+        variant="tonal"
+        rounded="lg"
+        class="mb-2"
+      >
+        <div class="text-subtitle-1 font-weight-bold">{{ $t('client.defaultUserNoticeTitle') }}</div>
+        <div class="text-body-2">{{ $t('client.defaultUserNoticeDesc') }}</div>
+      </v-alert>
+    </v-col>
+  </v-row>
   <v-row justify="center" align="center">
     <v-col cols="auto">
       <v-btn color="primary" @click="showModal(0)">{{ $t('actions.add') }}</v-btn>
@@ -366,8 +380,11 @@ const doFilter = () => {
     filteredClients = filteredClients.filter(c => c.group == filterSettings.value.group)
   }
   if (filterSettings.value.text.length>0) {
-    const txt = filterSettings.value.text
-    filteredClients = filteredClients.filter(c => c.name.search(txt) != -1 || c.desc.search(txt) != -1)
+    const txt = filterSettings.value.text.toLowerCase()
+    filteredClients = filteredClients.filter(c =>
+      (c.name || '').toLowerCase().includes(txt) ||
+      (c.desc || '').toLowerCase().includes(txt)
+    )
   }
   switch (filterSettings.value.state) {
     case "disable":

@@ -163,6 +163,12 @@
               <v-row v-for="(lnk, index) in links">
                 <v-col cols="auto">{{ index + 1 }}</v-col>
                 <v-col style="direction: ltr; overflow-y: hidden;">{{ lnk.uri }}</v-col>
+                <v-col cols="auto">
+                  <v-btn density="compact" variant="text" icon="mdi-content-copy" @click="copyToClipboard(lnk.uri)">
+                    <v-tooltip activator="parent" location="top" :text="$t('copyToClipboard')"></v-tooltip>
+                    <v-icon />
+                  </v-btn>
+                </v-col>
               </v-row>
               <v-row>
                 <v-col>
@@ -228,6 +234,8 @@ import DatePick from '@/components/DateTime.vue'
 import { HumanReadable } from '@/plugins/utils'
 import Data from '@/store/modules/data'
 import { locale } from '@/locales'
+import { push } from 'notivue'
+import Clipboard from 'clipboard'
 
 export default {
   props: ['visible', 'id', 'inboundTags', 'groups'],
@@ -302,6 +310,34 @@ export default {
       this.client.totalDown = (this.client.totalDown ?? 0) + this.client.down
       this.client.up = 0
       this.client.down = 0
+    },
+    copyToClipboard(txt:string) {
+      const hiddenButton = document.createElement('button')
+      hiddenButton.className = 'clipboard-btn'
+      document.body.appendChild(hiddenButton)
+
+      const clipboard = new Clipboard('.clipboard-btn', {
+        text: () => txt,
+      })
+
+      clipboard.on('success', () => {
+        clipboard.destroy()
+        push.success({
+          message: this.$t('success') + ": " + this.$t('copyToClipboard'),
+          duration: 5000,
+        })
+      })
+
+      clipboard.on('error', () => {
+        clipboard.destroy()
+        push.error({
+          message: this.$t('failed') + ": " + this.$t('copyToClipboard'),
+          duration: 5000,
+        })
+      })
+
+      hiddenButton.click()
+      document.body.removeChild(hiddenButton)
     }
   },
   computed: {

@@ -247,6 +247,9 @@ export default {
     autoReset: "自動重置",
     resetDays: "重置天數",
     nextReset: "下次重置",
+    defaultUserNoticeTitle: "默認用戶提示",
+    defaultUserNoticeDesc: "全新安裝會自動生成 default-user，並綁定默認 VLESS Reality、Hysteria2、TUIC、Trojan TLS 入站。點擊二維碼可查看訂閱和單節點二維碼；Hysteria2/TUIC 需要放行 UDP，自簽 TLS 節點客戶端需要允許 insecure。",
+    clickQrCopy: "點擊二維碼或複製按鈕複製鏈接",
   },
   bulk: {
     order: "排序",
