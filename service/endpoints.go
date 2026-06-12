@@ -91,7 +91,7 @@ func (s *EndpointService) Save(tx *gorm.DB, act string, data json.RawMessage) er
 			}
 		}
 
-		if corePtr.IsRunning() {
+		if corePtr != nil && corePtr.IsRunning() {
 			configData, err := endpoint.MarshalJSON()
 			if err != nil {
 				return err
@@ -123,7 +123,7 @@ func (s *EndpointService) Save(tx *gorm.DB, act string, data json.RawMessage) er
 		if err != nil {
 			return err
 		}
-		if corePtr.IsRunning() {
+		if corePtr != nil && corePtr.IsRunning() {
 			err = corePtr.RemoveEndpoint(tag)
 			if err != nil && err != os.ErrInvalid {
 				return err

@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/yongwei9527-art/s-ui-go/core"
 	"github.com/yongwei9527-art/s-ui-go/database"
 	"github.com/yongwei9527-art/s-ui-go/database/model"
 
@@ -29,15 +30,15 @@ func (s *StatsService) SaveStats(enableTraffic bool) error {
 	if corePtr == nil || !corePtr.IsRunning() {
 		return nil
 	}
-	box := corePtr.GetInstance()
-	if box == nil {
+	var stats *[]model.Stats
+	if ok := corePtr.WithInstance(func(box *core.Box) {
+		st := box.StatsTracker()
+		if st != nil {
+			stats = st.GetStats()
+		}
+	}); !ok || stats == nil {
 		return nil
 	}
-	st := box.StatsTracker()
-	if st == nil {
-		return nil
-	}
-	stats := st.GetStats()
 
 	currentOnlineResources := onlines{}
 

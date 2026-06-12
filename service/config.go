@@ -113,7 +113,10 @@ func (s *ConfigService) GetConfig(data string) (*[]byte, error) {
 }
 
 func (s *ConfigService) StartCore() error {
-	if corePtr.IsRunning() {
+	if corePtr == nil {
+		return common.NewError("core is not initialized")
+	}
+	if corePtr != nil && corePtr.IsRunning() {
 		return nil
 	}
 	startCoreMu.Lock()
@@ -165,6 +168,9 @@ func (s *ConfigService) RestartCore() error {
 }
 
 func (s *ConfigService) restartCoreWithConfig(config json.RawMessage) error {
+	if corePtr == nil {
+		return common.NewError("core is not initialized")
+	}
 	startCoreMu.Lock()
 	if startCoreInProgress {
 		startCoreMu.Unlock()
@@ -178,7 +184,7 @@ func (s *ConfigService) restartCoreWithConfig(config json.RawMessage) error {
 		startCoreMu.Unlock()
 	}()
 
-	if corePtr.IsRunning() {
+	if corePtr != nil && corePtr.IsRunning() {
 		if err := corePtr.Stop(); err != nil {
 			logger.Error("restart sing-box err (stop):", err.Error())
 			return err
@@ -198,6 +204,9 @@ func (s *ConfigService) restartCoreWithConfig(config json.RawMessage) error {
 }
 
 func (s *ConfigService) StopCore() error {
+	if corePtr == nil {
+		return nil
+	}
 	err := corePtr.Stop()
 	if err != nil {
 		return err
@@ -231,13 +240,13 @@ func (s *ConfigService) Save(obj string, act string, data json.RawMessage, initU
 				go func(configData json.RawMessage) { _ = s.restartCoreWithConfig(configData) }(restartConfigAfterCommit)
 			} else if restartCurrentConfigAfterCommit {
 				go func() {
-					if corePtr.IsRunning() {
+					if corePtr != nil && corePtr.IsRunning() {
 						_ = s.RestartCore()
 					} else {
 						_ = s.StartCore()
 					}
 				}()
-			} else if !corePtr.IsRunning() {
+			} else if corePtr == nil || !corePtr.IsRunning() {
 				s.StartCore()
 			}
 		} else {

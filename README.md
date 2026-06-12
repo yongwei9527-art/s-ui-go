@@ -2,7 +2,7 @@
 
 > 基于开源 S-UI / s-ui-go 项目的社区维护构建，提供 Windows、Linux、macOS 发布包、安装脚本、服务管理脚本及相关配置说明。
 
-[![Release](https://img.shields.io/badge/release-v1.4.2.3-blue)](https://github.com/yongwei9527-art/s-ui-go/releases/tag/v1.4.2.3)
+[![Build](https://img.shields.io/badge/build-latest--project--upload-blue)](https://github.com/yongwei9527-art/s-ui-go/tree/latest-project-upload)
 [![License](https://img.shields.io/badge/license-GPL--3.0-green)](LICENSE)
 
 ## 目录
@@ -36,17 +36,6 @@
 
 ## 维护内容与差异
 
-### 维护范围概览
-
-本节列出该社区构建相对上游版本及早期整理版本的主要维护范围和功能性调整：
-
-- **发布交付**：提供 Windows、Linux、macOS 三端 amd64 发布包，并统一压缩包命名。
-- **部署维护**：整理安装、卸载、服务管理和 Windows 构建脚本，降低跨平台部署维护成本。
-- **文档结构**：补充下载、安装、默认地址、构建、验证、安全提醒和许可证说明。
-- **安装反馈**：Linux 安装流程和管理菜单默认使用中文提示，并在安装完成后输出面板访问地址和订阅地址。
-- **协议说明**：提供协议组合配置参考，按 VPS、CDN、弱网、桌面代理、网关透明代理等场景说明适用方案。
-- **配置一致性**：修正 ACME / TLS 默认 `server_name` 取值，补充订阅兼容性和 DNS 防泄露说明，并清理部分 Go 静态检查提示。
-
 主要维护内容如下：
 
 | 维护方向 | 具体内容 |
@@ -61,10 +50,12 @@
 | 协议选择指南 | 新增 [协议组合建议方案](PROTOCOL_GUIDE.md)，按自建 VPS、CDN、弱网、全局代理、软路由等场景给出推荐组合。 |
 | ACME / TLS 配置 | 修正 ACME 默认 `server_name` 取值逻辑，改为优先使用第一个域名。 |
 | 订阅与 DNS 说明 | 在项目说明和文档中明确 TLS / ECH / WebSocket / TUIC / Hysteria2 订阅兼容性，以及 DNS 防泄露检查方向。 |
+| 首次初始化默认模板 | 全新安装后自动生成 Reality/TLS 模板、VLESS Reality、Hysteria2、TUIC、Trojan TLS 默认入站，以及绑定这些入站的默认客户端；导出地址会在 VPS 初始化时自动检测服务器地址，避免写死 IP。 |
+| 运行稳定性加固 | 加强 sing-box core start/stop 并发保护、corePtr 空值保护、cron panic recover、订阅服务异常日志和默认端口预检查，降低 VPS 运行时面板或 core 崩溃风险。 |
 | Go 静态检查清理 | 根据 IDE 提示处理 `database/backup.go` 与 `service/dns_leak_guard.go` 中的 QF1003 建议，保持逻辑不变并提升可读性。 |
 | 发布与合规提示 | 补充 Release 版本、发布说明、致谢、GPL-3.0 许可和“非官方社区版”风险提醒。 |
 
-上述调整的目标是提升跨平台交付、安装维护、协议配置说明、TLS/ACME 默认配置和安全提示的一致性。
+上述调整的目标是提升跨平台交付、安装维护、协议配置说明、TLS/ACME 默认配置、首次启动可用性和 VPS 运行稳定性。
 
 ## 下载
 
@@ -222,7 +213,7 @@ sudo ./install-macos.sh
 
 ## 默认访问地址
 
-如果安装时没有修改默认配置：
+安装时保留默认配置时：
 
 | 服务 | 地址 |
 | --- | --- |

@@ -69,7 +69,7 @@ func (s *OutboundService) Save(tx *gorm.DB, act string, data json.RawMessage) er
 			return err
 		}
 
-		if corePtr.IsRunning() {
+		if corePtr != nil && corePtr.IsRunning() {
 			configData, err := outbound.MarshalJSON()
 			if err != nil {
 				return err
@@ -101,7 +101,7 @@ func (s *OutboundService) Save(tx *gorm.DB, act string, data json.RawMessage) er
 		if err != nil {
 			return err
 		}
-		if corePtr.IsRunning() {
+		if corePtr != nil && corePtr.IsRunning() {
 			err = corePtr.RemoveOutbound(tag)
 			if err != nil && err != os.ErrInvalid {
 				return err

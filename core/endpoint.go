@@ -9,6 +9,8 @@ import (
 )
 
 func (c *Core) AddInbound(config []byte) error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if !c.isRunning {
 		return common.NewError("sing-box is not running")
 	}
@@ -34,6 +36,8 @@ func (c *Core) AddInbound(config []byte) error {
 }
 
 func (c *Core) RemoveInbound(tag string) error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if !c.isRunning {
 		return common.NewError("sing-box is not running")
 	}
@@ -42,6 +46,8 @@ func (c *Core) RemoveInbound(tag string) error {
 }
 
 func (c *Core) AddOutbound(config []byte) error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if !c.isRunning {
 		return common.NewError("sing-box is not running")
 	}
@@ -72,6 +78,8 @@ func (c *Core) AddOutbound(config []byte) error {
 }
 
 func (c *Core) RemoveOutbound(tag string) error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if !c.isRunning {
 		return common.NewError("sing-box is not running")
 	}
@@ -80,6 +88,8 @@ func (c *Core) RemoveOutbound(tag string) error {
 }
 
 func (c *Core) AddEndpoint(config []byte) error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if !c.isRunning {
 		return common.NewError("sing-box is not running")
 	}
@@ -106,6 +116,8 @@ func (c *Core) AddEndpoint(config []byte) error {
 }
 
 func (c *Core) RemoveEndpoint(tag string) error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if !c.isRunning {
 		return common.NewError("sing-box is not running")
 	}
@@ -114,6 +126,8 @@ func (c *Core) RemoveEndpoint(tag string) error {
 }
 
 func (c *Core) AddService(config []byte) error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if !c.isRunning {
 		return common.NewError("sing-box is not running")
 	}
@@ -139,6 +153,8 @@ func (c *Core) AddService(config []byte) error {
 }
 
 func (c *Core) RemoveService(tag string) error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if !c.isRunning {
 		return common.NewError("sing-box is not running")
 	}

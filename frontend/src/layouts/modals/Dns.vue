@@ -6,6 +6,15 @@
       </v-card-title>
       <v-divider></v-divider>
       <v-card-text>
+        <v-alert
+          color="primary"
+          icon="mdi-information-outline"
+          variant="tonal"
+          density="compact"
+          class="mb-3"
+        >
+          {{ $t('dns.leakGuardDesc') }}
+        </v-alert>
         <v-row>
           <v-col cols="12" sm="6" md="4">
             <v-select

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/yongwei9527-art/s-ui-go/config"
+	"github.com/yongwei9527-art/s-ui-go/core"
 	"github.com/yongwei9527-art/s-ui-go/database"
 	"github.com/yongwei9527-art/s-ui-go/database/model"
 	"github.com/yongwei9527-art/s-ui-go/logger"
@@ -140,11 +141,10 @@ func (s *ServerService) GetNetInfo() map[string]interface{} {
 func (s *ServerService) GetSingboxInfo() map[string]interface{} {
 	var rtm runtime.MemStats
 	runtime.ReadMemStats(&rtm)
-	isRunning := corePtr.IsRunning()
 	uptime := uint32(0)
-	if isRunning {
-		uptime = corePtr.GetInstance().Uptime()
-	}
+	isRunning := corePtr != nil && corePtr.WithInstance(func(instance *core.Box) {
+		uptime = instance.Uptime()
+	})
 	return map[string]interface{}{
 		"running": isRunning,
 		"stats": map[string]interface{}{

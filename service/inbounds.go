@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/yongwei9527-art/s-ui-go/core"
 	"github.com/yongwei9527-art/s-ui-go/database"
 	"github.com/yongwei9527-art/s-ui-go/database/model"
 	"github.com/yongwei9527-art/s-ui-go/util"
@@ -124,7 +125,7 @@ func (s *InboundService) Save(tx *gorm.DB, act string, data json.RawMessage, ini
 			}
 		}
 
-		if corePtr.IsRunning() {
+		if corePtr != nil && corePtr.IsRunning() {
 			if act == "edit" {
 				err = corePtr.RemoveInbound(oldTag)
 				if err != nil && err != os.ErrInvalid {
@@ -176,7 +177,7 @@ func (s *InboundService) Save(tx *gorm.DB, act string, data json.RawMessage, ini
 		if err != nil {
 			return err
 		}
-		if corePtr.IsRunning() {
+		if corePtr != nil && corePtr.IsRunning() {
 			err = corePtr.RemoveInbound(tag)
 			if err != nil && err != os.ErrInvalid {
 				return err
@@ -329,7 +330,7 @@ func (s *InboundService) initUsers(db *gorm.DB, inboundJson []byte, clientIds st
 }
 
 func (s *InboundService) RestartInbounds(tx *gorm.DB, ids []uint) error {
-	if !corePtr.IsRunning() {
+	if corePtr == nil || !corePtr.IsRunning() {
 		return nil
 	}
 	var inbounds []*model.Inbound
@@ -342,8 +343,9 @@ func (s *InboundService) RestartInbounds(tx *gorm.DB, ids []uint) error {
 		if err != nil && err != os.ErrInvalid {
 			return err
 		}
-		// Close all existing connections
-		corePtr.GetInstance().ConnTracker().CloseConnByInbound(inbound.Tag)
+		corePtr.WithInstance(func(instance *core.Box) {
+			instance.ConnTracker().CloseConnByInbound(inbound.Tag)
+		})
 
 		inboundConfig, err := inbound.MarshalJSON()
 		if err != nil {

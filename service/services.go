@@ -78,7 +78,7 @@ func (s *ServicesService) Save(tx *gorm.DB, act string, data json.RawMessage) er
 			}
 		}
 
-		if corePtr.IsRunning() {
+		if corePtr != nil && corePtr.IsRunning() {
 			configData, err := srv.MarshalJSON()
 			if err != nil {
 				return err
@@ -110,7 +110,7 @@ func (s *ServicesService) Save(tx *gorm.DB, act string, data json.RawMessage) er
 		if err != nil {
 			return err
 		}
-		if corePtr.IsRunning() {
+		if corePtr != nil && corePtr.IsRunning() {
 			err = corePtr.RemoveService(tag)
 			if err != nil && err != os.ErrInvalid {
 				return err
@@ -127,7 +127,7 @@ func (s *ServicesService) Save(tx *gorm.DB, act string, data json.RawMessage) er
 }
 
 func (s *ServicesService) RestartServices(tx *gorm.DB, ids []uint) error {
-	if !corePtr.IsRunning() {
+	if corePtr == nil || !corePtr.IsRunning() {
 		return nil
 	}
 	var services []*model.Service
