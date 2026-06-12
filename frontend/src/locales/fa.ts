@@ -94,6 +94,10 @@ export default {
       totalUsage: "مجموع مصرف",
     },
   },
+  inbounds: {
+    defaultProtocolNoticeTitle: "Default protocol template notice",
+    defaultProtocolNoticeDesc: "Fresh installs automatically create VLESS Reality, Hysteria2, TUIC, Trojan TLS default inbounds and a default-user client. Hysteria2/TUIC require the corresponding UDP ports to be allowed in the VPS firewall and cloud security group. Self-signed TLS templates enable insecure by default; use a real domain and certificate for production.",
+  },
   objects: {
     inbound: "ورودی‌",
     client: "کاربر",

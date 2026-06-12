@@ -15,6 +15,18 @@
     @close="closeStats"
   />
   <v-row>
+    <v-col cols="12">
+      <v-alert
+        color="primary"
+        icon="mdi-information-outline"
+        variant="tonal"
+        rounded="lg"
+        class="mb-2"
+      >
+        <div class="text-subtitle-1 font-weight-bold">{{ $t('inbounds.defaultProtocolNoticeTitle') }}</div>
+        <div class="text-body-2">{{ $t('inbounds.defaultProtocolNoticeDesc') }}</div>
+      </v-alert>
+    </v-col>
     <v-col cols="12" justify="center" align="center">
       <v-btn color="primary" @click="showModal(0)">{{ $t('actions.add') }}</v-btn>
     </v-col>

@@ -122,6 +122,10 @@ export default {
       diskUsage: "磁盤使用率",
     },
   },
+  inbounds: {
+    defaultProtocolNoticeTitle: "默認協議模板提示",
+    defaultProtocolNoticeDesc: "全新安裝會自動生成 VLESS Reality、Hysteria2、TUIC、Trojan TLS 默認入站和 default-user 客戶端。Hysteria2/TUIC 需要在 VPS 防火牆和雲安全組放行對應 UDP 端口；自簽 TLS 模板默認開啟 insecure，正式使用建議替換為真實域名和證書。",
+  },
   objects: {
     inbound: "入站",
     client: "客戶端",
