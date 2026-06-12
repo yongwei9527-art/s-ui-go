@@ -492,7 +492,7 @@ func populateVmessTlsParams(obj map[string]interface{}, tlsConfig interface{}) {
 			case "security":
 				// ignore, as "tls" is already set
 			case "allowInsecure":
-				obj["allowInsecure"] = 1
+				obj["allowInsecure"] = "1"
 			case "sni":
 				obj["sni"] = p.Value
 			case "fp":
