@@ -97,6 +97,10 @@ export default {
   inbounds: {
     defaultProtocolNoticeTitle: "Default protocol template notice",
     defaultProtocolNoticeDesc: "Fresh installs automatically create VLESS Reality, Hysteria2, TUIC, Trojan TLS default inbounds and a default-user client. Hysteria2/TUIC require the corresponding UDP ports to be allowed in the VPS firewall and cloud security group. Self-signed TLS templates enable insecure by default; use a real domain and certificate for production.",
+    hysteria2Notice: "Hysteria2 uses UDP. Allow the current listen port as UDP in the VPS firewall and cloud security group. Keep Ignore Client Bandwidth enabled; if disabled, enter valid upload and download bandwidth.",
+    tuicNotice: "TUIC uses UDP. Allow the current listen port as UDP in the VPS firewall and cloud security group. Recommended values: cubic, auth_timeout 3s, heartbeat 10s.",
+    hysteria2BandwidthWarning: "When Ignore Client Bandwidth is disabled, upload and download bandwidth must both be greater than 0.",
+    udpFirewallReminder: "Confirm that the VPS firewall and cloud security group allow UDP traffic on the current listen port.",
   },
   objects: {
     inbound: "ورودی‌",
@@ -577,6 +581,8 @@ export default {
     pubKey: "کلید عمومی",
     disableSni: "غیرفعال‌سازی SNI",
     insecure: "تایید ارتباط ناامن",
+    realityNotice: "Reality does not need a real certificate. SNI/handshake server should be a stable reachable HTTPS domain; clients must match the public key, short_id, and fingerprint.",
+    selfSignedNotice: "The default self-signed TLS is only for quick initialization. Clients need insecure=true; use a real domain certificate or ACME for production.",
     fragment: "تکه‌بندی",
     fragmentDelay: "تاخیر تکه‌بندی جایگزین",
     recordFragment: "تکه‌بندی چندگانه",

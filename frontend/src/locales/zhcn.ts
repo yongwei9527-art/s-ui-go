@@ -127,6 +127,10 @@ export default {
   inbounds: {
     defaultProtocolNoticeTitle: "默认协议模板提示",
     defaultProtocolNoticeDesc: "全新安装会自动生成 VLESS Reality、Hysteria2、TUIC、Trojan TLS 默认入站和 default-user 客户端。Hysteria2/TUIC 需要在 VPS 防火墙和云安全组放行对应 UDP 端口；自签 TLS 模板默认开启 insecure，正式使用建议替换为真实域名和证书。",
+    hysteria2Notice: "Hysteria2 使用 UDP，请在 VPS 防火墙和云安全组放行当前监听端口的 UDP 流量。推荐开启“忽略客户端带宽”；如关闭，请填写有效上传/下载带宽。",
+    tuicNotice: "TUIC 使用 UDP，请在 VPS 防火墙和云安全组放行当前监听端口的 UDP 流量。推荐保持 cubic、auth_timeout 3s、heartbeat 10s。",
+    hysteria2BandwidthWarning: "关闭“忽略客户端带宽”后，必须填写大于 0 的上传和下载带宽。",
+    udpFirewallReminder: "请确认 VPS 防火墙和云安全组已放行当前监听端口的 UDP 流量。",
   },
   objects: {
     inbound: "入站",
@@ -642,6 +646,8 @@ export default {
     pubKey: "公钥",
     disableSni: "禁用 SNI",
     insecure: "允许不安全",
+    realityNotice: "Reality 不需要真实证书。SNI/握手服务器应填写稳定可访问的 HTTPS 域名，客户端需要匹配 public key、short_id 和 fingerprint。",
+    selfSignedNotice: "默认自签 TLS 仅用于快速初始化。客户端需要 insecure=true；正式使用建议配置真实域名证书或 ACME。",
     fragment: "启用",
     fragmentDelay: "启用后延迟",
     recordFragment: "启用",

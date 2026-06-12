@@ -4,6 +4,8 @@
 
 > 快速建议：无域名自建 VPS 可优先评估 `VLESS + Reality + TCP`；CDN 场景可评估 `VLESS/Trojan + TLS + WebSocket`；弱网和 UDP 场景可评估 `Hysteria2/TUIC`；本地代理入口使用 `Mixed`；桌面全局代理使用 `Tun`；软路由或网关透明代理使用 `TProxy`。
 
+> 全新安装提示：S-UI 首次初始化会自动生成 VLESS Reality、Hysteria2、TUIC、Trojan TLS 默认入站、对应 TLS/Reality 模板和 `default-user` 客户端。导出链接地址会在 VPS 初始化时自动检测，不会写死截图中的 IP。Hysteria2/TUIC 使用 UDP，必须在 VPS 系统防火墙和云安全组放行对应 UDP 端口；默认自签 TLS 模板为了快速可用会在客户端侧启用 `insecure`，正式使用建议替换为真实域名证书或 ACME。
+
 ## 0. 按场景配置协议组合
 
 本节按部署条件选择协议组合，并给出面板中的配置步骤。后续章节提供参数解释、速查表和排错清单。

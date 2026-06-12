@@ -1,5 +1,15 @@
 <template>
   <v-card subtitle="Hysteria2">
+    <v-alert
+      v-if="direction == 'in'"
+      color="info"
+      icon="mdi-lan-pending"
+      variant="tonal"
+      density="compact"
+      class="mb-3"
+    >
+      {{ $t('inbounds.hysteria2Notice') }}
+    </v-alert>
     <v-row>
       <v-col cols="12" sm="6" md="4" v-if="direction == 'in'">
         <v-switch v-model="data.ignore_client_bandwidth" color="primary" :label="$t('types.hy.ignoreBw')" hide-details></v-switch>

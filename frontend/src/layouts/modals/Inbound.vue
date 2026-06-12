@@ -119,6 +119,7 @@ import Transport from '@/components/Transport.vue'
 import AddrVue from '@/components/Addr.vue'
 import OutJsonVue from '@/components/OutJson.vue'
 import Data from '@/store/modules/data'
+import { push } from 'notivue'
 export default {
   props: ['visible', 'id', 'inTags', 'tlsConfigs'],
   emits: ['close'],
@@ -231,6 +232,17 @@ export default {
       // check duplicate tag
       const isDuplicatedTag = Data().checkTag("inbound", this.inbound.id, this.inbound.tag)
       if (isDuplicatedTag) return
+      if (this.inbound.type == InTypes.Hysteria2 && !(<any>this.inbound).ignore_client_bandwidth) {
+        const up = Number((<any>this.inbound).up_mbps || 0)
+        const down = Number((<any>this.inbound).down_mbps || 0)
+        if (up <= 0 || down <= 0) {
+          push.warning({ message: this.$t('inbounds.hysteria2BandwidthWarning') })
+          return
+        }
+      }
+      if (this.inbound.type == InTypes.Hysteria2 || this.inbound.type == InTypes.TUIC) {
+        push.info({ message: this.$t('inbounds.udpFirewallReminder') })
+      }
 
       // save data
       this.loading = true

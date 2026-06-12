@@ -1,5 +1,15 @@
 <template>
   <v-card subtitle="TUIC">
+    <v-alert
+      v-if="direction == 'in'"
+      color="info"
+      icon="mdi-lan-pending"
+      variant="tonal"
+      density="compact"
+      class="mb-3"
+    >
+      {{ $t('inbounds.tuicNotice') }}
+    </v-alert>
     <v-row v-if="direction == 'out'">
       <v-col cols="12" sm="6">
         <v-text-field v-model="data.uuid" label="UUID" hide-details></v-text-field>

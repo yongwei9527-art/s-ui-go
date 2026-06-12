@@ -29,6 +29,19 @@
             </v-col>
           </v-row>
           <v-row>
+            <v-col cols="12">
+              <v-alert
+                :color="tlsType == 1 ? 'info' : 'warning'"
+                :icon="tlsType == 1 ? 'mdi-shield-key-outline' : 'mdi-certificate-outline'"
+                variant="tonal"
+                density="compact"
+                class="mb-2"
+              >
+                {{ tlsType == 1 ? $t('tls.realityNotice') : $t('tls.selfSignedNotice') }}
+              </v-alert>
+            </v-col>
+          </v-row>
+          <v-row>
             <v-col cols="12" sm="6" md="4" v-if="inTls.server_name != undefined">
               <v-text-field
                 label="SNI"
