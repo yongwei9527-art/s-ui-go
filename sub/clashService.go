@@ -315,7 +315,9 @@ func (s *ClashService) ConvertToClashMeta(outbounds *[]map[string]interface{}, b
 				if path, ok := transport["path"].(string); ok {
 					wsOpts["path"] = path
 				}
-				if headers, ok := transport["headers"].([]interface{}); ok {
+				if headers, ok := transport["headers"].(map[string]interface{}); ok && len(headers) > 0 {
+					wsOpts["headers"] = headers
+				} else if headers, ok := transport["headers"].([]interface{}); ok {
 					wsOpts["headers"] = headers
 				}
 				if ed, ok := transport["early_data_header_name"].(string); ok {
