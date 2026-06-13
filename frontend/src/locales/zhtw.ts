@@ -124,7 +124,7 @@ export default {
   },
   inbounds: {
     defaultProtocolNoticeTitle: "默認協議模板提示",
-    defaultProtocolNoticeDesc: "全新安裝會自動生成 VLESS Reality、Hysteria2、TUIC、Trojan TLS、VMess WS TLS、Shadowsocks 2022、Naive TLS、AnyTLS、Hysteria TLS 默認入站和 default-user 客戶端。Hysteria/Hysteria2/TUIC 需要放行對應 UDP 端口；自簽 TLS 模板默認開啟 insecure，正式使用建議替換為真實域名和證書。Mixed/SOCKS/HTTP 不默認公網創建，避免開放代理風險。",
+    defaultProtocolNoticeDesc: "全新安裝會自動生成 VLESS Reality、Hysteria2、TUIC、Trojan TLS、VMess WS TLS、Shadowsocks 2022、Naive TLS、AnyTLS、Hysteria TLS 默認入站和 default-user 客戶端。導出地址會自動偵測 VPS 公網地址；優先使用 443/8443/2053/2083/2087/2097/8388 等較常見端口，若端口被佔用會自動順延。Hysteria/Hysteria2/TUIC 需要放行對應 UDP 端口；自簽 TLS 模板默認開啟 insecure，正式使用建議替換為真實域名和證書。Mixed/SOCKS/HTTP 不默認公網創建，避免開放代理風險。",
     hysteria2Notice: "Hysteria2 使用 UDP，請在 VPS 防火牆和雲安全組放行目前監聽端口的 UDP 流量。建議開啟「忽略客戶端帶寬」；如關閉，請填寫有效上傳/下載帶寬。",
     tuicNotice: "TUIC 使用 UDP，請在 VPS 防火牆和雲安全組放行目前監聽端口的 UDP 流量。建議保持 cubic、auth_timeout 3s、heartbeat 10s。",
     hysteria2BandwidthWarning: "關閉「忽略客戶端帶寬」後，必須填寫大於 0 的上傳和下載帶寬。",

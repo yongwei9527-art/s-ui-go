@@ -198,15 +198,15 @@ func tlsModel(name string, server map[string]interface{}, client map[string]inte
 }
 
 func seedDefaultInbounds(tx *gorm.DB, tlsTemplates map[string]seededTLS, seedHost string) ([]model.Inbound, error) {
-	vlessPort := availableListenPort("tcp", 42595)
-	hy2Port := availableListenPort("udp", 4443)
-	tuicPort := availableListenPort("udp", 51225)
-	trojanPort := availableListenPort("tcp", 30600)
-	vmessPort := availableListenPort("tcp", 44305)
-	shadowsocksPort := availableListenPort("tcp", 44306)
-	naivePort := availableListenPort("tcp", 44307)
-	anyTLSPort := availableListenPort("tcp", 44308)
-	hysteriaPort := availableListenPort("udp", 44309)
+	vlessPort := availableListenPort("tcp", 443)
+	hy2Port := availableListenPort("udp", 443)
+	tuicPort := availableListenPort("udp", 8443)
+	trojanPort := availableListenPort("tcp", 8443)
+	vmessPort := availableListenPort("tcp", 2053)
+	shadowsocksPort := availableListenPort("tcp", 8388)
+	naivePort := availableListenPort("tcp", 2087)
+	anyTLSPort := availableListenPort("tcp", 2097)
+	hysteriaPort := availableListenPort("udp", 2083)
 	shadowsocksServerPassword := randomBase64(16)
 
 	inbounds := []json.RawMessage{
