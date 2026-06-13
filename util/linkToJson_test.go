@@ -1,6 +1,11 @@
 package util
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+
+	"github.com/yongwei9527-art/s-ui-go/database/model"
+)
 
 func TestVlessLinkParsesIPv6HostWithoutPort(t *testing.T) {
 	out, tag, err := GetOutbound("vless://11111111-1111-1111-1111-111111111111@[2001:db8::1]?security=tls&type=ws&host=example.com&path=%2Fws&maxEarlyData=2048&ed=Sec-WebSocket-Protocol#ipv6", 0)
@@ -77,5 +82,29 @@ func TestTuicLinkOmitsEmptyOptionalStringsAndAppliesTLSAliases(t *testing.T) {
 	}
 	if tls["disable_sni"] != true {
 		t.Fatalf("disableSNI alias did not set disable_sni: %#v", tls["disable_sni"])
+	}
+}
+
+func TestLinkGeneratorUsesRequestHostForSeededDefaultInbound(t *testing.T) {
+	clientConfig := json.RawMessage(`{"vless":{"uuid":"11111111-1111-1111-1111-111111111111"}}`)
+	addrs := json.RawMessage(`[{"server":"192.0.2.10","server_port":443,"remark":"seeded"}]`)
+	options := json.RawMessage(`{"listen":"0.0.0.0","listen_port":443,"transport":{}}`)
+	inbound := &model.Inbound{
+		Type:    "vless",
+		Tag:     "vless-reality-443",
+		Addrs:   addrs,
+		Options: options,
+	}
+
+	links := LinkGenerator(clientConfig, inbound, "proxy.example.com")
+	if len(links) != 1 {
+		t.Fatalf("unexpected links: %#v", links)
+	}
+	out, _, err := GetOutbound(links[0], 0)
+	if err != nil {
+		t.Fatalf("generated link did not parse: %v", err)
+	}
+	if (*out)["server"] != "proxy.example.com" {
+		t.Fatalf("generated link server = %#v, want proxy.example.com", (*out)["server"])
 	}
 }

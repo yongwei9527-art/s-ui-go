@@ -1,6 +1,9 @@
 package sub
 
 import (
+	"net"
+	"strings"
+
 	"github.com/yongwei9527-art/s-ui-go/logger"
 	"github.com/yongwei9527-art/s-ui-go/service"
 
@@ -29,13 +32,14 @@ func (s *SubHandler) subs(c *gin.Context) {
 	var result *string
 	var err error
 	subId := c.Param("subid")
+	hostname := getRequestHostname(c)
 	format, isFormat := c.GetQuery("format")
 	if isFormat {
 		switch format {
 		case "json":
-			result, headers, err = s.JsonService.GetJson(subId, format)
+			result, headers, err = s.JsonService.GetJson(subId, format, hostname)
 		case "clash":
-			result, headers, err = s.ClashService.GetClash(subId)
+			result, headers, err = s.ClashService.GetClash(subId, hostname)
 		}
 		if err != nil || result == nil {
 			logger.Error(err)
@@ -43,7 +47,7 @@ func (s *SubHandler) subs(c *gin.Context) {
 			return
 		}
 	} else {
-		result, headers, err = s.SubService.GetSubs(subId)
+		result, headers, err = s.SubService.GetSubs(subId, hostname)
 		if err != nil || result == nil {
 			logger.Error(err)
 			c.String(400, "Error!")
@@ -54,6 +58,19 @@ func (s *SubHandler) subs(c *gin.Context) {
 	s.addHeaders(c, headers)
 
 	c.String(200, *result)
+}
+
+func getRequestHostname(c *gin.Context) string {
+	host := c.Request.Host
+	if strings.Contains(host, ":") {
+		if splitHost, _, err := net.SplitHostPort(host); err == nil {
+			host = splitHost
+			if strings.Contains(host, ":") {
+				host = "[" + strings.Trim(host, "[]") + "]"
+			}
+		}
+	}
+	return host
 }
 
 func (s *SubHandler) subHeaders(c *gin.Context) {

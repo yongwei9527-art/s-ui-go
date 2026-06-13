@@ -342,6 +342,11 @@ func canListen(network string, port int) bool {
 }
 
 func inboundJSON(inboundType string, tag string, tlsID uint, options map[string]interface{}, addrs []map[string]interface{}) json.RawMessage {
+	for _, addr := range addrs {
+		if _, exists := addr[util.AutoServerKey]; !exists {
+			addr[util.AutoServerKey] = true
+		}
+	}
 	data := map[string]interface{}{
 		"type":     inboundType,
 		"tag":      tag,

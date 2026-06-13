@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/yongwei9527-art/s-ui-go/database/model"
@@ -16,6 +17,84 @@ var InboundTypeWithLink = []string{"socks", "http", "mixed", "shadowsocks", "nai
 type LinkParam struct {
 	Key   string
 	Value string
+}
+
+const AutoServerKey = "auto_server"
+
+var seededDefaultInboundTagPrefixes = []string{
+	"vless-reality-",
+	"hy2-",
+	"tuic-",
+	"trojan-tls-",
+	"vmess-ws-tls-",
+	"ss-2022-",
+	"naive-tls-",
+	"anytls-",
+	"hysteria-tls-",
+}
+
+func IsSeededDefaultInboundTag(tag string) bool {
+	for _, prefix := range seededDefaultInboundTagPrefixes {
+		if strings.HasPrefix(tag, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func ResolveAddrServer(addr map[string]interface{}, hostname string, inboundTag string) string {
+	hostname = strings.TrimSpace(hostname)
+	server, _ := addr["server"].(string)
+	server = strings.TrimSpace(server)
+	if strings.HasPrefix(server, "[") && strings.HasSuffix(server, "]") {
+		server = strings.Trim(server, "[]")
+	}
+
+	autoServer, _ := boolValue(addr, AutoServerKey)
+	if hostname != "" && (autoServer || server == "" || IsSeededDefaultInboundTag(inboundTag)) {
+		if strings.HasPrefix(hostname, "[") && strings.HasSuffix(hostname, "]") {
+			return strings.Trim(hostname, "[]")
+		}
+		return hostname
+	}
+	return server
+}
+
+func FormatLinkHost(host string) string {
+	host = strings.TrimSpace(host)
+	if host == "" || strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+		return host
+	}
+	if strings.Contains(host, ":") {
+		return "[" + strings.Trim(host, "[]") + "]"
+	}
+	return host
+}
+
+func addrServerForLink(addr map[string]interface{}, hostname string, inboundTag string) string {
+	return FormatLinkHost(ResolveAddrServer(addr, hostname, inboundTag))
+}
+
+func AddrServerPort(addr map[string]interface{}) float64 {
+	switch port := addr["server_port"].(type) {
+	case float64:
+		return port
+	case float32:
+		return float64(port)
+	case int:
+		return float64(port)
+	case int64:
+		return float64(port)
+	case uint:
+		return float64(port)
+	case uint64:
+		return float64(port)
+	case json.Number:
+		parsed, _ := strconv.ParseFloat(string(port), 64)
+		return parsed
+	default:
+		return 0
+	}
 }
 
 func LinkGenerator(clientConfig json.RawMessage, i *model.Inbound, hostname string) []string {
@@ -66,6 +145,9 @@ func LinkGenerator(clientConfig json.RawMessage, i *model.Inbound, hostname stri
 				Addrs[index]["tls"] = newTls
 			}
 		}
+	}
+	for index := range Addrs {
+		Addrs[index]["server"] = ResolveAddrServer(Addrs[index], hostname, i.Tag)
 	}
 
 	switch i.Type {
@@ -139,7 +221,7 @@ func prepareTls(t *model.Tls) map[string]interface{} {
 func socksLink(userConfig map[string]interface{}, addrs []map[string]interface{}) []string {
 	var links []string
 	for _, addr := range addrs {
-		links = append(links, fmt.Sprintf("socks5://%s:%s@%s:%d", userConfig["username"], userConfig["password"], addr["server"].(string), uint(addr["server_port"].(float64))))
+		links = append(links, fmt.Sprintf("socks5://%s:%s@%s:%d", userConfig["username"], userConfig["password"], addrServerForLink(addr, "", ""), uint(AddrServerPort(addr))))
 	}
 	return links
 }
@@ -151,7 +233,7 @@ func httpLink(userConfig map[string]interface{}, addrs []map[string]interface{})
 		if addr["tls"] != nil {
 			protocol = "https"
 		}
-		links = append(links, fmt.Sprintf("%s://%s:%s@%s:%d", protocol, userConfig["username"], userConfig["password"], addr["server"].(string), uint(addr["server_port"].(float64))))
+		links = append(links, fmt.Sprintf("%s://%s:%s@%s:%d", protocol, userConfig["username"], userConfig["password"], addrServerForLink(addr, "", ""), uint(AddrServerPort(addr))))
 	}
 	return links
 }
@@ -179,8 +261,8 @@ func shadowsocksLink(
 
 	var links []string
 	for _, addr := range addrs {
-		port, _ := addr["server_port"].(float64)
-		links = append(links, fmt.Sprintf("%s@%s:%.0f#%s", uriBase, addr["server"].(string), port, addr["remark"].(string)))
+		port := AddrServerPort(addr)
+		links = append(links, fmt.Sprintf("%s@%s:%.0f#%s", uriBase, addrServerForLink(addr, "", ""), port, addr["remark"].(string)))
 	}
 	return links
 }
@@ -216,8 +298,8 @@ func naiveLink(
 			params = append(params, LinkParam{"tfo", "0"})
 		}
 
-		port, _ := addr["server_port"].(float64)
-		uri := baseUri + toBase64([]byte(fmt.Sprintf("%s:%s@%s:%.0f", username, password, addr["server"].(string), port)))
+		port := AddrServerPort(addr)
+		uri := baseUri + toBase64([]byte(fmt.Sprintf("%s:%s@%s:%.0f", username, password, addrServerForLink(addr, "", ""), port)))
 		links = append(links, addParams(uri, params, addr["remark"].(string)))
 	}
 	return links
@@ -261,8 +343,8 @@ func hysteriaLink(
 			params = append(params, LinkParam{"mport", strings.Join(mport, ",")})
 		}
 
-		port, _ := addr["server_port"].(float64)
-		uri := fmt.Sprintf("%s%s:%.0f", baseUri, addr["server"].(string), port)
+		port := AddrServerPort(addr)
+		uri := fmt.Sprintf("%s%s:%.0f", baseUri, addrServerForLink(addr, "", ""), port)
 		links = append(links, addParams(uri, params, addr["remark"].(string)))
 	}
 
@@ -310,8 +392,8 @@ func hysteria2Link(
 			params = append(params, LinkParam{"mport", strings.Join(mport, ",")})
 		}
 
-		port, _ := addr["server_port"].(float64)
-		uri := fmt.Sprintf("%s%s:%.0f", baseUri, addr["server"].(string), port)
+		port := AddrServerPort(addr)
+		uri := fmt.Sprintf("%s%s:%.0f", baseUri, addrServerForLink(addr, "", ""), port)
 		links = append(links, addParams(uri, params, addr["remark"].(string)))
 	}
 
@@ -332,8 +414,8 @@ func anytlsLink(
 			getTlsParams(&params, tls, "insecure")
 		}
 
-		port, _ := addr["server_port"].(float64)
-		uri := fmt.Sprintf("%s%s:%.0f", baseUri, addr["server"].(string), port)
+		port := AddrServerPort(addr)
+		uri := fmt.Sprintf("%s%s:%.0f", baseUri, addrServerForLink(addr, "", ""), port)
 		links = append(links, addParams(uri, params, addr["remark"].(string)))
 	}
 
@@ -359,8 +441,8 @@ func tuicLink(
 			params = append(params, LinkParam{"congestion_control", congestionControl})
 		}
 
-		port, _ := addr["server_port"].(float64)
-		uri := fmt.Sprintf("%s%s:%.0f", baseUri, addr["server"].(string), port)
+		port := AddrServerPort(addr)
+		uri := fmt.Sprintf("%s%s:%.0f", baseUri, addrServerForLink(addr, "", ""), port)
 		links = append(links, addParams(uri, params, addr["remark"].(string)))
 	}
 
@@ -385,8 +467,8 @@ func vlessLink(
 				params = append(params, LinkParam{"flow", flow})
 			}
 		}
-		port, _ := addr["server_port"].(float64)
-		uri := fmt.Sprintf("vless://%s@%s:%.0f", uuid, addr["server"].(string), port)
+		port := AddrServerPort(addr)
+		uri := fmt.Sprintf("vless://%s@%s:%.0f", uuid, addrServerForLink(addr, "", ""), port)
 		uri = addParams(uri, params, addr["remark"].(string))
 		links = append(links, uri)
 	}
@@ -408,8 +490,8 @@ func trojanLink(
 		if tls, ok := addr["tls"].(map[string]interface{}); ok && enabledValue(tls, "enabled", false) {
 			getTlsParams(&params, tls, "allowInsecure")
 		}
-		port, _ := addr["server_port"].(float64)
-		uri := fmt.Sprintf("trojan://%s@%s:%.0f", password, addr["server"].(string), port)
+		port := AddrServerPort(addr)
+		uri := fmt.Sprintf("trojan://%s@%s:%.0f", password, addrServerForLink(addr, "", ""), port)
 		uri = addParams(uri, params, addr["remark"].(string))
 		links = append(links, uri)
 	}
@@ -459,8 +541,8 @@ func vmessLink(
 			obj[k] = v
 		}
 
-		obj["add"], _ = addr["server"].(string)
-		port, _ := addr["server_port"].(float64)
+		obj["add"] = ResolveAddrServer(addr, "", "")
+		port := AddrServerPort(addr)
 		obj["port"] = fmt.Sprintf("%.0f", port)
 		obj["ps"], _ = addr["remark"].(string)
 		if typ != "" {

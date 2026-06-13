@@ -48,7 +48,7 @@ type JsonService struct {
 	LinkService
 }
 
-func (j *JsonService) GetJson(subId string, format string) (*string, []string, error) {
+func (j *JsonService) GetJson(subId string, format string, hostname string) (*string, []string, error) {
 	var jsonConfig map[string]interface{}
 
 	client, inDatas, err := j.getData(subId)
@@ -57,7 +57,7 @@ func (j *JsonService) GetJson(subId string, format string) (*string, []string, e
 	}
 
 	checks := NewSubscriptionCheckReport()
-	outbounds, outTags, err := j.getOutbounds(client.Config, inDatas, checks)
+	outbounds, outTags, err := j.getOutbounds(client.Config, inDatas, checks, hostname)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -120,7 +120,7 @@ func (j *JsonService) getData(subId string) (*model.Client, []*model.Inbound, er
 	return client, inbounds, nil
 }
 
-func (j *JsonService) getOutbounds(clientConfig json.RawMessage, inbounds []*model.Inbound, checks *SubscriptionCheckReport) (*[]map[string]interface{}, *[]string, error) {
+func (j *JsonService) getOutbounds(clientConfig json.RawMessage, inbounds []*model.Inbound, checks *SubscriptionCheckReport, hostname string) (*[]map[string]interface{}, *[]string, error) {
 	var outbounds []map[string]interface{}
 	var configs map[string]interface{}
 	var outTags []string
@@ -139,6 +139,9 @@ func (j *JsonService) getOutbounds(clientConfig json.RawMessage, inbounds []*mod
 			return nil, nil, err
 		}
 		protocol, _ := outbound["type"].(string)
+		if hostname != "" && util.IsSeededDefaultInboundTag(inData.Tag) {
+			outbound["server"] = hostname
+		}
 		checks.CheckProtocolCredentials(protocol, configs, inData, outbound)
 
 		// Shadowsocks
@@ -197,9 +200,8 @@ func (j *JsonService) getOutbounds(clientConfig json.RawMessage, inbounds []*mod
 					newOut[key] = value
 				}
 				// Change and push copied config
-				newOut["server"], _ = addr["server"].(string)
-				port, _ := addr["server_port"].(float64)
-				newOut["server_port"] = int(port)
+				newOut["server"] = util.ResolveAddrServer(addr, hostname, inData.Tag)
+				newOut["server_port"] = int(util.AddrServerPort(addr))
 
 				// Override TLS
 				if addrTls, ok := addr["tls"].(map[string]interface{}); ok {

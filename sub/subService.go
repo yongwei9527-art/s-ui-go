@@ -2,6 +2,7 @@ package sub
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -17,7 +18,7 @@ type SubService struct {
 	LinkService
 }
 
-func (s *SubService) GetSubs(subId string) (*string, []string, error) {
+func (s *SubService) GetSubs(subId string, hostname string) (*string, []string, error) {
 	var err error
 
 	client, err := s.getClientBySubId(subId)
@@ -31,7 +32,11 @@ func (s *SubService) GetSubs(subId string) (*string, []string, error) {
 		clientInfo = s.getClientInfo(client)
 	}
 
-	linksArray := s.LinkService.GetLinks(&client.Links, "all", clientInfo)
+	linksArray, err := s.getLocalLinks(client, hostname, clientInfo)
+	if err != nil {
+		return nil, nil, err
+	}
+	linksArray = append(linksArray, s.LinkService.GetLinks(&client.Links, "external", "")...)
 	result := strings.Join(linksArray, "\n")
 
 	headers := s.getClientHeaders(client)
@@ -42,6 +47,30 @@ func (s *SubService) GetSubs(subId string) (*string, []string, error) {
 	}
 
 	return &result, headers, nil
+}
+
+func (s *SubService) getLocalLinks(client *model.Client, hostname string, clientInfo string) ([]string, error) {
+	var inboundIDs []uint
+	if err := json.Unmarshal(client.Inbounds, &inboundIDs); err != nil {
+		return nil, err
+	}
+	if len(inboundIDs) == 0 {
+		return nil, nil
+	}
+
+	db := database.GetDB()
+	inbounds := make([]model.Inbound, 0)
+	if err := db.Model(model.Inbound{}).Preload("Tls").Where("id in ? and type in ?", inboundIDs, util.InboundTypeWithLink).Find(&inbounds).Error; err != nil {
+		return nil, err
+	}
+
+	links := make([]string, 0)
+	for _, inbound := range inbounds {
+		for _, link := range util.LinkGenerator(client.Config, &inbound, hostname) {
+			links = append(links, s.addClientInfo(link, clientInfo))
+		}
+	}
+	return links, nil
 }
 
 func (j *SubService) getClientBySubId(subId string) (*model.Client, error) {
