@@ -36,6 +36,13 @@ func (s *SubService) GetSubs(subId string, hostname string) (*string, []string, 
 	if err != nil {
 		return nil, nil, err
 	}
+	xrayLinks, xrayErr := (&service.XrayXHTTPService{}).LinksForClient(client.Id, hostname)
+	if xrayErr != nil {
+		return nil, nil, xrayErr
+	}
+	for _, link := range xrayLinks {
+		linksArray = append(linksArray, s.addClientInfo(link, clientInfo))
+	}
 	linksArray = append(linksArray, s.LinkService.GetLinks(&client.Links, "external", "")...)
 	result := strings.Join(linksArray, "\n")
 
@@ -90,7 +97,6 @@ func (s *SubService) getClientHeaders(client *model.Client) []string {
 
 func (s *SubService) getClientInfo(c *model.Client) string {
 	now := time.Now().Unix()
-
 	var result []string
 	if vol := c.Volume - (c.Up + c.Down); vol > 0 {
 		result = append(result, fmt.Sprintf("%s%s", s.formatTraffic(vol), "📊"))

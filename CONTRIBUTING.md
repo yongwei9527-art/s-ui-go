@@ -37,7 +37,7 @@ git clone https://github.com/yongwei9527-art/s-ui-go
 cd s-ui-go
 ```
 
-The frontend source lives under `frontend/` in this repository. Some upstream or older workflows may still use a frontend submodule; if so, initialize submodules as required by that checkout. If you only work on the backend, you can use the existing `web/html` contents or build the frontend once (see below).
+The current frontend source lives solely under `frontend/` in this repository. The Go web server embeds the generated `frontend/dist` output directly. If you only work on the backend, build the frontend once before compiling the Go binary.
 
 ### Backend-Only Development (quickest)
 
@@ -69,12 +69,9 @@ The frontend source lives under `frontend/` in this repository. Some upstream or
    cd ..
    ```
 
-2. **Replace web assets and build backend**:
+2. **Build backend**:
 
    ```bash
-   mkdir -p web/html
-   rm -rf web/html/*
-   cp -R frontend/dist/* web/html/
    go build -ldflags "-w -s" -tags "with_quic,with_grpc,with_utls,with_acme,with_gvisor,with_tailscale" -o sui main.go
    ```
 
@@ -90,7 +87,7 @@ On Windows PowerShell, prefer the root build script for local and release builds
 .\build-windows.ps1 -System windows -Architecture amd64 -Package -NonInteractive
 ```
 
-Use `-SkipFrontend` only when `web/html/` already exists from a previous frontend build. The `web/html/` directory is generated from `frontend/dist/` for Go embedding; do not edit it manually.
+Use `-SkipFrontend` only when `frontend/dist/index.html` already exists from a previous frontend build. The Go web server embeds `frontend/dist/` directly; modify `frontend/src/` and rebuild instead of editing generated assets.
 
 ### Build Tags
 

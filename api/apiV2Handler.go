@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"sync"
 	"time"
 
 	"github.com/yongwei9527-art/s-ui-go/logger"
@@ -18,7 +19,8 @@ type TokenInMemory struct {
 
 type APIv2Handler struct {
 	ApiService
-	tokens *[]TokenInMemory
+	tokensMu sync.RWMutex
+	tokens   []TokenInMemory
 }
 
 func NewAPIv2Handler(g *gin.RouterGroup) *APIv2Handler {
@@ -47,6 +49,12 @@ func (a *APIv2Handler) postHandler(c *gin.Context) {
 		a.ApiService.RestartApp(c)
 	case "restartSb":
 		a.ApiService.RestartSb(c)
+	case "xray-xhttp-save":
+		a.ApiService.SaveXrayXHTTP(c)
+	case "xray-xhttp-delete":
+		a.ApiService.DeleteXrayXHTTP(c)
+	case "restartXrayXHTTP":
+		a.ApiService.RestartXrayXHTTP(c)
 	case "linkConvert":
 		a.ApiService.LinkConvert(c)
 	case "subConvert":
@@ -78,8 +86,6 @@ func (a *APIv2Handler) getHandler(c *gin.Context) {
 		a.ApiService.GetStats(c)
 	case "status":
 		a.ApiService.GetStatus(c)
-	case "dnsLeakGuardCheck":
-		a.ApiService.GetDNSLeakGuardCheck(c)
 	case "onlines":
 		a.ApiService.GetOnlines(c)
 	case "logs":
@@ -92,6 +98,8 @@ func (a *APIv2Handler) getHandler(c *gin.Context) {
 		a.ApiService.GetDb(c)
 	case "checkOutbound":
 		a.ApiService.GetCheckOutbound(c)
+	case "xray-xhttp":
+		a.ApiService.GetXrayXHTTP(c)
 	default:
 		jsonMsg(c, "failed", common.NewError("unknown action: ", action))
 	}
@@ -99,10 +107,13 @@ func (a *APIv2Handler) getHandler(c *gin.Context) {
 
 func (a *APIv2Handler) findUsername(c *gin.Context) string {
 	token := c.Request.Header.Get("Token")
-	if token == "" || a.tokens == nil {
+	if token == "" {
 		return ""
 	}
-	for _, t := range *a.tokens {
+
+	a.tokensMu.RLock()
+	defer a.tokensMu.RUnlock()
+	for _, t := range a.tokens {
 		if t.Expiry > 0 && t.Expiry < time.Now().Unix() {
 			continue
 		}
@@ -124,17 +135,17 @@ func (a *APIv2Handler) checkToken(c *gin.Context) {
 }
 
 func (a *APIv2Handler) ReloadTokens() {
+	var newTokens []TokenInMemory
 	tokens, err := a.ApiService.LoadTokens()
 	if err == nil {
-		var newTokens []TokenInMemory
 		err = json.Unmarshal(tokens, &newTokens)
-		if err != nil {
-			logger.Error("unable to load tokens: ", err)
-		}
-		a.tokens = &newTokens
-	} else {
-		emptyTokens := []TokenInMemory{}
-		a.tokens = &emptyTokens
-		logger.Error("unable to load tokens: ", err)
 	}
+	if err != nil {
+		logger.Error("unable to load tokens: ", err)
+		newTokens = []TokenInMemory{}
+	}
+
+	a.tokensMu.Lock()
+	a.tokens = newTokens
+	a.tokensMu.Unlock()
 }

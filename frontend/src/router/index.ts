@@ -25,6 +25,11 @@ const routes = [
         component: () => import('@/views/Inbounds.vue'),
       },
       {
+        path: '/xray-xhttp',
+        name: 'pages.xrayXhttp',
+        component: () => import('@/views/XrayXHTTP.vue'),
+      },
+      {
         path: '/clients',
         name: 'pages.clients',
         component: () => import('@/views/Clients.vue'),

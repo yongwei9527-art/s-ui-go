@@ -35,7 +35,7 @@ if ($Help) {
     Write-Host ""
     Write-Host "参数："
     Write-Host "  -NoCGO                关闭 CGO，适合从 Windows 交叉构建 Linux/macOS 包"
-    Write-Host "  -SkipFrontend         跳过前端构建；需要已有 web/html 嵌入资源"
+    Write-Host "  -SkipFrontend         跳过前端构建；需要已有 frontend/dist 嵌入资源"
     Write-Host "  -Package              生成 dist/*.zip 发布压缩包"
     Write-Host "  -NonInteractive       构建完成后不等待输入"
     Write-Host "  -ListCleanCandidates  只列出本地可清理候选，不删除任何文件"
@@ -84,7 +84,6 @@ function Show-CleanCandidates {
     Write-Host ""
     Write-Host "生成目录 / Generated directories:" -ForegroundColor Cyan
     Write-CleanCandidate "frontend\dist" "前端 Vite 构建输出"
-    Write-CleanCandidate "web\html" "复制到 Go embed 的前端构建产物；重新构建前端会生成"
     Write-CleanCandidate "release-assets" "本地发布暂存目录"
 
     if (Test-Path "dist") {
@@ -158,16 +157,12 @@ if (!$SkipFrontend) {
     }
     Pop-Location
 
-    Write-Host "正在重建 web/html 目录..." -ForegroundColor Yellow
-    if (Test-Path "web\html") {
-        Remove-Item "web\html" -Recurse -Force
-    }
-    New-Item -ItemType Directory -Path "web\html" -Force | Out-Null
-
-    Write-Host "正在复制前端构建产物..." -ForegroundColor Yellow
-    Copy-Item "frontend\dist\*" "web\html\" -Recurse -Force
+    Write-Host "前端构建产物将由 Go 直接嵌入 frontend/dist。" -ForegroundColor Green
 } else {
-    Write-Host "已跳过前端构建。" -ForegroundColor Yellow
+    if (!(Test-Path "frontend\dist\index.html")) {
+        Stop-WithMessage "已跳过前端构建，但未找到 frontend/dist/index.html。"
+    }
+    Write-Host "已跳过前端构建，使用现有 frontend/dist 嵌入资源。" -ForegroundColor Yellow
 }
 
 $env:GOOS = $System
@@ -187,7 +182,7 @@ if (Test-Path $output) {
     Write-Host "正在移除旧输出文件：$output" -ForegroundColor Yellow
     Remove-Item $output -Force
 }
-$tags = "with_quic,with_grpc,with_utls,with_acme,with_gvisor,with_tailscale"
+$tags = "with_quic,with_grpc,with_utls,with_acme,with_gvisor,with_tailscale,with_naive_outbound,with_purego"
 $buildArgs = @("build", "-ldflags", "-w -s", "-tags", $tags, "-o", $output, "main.go")
 
 try {
@@ -223,7 +218,6 @@ if ($Package) {
     Copy-Item $output $packageDir -Force
     Copy-Item "RELEASE_NOTES.md" $packageDir -Force -ErrorAction SilentlyContinue
     Copy-Item "PROTOCOL_GUIDE.md" $packageDir -Force -ErrorAction SilentlyContinue
-    Copy-Item "DNS_LEAK_GUARD_GUIDE.md" $packageDir -Force -ErrorAction SilentlyContinue
 
     if ($System -eq "windows") {
         Copy-Item "s-ui-windows.xml" $packageDir -Force -ErrorAction SilentlyContinue

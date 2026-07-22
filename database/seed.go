@@ -21,7 +21,18 @@ import (
 	"gorm.io/gorm"
 )
 
-const defaultTemplateClientName = "default-user"
+const (
+	defaultTemplateClientName = "default-user"
+
+	// selfSignedTLSBootstrapOnlySuffix is persisted in the TLS template name so
+	// operators can distinguish the first-boot, self-signed templates from TLS
+	// configurations that are suitable for production use.
+	//
+	// These templates intentionally use client insecure: true because their
+	// generated certificate is self-signed. Replace the certificate and disable
+	// insecure verification before exposing the corresponding inbound publicly.
+	selfSignedTLSBootstrapOnlySuffix = "-self-signed-bootstrap-only"
+)
 
 type seededTLS struct {
 	id   uint
@@ -64,35 +75,35 @@ func seedDefaultTlsTemplates(tx *gorm.DB) (map[string]seededTLS, error) {
 	if err != nil {
 		return nil, err
 	}
-	hy2TLS, err := buildSelfSignedTLS("tls-hy2", "tls1.tcm.mmbing.net", []string{"h3"})
+	hy2TLS, err := buildBootstrapOnlySelfSignedTLS("tls-hy2", "tls1.tcm.mmbing.net", []string{"h3"})
 	if err != nil {
 		return nil, err
 	}
-	tuicTLS, err := buildSelfSignedTLS("tls-tuic", "snap.licdn.com", []string{"h3"})
+	tuicTLS, err := buildBootstrapOnlySelfSignedTLS("tls-tuic", "snap.licdn.com", []string{"h3"})
 	if err != nil {
 		return nil, err
 	}
-	trojanTLS, err := buildSelfSignedTLS("tls-trojan", "snap.licdn.com", []string{"http/1.1"})
+	trojanTLS, err := buildBootstrapOnlySelfSignedTLS("tls-trojan", "snap.licdn.com", []string{"http/1.1"})
 	if err != nil {
 		return nil, err
 	}
-	trojanWSTLS, err := buildSelfSignedTLS("tls-trojan-ws", "snap.licdn.com", []string{"http/1.1"})
+	trojanWSTLS, err := buildBootstrapOnlySelfSignedTLS("tls-trojan-ws", "snap.licdn.com", []string{"http/1.1"})
 	if err != nil {
 		return nil, err
 	}
-	vmessWSTLS, err := buildSelfSignedTLS("tls-vmess-ws", "snap.licdn.com", []string{"http/1.1"})
+	vmessWSTLS, err := buildBootstrapOnlySelfSignedTLS("tls-vmess-ws", "snap.licdn.com", []string{"http/1.1"})
 	if err != nil {
 		return nil, err
 	}
-	naiveTLS, err := buildSelfSignedTLS("tls-naive", "snap.licdn.com", []string{"h2", "http/1.1"})
+	naiveTLS, err := buildBootstrapOnlySelfSignedTLS("tls-naive", "snap.licdn.com", []string{"h2", "http/1.1"})
 	if err != nil {
 		return nil, err
 	}
-	anyTLSTLS, err := buildSelfSignedTLS("tls-anytls", "snap.licdn.com", []string{"http/1.1"})
+	anyTLSTLS, err := buildBootstrapOnlySelfSignedTLS("tls-anytls", "snap.licdn.com", []string{"http/1.1"})
 	if err != nil {
 		return nil, err
 	}
-	hysteriaTLS, err := buildSelfSignedTLS("tls-hysteria", "tls1.tcm.mmbing.net", []string{"h3"})
+	hysteriaTLS, err := buildBootstrapOnlySelfSignedTLS("tls-hysteria", "tls1.tcm.mmbing.net", []string{"h3"})
 	if err != nil {
 		return nil, err
 	}
@@ -152,7 +163,11 @@ func buildRealityTLS(name string, serverName string) (model.Tls, error) {
 	return tlsModel(name, server, client)
 }
 
-func buildSelfSignedTLS(name string, serverName string, alpn []string) (model.Tls, error) {
+// buildBootstrapOnlySelfSignedTLS creates an initial-connectivity TLS template.
+// The name marker is a guardrail: a self-signed certificate requires client
+// insecure verification, so it must not be presented as a production TLS default.
+func buildBootstrapOnlySelfSignedTLS(baseName string, serverName string, alpn []string) (model.Tls, error) {
+	name := bootstrapOnlySelfSignedTLSName(baseName)
 	privateKeyPEM, certPEM, err := tls.GenerateCertificate(nil, nil, time.Now, serverName, time.Now().AddDate(1, 0, 0))
 	if err != nil {
 		return model.Tls{}, err
@@ -185,6 +200,109 @@ func buildSelfSignedTLS(name string, serverName string, alpn []string) (model.Tl
 	return tlsModel(name, server, client)
 }
 
+func bootstrapOnlySelfSignedTLSName(baseName string) string {
+	return baseName + selfSignedTLSBootstrapOnlySuffix
+}
+
+type legacyBootstrapOnlyTLSSpec struct {
+	name       string
+	serverName string
+	alpn       []string
+}
+
+var legacyBootstrapOnlyTLSSpecs = []legacyBootstrapOnlyTLSSpec{
+	{name: "tls-hy2", serverName: "tls1.tcm.mmbing.net", alpn: []string{"h3"}},
+	{name: "tls-tuic", serverName: "snap.licdn.com", alpn: []string{"h3"}},
+	{name: "tls-trojan", serverName: "snap.licdn.com", alpn: []string{"http/1.1"}},
+	{name: "tls-trojan-ws", serverName: "snap.licdn.com", alpn: []string{"http/1.1"}},
+	{name: "tls-vmess-ws", serverName: "snap.licdn.com", alpn: []string{"http/1.1"}},
+	{name: "tls-naive", serverName: "snap.licdn.com", alpn: []string{"h2", "http/1.1"}},
+	{name: "tls-anytls", serverName: "snap.licdn.com", alpn: []string{"http/1.1"}},
+	{name: "tls-hysteria", serverName: "tls1.tcm.mmbing.net", alpn: []string{"h3"}},
+}
+
+// migrateLegacyBootstrapOnlyTLSTemplateNames upgrades only the old generated
+// self-signed templates. The structural match is intentionally strict: a name
+// match alone must never rename a user-maintained TLS template during startup.
+//
+// The update changes only the display name. Existing inbound TLS IDs and all
+// certificate/configuration bytes remain untouched, so it is safe to run on
+// every startup and naturally idempotent after the first successful update.
+func migrateLegacyBootstrapOnlyTLSTemplateNames(tx *gorm.DB) error {
+	for _, spec := range legacyBootstrapOnlyTLSSpecs {
+		var candidates []model.Tls
+		if err := tx.Where("name = ?", spec.name).Find(&candidates).Error; err != nil {
+			return err
+		}
+		for _, candidate := range candidates {
+			if !matchesLegacyBootstrapOnlyTLS(candidate, spec) {
+				continue
+			}
+			if err := tx.Model(&model.Tls{}).
+				Where("id = ? AND name = ?", candidate.Id, spec.name).
+				Update("name", bootstrapOnlySelfSignedTLSName(spec.name)).Error; err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func matchesLegacyBootstrapOnlyTLS(template model.Tls, spec legacyBootstrapOnlyTLSSpec) bool {
+	var server, client map[string]interface{}
+	if json.Unmarshal(template.Server, &server) != nil || json.Unmarshal(template.Client, &client) != nil {
+		return false
+	}
+	if !bootstrapOnlyTLSSettingsMatch(server, spec, true) || !bootstrapOnlyTLSSettingsMatch(client, spec, false) {
+		return false
+	}
+
+	utls, ok := client["utls"].(map[string]interface{})
+	if !ok || utls["enabled"] != true || utls["fingerprint"] != "chrome" {
+		return false
+	}
+	return hasNonEmptyStringList(server["certificate"]) && hasNonEmptyStringList(server["key"])
+}
+
+func bootstrapOnlyTLSSettingsMatch(settings map[string]interface{}, spec legacyBootstrapOnlyTLSSpec, server bool) bool {
+	if settings["enabled"] != true || settings["server_name"] != spec.serverName ||
+		settings["min_version"] != "1.2" || settings["max_version"] != "1.3" ||
+		!stringListMatches(settings["alpn"], spec.alpn) || !stringListMatches(settings["cipher_suites"], nil) {
+		return false
+	}
+	if !server && settings["insecure"] != true {
+		return false
+	}
+	_, hasReality := settings["reality"]
+	return !hasReality
+}
+
+func stringListMatches(value interface{}, expected []string) bool {
+	values, ok := value.([]interface{})
+	if !ok || len(values) != len(expected) {
+		return false
+	}
+	for index, expectedValue := range expected {
+		if values[index] != expectedValue {
+			return false
+		}
+	}
+	return true
+}
+
+func hasNonEmptyStringList(value interface{}) bool {
+	values, ok := value.([]interface{})
+	if !ok || len(values) == 0 {
+		return false
+	}
+	for _, value := range values {
+		if stringValue, ok := value.(string); !ok || stringValue == "" {
+			return false
+		}
+	}
+	return true
+}
+
 func tlsModel(name string, server map[string]interface{}, client map[string]interface{}) (model.Tls, error) {
 	serverJSON, err := json.MarshalIndent(server, "", "  ")
 	if err != nil {
@@ -215,14 +333,14 @@ func seedDefaultInbounds(tx *gorm.DB, tlsTemplates map[string]seededTLS, seedHos
 			"listen_port": vlessPort,
 			"transport":   map[string]interface{}{},
 		}, []map[string]interface{}{{"server": seedHost, "server_port": vlessPort, "remark": inboundTag("vless-reality", vlessPort)}}),
-		inboundJSON("hysteria2", inboundTag("hy2", hy2Port), tlsTemplates["tls-hy2"].id, map[string]interface{}{
+		inboundJSON("hysteria2", inboundTag("hy2", hy2Port), tlsTemplates[bootstrapOnlySelfSignedTLSName("tls-hy2")].id, map[string]interface{}{
 			"listen":                  "0.0.0.0",
 			"listen_port":             hy2Port,
 			"udp_fragment":            true,
 			"udp_timeout":             "5m",
 			"ignore_client_bandwidth": true,
 		}, []map[string]interface{}{{"server": seedHost, "server_port": hy2Port, "remark": inboundTag("hy2", hy2Port), "tls": true, "insecure": true}}),
-		inboundJSON("tuic", inboundTag("tuic", tuicPort), tlsTemplates["tls-tuic"].id, map[string]interface{}{
+		inboundJSON("tuic", inboundTag("tuic", tuicPort), tlsTemplates[bootstrapOnlySelfSignedTLSName("tls-tuic")].id, map[string]interface{}{
 			"listen":             "0.0.0.0",
 			"listen_port":        tuicPort,
 			"congestion_control": "cubic",
@@ -231,12 +349,12 @@ func seedDefaultInbounds(tx *gorm.DB, tlsTemplates map[string]seededTLS, seedHos
 			"udp_fragment":       true,
 			"udp_timeout":        "5m",
 		}, []map[string]interface{}{{"server": seedHost, "server_port": tuicPort, "remark": inboundTag("tuic", tuicPort), "tls": true, "insecure": true}}),
-		inboundJSON("trojan", inboundTag("trojan-tls", trojanPort), tlsTemplates["tls-trojan"].id, map[string]interface{}{
+		inboundJSON("trojan", inboundTag("trojan-tls", trojanPort), tlsTemplates[bootstrapOnlySelfSignedTLSName("tls-trojan")].id, map[string]interface{}{
 			"listen":      "0.0.0.0",
 			"listen_port": trojanPort,
 			"transport":   map[string]interface{}{},
 		}, []map[string]interface{}{{"server": seedHost, "server_port": trojanPort, "remark": inboundTag("trojan-tls", trojanPort), "tls": true, "insecure": true}}),
-		inboundJSON("vmess", inboundTag("vmess-ws-tls", vmessPort), tlsTemplates["tls-vmess-ws"].id, map[string]interface{}{
+		inboundJSON("vmess", inboundTag("vmess-ws-tls", vmessPort), tlsTemplates[bootstrapOnlySelfSignedTLSName("tls-vmess-ws")].id, map[string]interface{}{
 			"listen":      "0.0.0.0",
 			"listen_port": vmessPort,
 			"transport": map[string]interface{}{
@@ -253,11 +371,11 @@ func seedDefaultInbounds(tx *gorm.DB, tlsTemplates map[string]seededTLS, seedHos
 			"method":      "2022-blake3-aes-128-gcm",
 			"password":    shadowsocksServerPassword,
 		}, []map[string]interface{}{{"server": seedHost, "server_port": shadowsocksPort, "remark": inboundTag("ss-2022", shadowsocksPort)}}),
-		inboundJSON("naive", inboundTag("naive-tls", naivePort), tlsTemplates["tls-naive"].id, map[string]interface{}{
+		inboundJSON("naive", inboundTag("naive-tls", naivePort), tlsTemplates[bootstrapOnlySelfSignedTLSName("tls-naive")].id, map[string]interface{}{
 			"listen":      "0.0.0.0",
 			"listen_port": naivePort,
 		}, []map[string]interface{}{{"server": seedHost, "server_port": naivePort, "remark": inboundTag("naive-tls", naivePort), "tls": true, "insecure": true}}),
-		inboundJSON("anytls", inboundTag("anytls", anyTLSPort), tlsTemplates["tls-anytls"].id, map[string]interface{}{
+		inboundJSON("anytls", inboundTag("anytls", anyTLSPort), tlsTemplates[bootstrapOnlySelfSignedTLSName("tls-anytls")].id, map[string]interface{}{
 			"listen":      "0.0.0.0",
 			"listen_port": anyTLSPort,
 			"padding_scheme": []string{
@@ -272,7 +390,7 @@ func seedDefaultInbounds(tx *gorm.DB, tlsTemplates map[string]seededTLS, seedHos
 				"7=500-1000",
 			},
 		}, []map[string]interface{}{{"server": seedHost, "server_port": anyTLSPort, "remark": inboundTag("anytls", anyTLSPort), "tls": true, "insecure": true}}),
-		inboundJSON("hysteria", inboundTag("hysteria-tls", hysteriaPort), tlsTemplates["tls-hysteria"].id, map[string]interface{}{
+		inboundJSON("hysteria", inboundTag("hysteria-tls", hysteriaPort), tlsTemplates[bootstrapOnlySelfSignedTLSName("tls-hysteria")].id, map[string]interface{}{
 			"listen":       "0.0.0.0",
 			"listen_port":  hysteriaPort,
 			"up_mbps":      50,

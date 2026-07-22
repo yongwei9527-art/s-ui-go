@@ -1,13 +1,17 @@
 <template>
-  <v-row style="margin-bottom: 10px;">
+  <v-row class="basics-save-row">
     <v-col cols="12" justify="center" align="center">
-      <v-btn variant="outlined" color="warning" @click="saveConfig" :loading="loading" :disabled="stateChange">
+      <v-btn class="basics-save-action" variant="outlined" color="warning" @click="saveConfig" :loading="loading" :disabled="stateChange">
         {{ $t('actions.save') }}
       </v-btn>
     </v-col>
   </v-row>
-  <v-expansion-panels>
-    <v-expansion-panel :title="$t('basic.log.title')">
+  <v-expansion-panels class="basics-panels">
+    <v-expansion-panel>
+      <v-expansion-panel-title>
+        <v-icon class="basics-panel-icon" icon="mdi-text-box-outline" />
+        {{ $t('basic.log.title') }}
+      </v-expansion-panel-title>
       <v-expansion-panel-text>
         <v-row>
           <v-col cols="12" sm="6" md="3" lg="2">
@@ -36,7 +40,11 @@
         </v-row>
       </v-expansion-panel-text>
     </v-expansion-panel>
-    <v-expansion-panel title="NTP">
+    <v-expansion-panel>
+      <v-expansion-panel-title>
+        <v-icon class="basics-panel-icon" icon="mdi-clock-outline" />
+        NTP
+      </v-expansion-panel-title>
       <v-expansion-panel-text>
         <v-row>
           <v-col cols="12" sm="6" md="3" lg="2">
@@ -73,7 +81,11 @@
         <Dial :dial="appConfig.ntp" v-if="appConfig.ntp?.enabled" />
       </v-expansion-panel-text>
     </v-expansion-panel>
-    <v-expansion-panel title="Experimental">
+    <v-expansion-panel>
+      <v-expansion-panel-title>
+        <v-icon class="basics-panel-icon" icon="mdi-flask-outline" />
+        Experimental
+      </v-expansion-panel-title>
       <v-expansion-panel-text>
         <v-row>
           <v-col class="v-card-subtitle">Cache File</v-col>
@@ -322,3 +334,51 @@ const origin = computed({
     }
 })
 </script>
+
+<style scoped>
+.basics-save-row {
+  margin-bottom: 14px;
+}
+
+.basics-save-action {
+  min-width: 112px;
+}
+
+.basics-panels {
+  overflow: hidden;
+  border: 1px solid rgba(var(--v-border-color), 0.1);
+  border-radius: 20px;
+  background: rgba(var(--v-theme-surface), 0.76);
+  box-shadow: 0 14px 30px rgba(31, 45, 61, 0.08);
+  backdrop-filter: blur(14px);
+}
+
+.basics-panels :deep(.v-expansion-panel) {
+  background: transparent;
+}
+
+.basics-panels :deep(.v-expansion-panel + .v-expansion-panel) {
+  border-top: 1px solid rgba(var(--v-border-color), 0.1);
+}
+
+.basics-panels :deep(.v-expansion-panel-title) {
+  min-height: 62px;
+  padding-inline: 20px;
+  color: rgba(var(--v-theme-on-surface), 0.9);
+  font-size: var(--sui-font-size-title);
+  font-weight: 720;
+}
+
+.basics-panels :deep(.v-expansion-panel-title__overlay) {
+  opacity: 0.04;
+}
+
+.basics-panels :deep(.v-expansion-panel-text__wrapper) {
+  padding: 8px 20px 20px;
+}
+
+.basics-panel-icon {
+  margin-inline-end: 12px;
+  color: rgb(var(--v-theme-primary));
+}
+</style>

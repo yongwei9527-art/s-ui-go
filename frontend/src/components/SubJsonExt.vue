@@ -29,14 +29,6 @@
           hide-details
         ></v-select>
       </v-col>
-      <v-col cols="12" sm="6" md="4" lg="3">
-        <v-select
-          v-model="dnsMode"
-          :items="dnsModeItems"
-          :label="$t('dns.leakGuardMode')"
-          hide-details
-        ></v-select>
-      </v-col>
     </v-row>
     <v-row class="sub-ext-row" v-if="enableLog" align="start">
       <v-col cols="12" sm="6" md="3" lg="2">
@@ -124,14 +116,6 @@
             label="Strict Route"
           ></v-switch>
         </v-col>
-        <v-col cols="12" sm="6" md="3" lg="2" class="switch-col">
-          <v-switch
-            v-model="dnsHijack"
-            hide-details
-            color="primary"
-            label="DNS hijack"
-          ></v-switch>
-        </v-col>
       </v-row>
       <v-row class="sub-ext-row" align="start">
         <v-col cols="12" sm="6" md="4" lg="3">
@@ -195,11 +179,6 @@ export default {
       enableEditor: false,
       subJsonExt: <any>{},
       levels: ["trace", "debug", "info", "warn", "error", "fatal", "panic"],
-      dnsModeItems: [
-        { title: i18n.global.t('dns.leakGuardModes.off'), value: 'off' },
-        { title: i18n.global.t('dns.leakGuardModes.recommended'), value: 'recommended' },
-        { title: i18n.global.t('dns.leakGuardModes.strict'), value: 'strict' },
-      ],
       defaultLog: {
         "level": "info",
         "timestamp": true
@@ -386,31 +365,9 @@ export default {
       get() :boolean { return this.subJsonExt?.dns != undefined },
       set(v:boolean) {
         if (v) {
-          this.enableRecommendedDns()
+          this.subJsonExt.dns = this.cloneDefault(this.defaultDns)
         } else {
           delete this.subJsonExt.dns
-          const rules = this.subJsonExt?.rules?.filter((r:any) => !this.isDnsHijackRule(r)) ?? []
-          if (rules.length >= 0) this.subJsonExt.rules = rules
-          if ((this.rules?.length ?? 0) == 0) delete this.subJsonExt.rules
-          delete this.subJsonExt.default_domain_resolver
-        }
-      }
-    },
-    dnsMode: {
-      get() :string {
-        if (!this.enableDns) return 'off'
-        return this.subJsonExt?.default_domain_resolver ? 'strict' : 'recommended'
-      },
-      set(v:string) {
-        if (v == 'off') {
-          this.enableDns = false
-          return
-        }
-        this.enableRecommendedDns()
-        if (v == 'strict') {
-          this.subJsonExt.default_domain_resolver = this.dns?.final || 'proxy-dns'
-          this.dnsHijack = true
-        } else {
           delete this.subJsonExt.default_domain_resolver
         }
       }
@@ -475,26 +432,6 @@ export default {
       get() :boolean { return this.inbounds[0]?.platform != undefined },
       set(v:boolean) { this.subJsonExt.inbounds[0].platform = v ? this.defaultInb[0].platform : undefined }
     },
-    dnsHijack: {
-      get() :boolean { return this.rules?.some((r:any) => this.isDnsHijackRule(r)) ?? false },
-      set(v:boolean) {
-        if (this.rules == undefined) this.subJsonExt.rules = [{ action: 'sniff' }]
-        const rules = this.rules?.filter((r:any) => !this.isDnsHijackRule(r)) ?? []
-        if (v) {
-          const sniff = rules.find((r:any) => r.action == 'sniff')
-          const rest = rules.filter((r:any) => r.action != 'sniff')
-          this.subJsonExt.rules = [
-            ...(sniff ? [sniff] : []),
-            { protocol: 'dns', action: 'hijack-dns' },
-            { port: 53, network: ['tcp', 'udp'], action: 'hijack-dns' },
-            ...rest,
-          ]
-        } else {
-          this.subJsonExt.rules = rules
-          if ((this.rules?.length ?? 0) == 0) delete this.subJsonExt.rules
-        }
-      }
-    },
     rules():any { return this.subJsonExt?.rules?? undefined },
     ruleToDirect: {
       get() :string[] {
@@ -558,17 +495,6 @@ export default {
     },
     cloneDefault(data:any) {
       return JSON.parse(JSON.stringify(data))
-    },
-    enableRecommendedDns() {
-      this.subJsonExt.dns = this.cloneDefault(this.defaultDns)
-      if (this.rules == undefined) this.subJsonExt.rules = [{ action: 'sniff' }]
-      this.dnsHijack = true
-    },
-    isDnsHijackRule(rule:any) {
-      if (rule?.action != 'hijack-dns') return false
-      const protocol = rule.protocol
-      const port = rule.port
-      return protocol == 'dns' || protocol?.includes?.('dns') || port == 53 || port?.includes?.(53)
     },
     openEditor() {
       this.enableEditor = true

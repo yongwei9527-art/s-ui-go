@@ -32,6 +32,22 @@ func (r *SubscriptionCheckReport) warn(format string, args ...interface{}) {
 	r.warnings = append(r.warnings, fmt.Sprintf(format, args...))
 }
 
+// warnOnce adds a report warning only once, preserving the order in which the
+// distinct warning was first observed. This is used for export reports where
+// a single node can be encountered repeatedly through duplicate addresses.
+func (r *SubscriptionCheckReport) warnOnce(format string, args ...interface{}) {
+	if r == nil {
+		return
+	}
+	warning := fmt.Sprintf(format, args...)
+	for _, existing := range r.warnings {
+		if existing == warning {
+			return
+		}
+	}
+	r.warnings = append(r.warnings, warning)
+}
+
 func (r *SubscriptionCheckReport) CheckProtocolCredentials(protocol string, configs map[string]interface{}, inbound *model.Inbound, outbound map[string]interface{}) {
 	if r == nil {
 		return

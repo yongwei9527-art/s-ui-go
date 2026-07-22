@@ -15,12 +15,21 @@ type CheckOutboundResult struct {
 	Error string
 }
 
-func CheckOutbound(ctx context.Context, tag string, link string) (result CheckOutboundResult) {
-	if outbound_manager == nil {
+// CheckOutbound takes a stable snapshot of the active outbound and context
+// before starting the network operation. This prevents a core Start/Stop from
+// racing with reads of the package-level sing-box managers while still letting
+// a restart proceed instead of waiting up to the URL-test timeout.
+func (c *Core) CheckOutbound(tag string, link string) (result CheckOutboundResult) {
+	c.mu.RLock()
+	if !c.isRunning || outbound_manager == nil {
+		c.mu.RUnlock()
 		result.Error = "core not running"
 		return result
 	}
 	ob, ok := outbound_manager.Outbound(tag)
+	ctx := globalCtx
+	c.mu.RUnlock()
+
 	if !ok {
 		result.Error = "outbound not found"
 		return result

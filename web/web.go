@@ -3,7 +3,6 @@ package web
 import (
 	"context"
 	"crypto/tls"
-	"embed"
 	"errors"
 	"html/template"
 	"io"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/yongwei9527-art/s-ui-go/api"
 	"github.com/yongwei9527-art/s-ui-go/config"
+	frontend "github.com/yongwei9527-art/s-ui-go/frontend"
 	"github.com/yongwei9527-art/s-ui-go/logger"
 	"github.com/yongwei9527-art/s-ui-go/middleware"
 	"github.com/yongwei9527-art/s-ui-go/network"
@@ -27,9 +27,6 @@ import (
 	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
 )
-
-//go:embed *
-var content embed.FS
 
 type Server struct {
 	httpServer     *http.Server
@@ -60,7 +57,7 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 
 	// Load the HTML template
 	t := template.New("").Funcs(engine.FuncMap)
-	template, err := t.ParseFS(content, "html/index.html")
+	template, err := t.ParseFS(frontend.Content, "dist/index.html")
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +96,7 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 	})
 
 	// Serve the assets folder
-	assetsFS, err := fs.Sub(content, "html/assets")
+	assetsFS, err := fs.Sub(frontend.Content, "dist/assets")
 	if err != nil {
 		return nil, common.NewError("load web assets", err)
 	}
@@ -197,7 +194,9 @@ func (s *Server) Start() (err error) {
 	s.listener = listener
 
 	s.httpServer = &http.Server{
-		Handler: engine,
+		Handler:           engine,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	go func() {

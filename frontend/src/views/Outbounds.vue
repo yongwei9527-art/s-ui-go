@@ -176,13 +176,26 @@ const checkOutbound = async (tag: string) => {
 }
 
 const testingAll = ref(false)
+const maxConcurrentOutboundChecks = 8
 
 const checkAllOutbounds = async () => {
   const list = outbounds.value
   if (list.length === 0) return
+
   testingAll.value = true
   try {
-    await Promise.all(list.map((o) => checkOutbound(o.tag)))
+    let nextIndex = 0
+    const worker = async () => {
+      while (nextIndex < list.length) {
+        const outbound = list[nextIndex++]
+        await checkOutbound(outbound.tag)
+      }
+    }
+
+    await Promise.all(Array.from(
+      { length: Math.min(maxConcurrentOutboundChecks, list.length) },
+      () => worker(),
+    ))
   } finally {
     testingAll.value = false
   }

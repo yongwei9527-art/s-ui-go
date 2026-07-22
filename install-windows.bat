@@ -153,10 +153,12 @@ if exist "%WINSW_PATH%" (
 )
 
 echo !TXT_SETTING_PERMISSIONS!
-icacls "%INSTALL_DIR%" /grant "Users:(OI)(CI)RX" /T >nul
-icacls "%INSTALL_DIR%\db" /grant "Users:(OI)(CI)F" /T >nul
-icacls "%INSTALL_DIR%\logs" /grant "Users:(OI)(CI)F" /T >nul
-icacls "%INSTALL_DIR%\cert" /grant "Users:(OI)(CI)F" /T >nul
+rem Use well-known SIDs so ACLs work on localized Windows installations.
+rem WinSW runs as LocalSystem by default; Administrators retain full control.
+icacls "%INSTALL_DIR%" /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" "*S-1-5-32-545:(OI)(CI)RX" >nul
+icacls "%INSTALL_DIR%\db" /inheritance:r /remove:g "*S-1-5-32-545" /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" >nul
+icacls "%INSTALL_DIR%\logs" /inheritance:r /remove:g "*S-1-5-32-545" /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" >nul
+icacls "%INSTALL_DIR%\cert" /inheritance:r /remove:g "*S-1-5-32-545" /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" >nul
 
 echo !TXT_SETTING_ENV!
 setx SUI_HOME "%INSTALL_DIR%" /M >nul

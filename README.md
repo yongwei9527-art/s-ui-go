@@ -13,7 +13,6 @@
 - [快速安装](#快速安装)
 - [默认访问地址](#默认访问地址)
 - [协议选择建议](#协议选择建议)
-- [DNS 防泄露说明](#dns-防泄露说明)
 - [SNI 域名参考](#sni-域名参考)
 - [从源码构建](#从源码构建)
 - [验证与运行](#验证与运行)
@@ -29,7 +28,6 @@
 - Windows / Linux / macOS 三端 amd64 发布压缩包
 - 中文 / English Web 面板体验
 - Windows、Linux、macOS 安装、卸载和服务管理脚本
-- DNS 防泄露检查、模式配置与操作说明
 - TLS / ECH / WebSocket / TUIC / Hysteria2 订阅转换兼容性
 
 > 说明：本项目是社区整理版本，非官方原版。生产环境使用前请自行评估风险。
@@ -49,7 +47,6 @@
 | Linux 安装说明 | 单独补充 Debian / Ubuntu、CentOS / Rocky / AlmaLinux / Oracle Linux 的安装步骤和防火墙端口提示。 |
 | 协议选择指南 | 新增 [协议组合建议方案](PROTOCOL_GUIDE.md)，按自建 VPS、CDN、弱网、全局代理、软路由等场景给出推荐组合。 |
 | ACME / TLS 配置 | 修正 ACME 默认 `server_name` 取值逻辑，改为优先使用第一个域名。 |
-| 订阅与 DNS 说明 | 在项目说明和文档中明确 TLS / ECH / WebSocket / TUIC / Hysteria2 订阅兼容性，以及 DNS 防泄露检查方向。 |
 | 首次初始化默认模板 | 全新安装后自动生成 Reality/TLS 模板、VLESS Reality、Hysteria2、TUIC、Trojan TLS、VMess WS TLS、Shadowsocks 2022、Naive TLS、AnyTLS、Hysteria TLS 默认入站，以及绑定这些入站的默认客户端；导出地址会在 VPS 初始化时自动检测服务器地址，避免写死 IP。Mixed/SOCKS/HTTP 不默认公网创建，避免开放代理风险。 |
 | 运行稳定性加固 | 加强 sing-box core start/stop 并发保护、corePtr 空值保护、cron panic recover、订阅服务异常日志和默认端口预检查，降低 VPS 运行时面板或 core 崩溃风险。 |
 | Go 静态检查清理 | 根据 IDE 提示处理 `database/backup.go` 与 `service/dns_leak_guard.go` 中的 QF1003 建议，保持逻辑不变并提升可读性。 |
@@ -238,17 +235,13 @@ sudo ./install-macos.sh
 | 软路由或网关 | `TProxy + DNS 劫持` |
 
 
-## DNS 防泄露说明
 
-面板提供 DNS 防泄露模式配置和检查能力，用于降低系统或客户端绕过核心 DNS 模块直接解析域名的风险。相关说明见：
 
-- [DNS 防泄露模式说明与操作指南](DNS_LEAK_GUARD_GUIDE.md)
 
 模式概览：
 
 | 模式 | 适用场景 | 说明 |
 | --- | --- | --- |
-| 关闭 | 完全手动维护 DNS 与路由规则 | 不自动补齐 DNS 防泄露配置，仍可执行检查。 |
 | 推荐 | 通用部署场景 | 使用加密远程 DNS、DNS 劫持和本地域名规则，兼顾兼容性。 |
 | 严格 | 对 DNS 出口一致性要求较高的场景 | 在推荐模式基础上强制默认域名解析器使用 `remote-dns`。 |
 
@@ -336,7 +329,7 @@ login.microsoftonline.com
 | `-System windows\|linux\|darwin` | 目标系统 |
 | `-Architecture amd64\|arm64\|386\|arm` | 目标架构 |
 | `-NoCGO` | 关闭 CGO，适合从 Windows 交叉构建 Linux/macOS 包 |
-| `-SkipFrontend` | 跳过前端构建，需要已有 `web/html/` |
+| `-SkipFrontend` | 跳过前端构建，需要已有 `frontend/dist/` |
 | `-Package` | 生成 `dist/*.zip` 发布压缩包 |
 | `-NonInteractive` | 构建完成后不等待输入 |
 | `-ListCleanCandidates` | 只列出可清理候选，不删除文件 |
@@ -347,7 +340,7 @@ login.microsoftonline.com
 ./build.sh
 ```
 
-`build.sh` 会构建前端、复制到 `web/html/`，并生成后端二进制 `sui`。
+`build.sh` 会构建新版前端到 `frontend/dist/`，并生成直接嵌入该产物的后端二进制 `sui`。
 
 ## 验证与运行
 
@@ -424,7 +417,6 @@ $env:SUI_DEBUG="true"
 
 - `frontend/node_modules/`
 - `frontend/dist/`
-- `web/html/`
 - `db/`、`logs/`、`cert/`
 - 本地二进制、临时包和备份文件
 - `.env`、`.vscode/`、`.claude/` 等本地配置

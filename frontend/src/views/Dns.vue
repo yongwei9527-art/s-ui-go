@@ -21,107 +21,11 @@
     @close="closeDnsRuleModal"
     @save="saveDnsRuleModal"
   />
-  <v-dialog v-model="leakGuardConfirm.visible" max-width="560">
-    <v-card rounded="xl">
-      <v-card-title>{{ $t('dns.applyLeakGuardConfirmTitle') }}</v-card-title>
-      <v-divider />
-      <v-card-text>
-        <p class="mb-2">{{ $t('dns.applyLeakGuardConfirmDesc') }}</p>
-        <v-alert color="warning" icon="mdi-alert" variant="tonal" rounded="lg">
-          {{ $t('dns.applyLeakGuardConfirmWarning') }}
-        </v-alert>
-      </v-card-text>
-      <v-card-actions>
-        <v-spacer />
-        <v-btn variant="outlined" color="secondary" @click="leakGuardConfirm.visible = false">{{ $t('no') }}</v-btn>
-        <v-btn color="primary" variant="flat" @click="confirmApplyLeakGuardTemplate">{{ $t('yes') }}</v-btn>
-      </v-card-actions>
-    </v-card>
-  </v-dialog>
-  <v-row>
-    <v-col cols="12">
-      <v-alert
-        color="primary"
-        icon="mdi-shield-check"
-        variant="tonal"
-        rounded="lg"
-      >
-        <div class="dns-leak-toolbar">
-          <div class="dns-leak-copy">
-            <div class="text-subtitle-1 font-weight-bold">{{ $t('dns.leakGuard') }}</div>
-            <div class="text-body-2">{{ $t('dns.leakGuardDesc') }}</div>
-          </div>
-          <div class="dns-leak-actions">
-            <v-select
-              v-model="dnsLeakGuardMode"
-              :items="dnsLeakGuardModes"
-              :label="$t('dns.leakGuardMode')"
-              density="compact"
-              hide-details
-              :loading="leakGuardModeSaving"
-              :disabled="leakGuardModeSaving"
-              @update:model-value="saveLeakGuardMode"
-              class="dns-mode-select"
-            />
-            <v-btn
-              color="primary"
-              variant="flat"
-              prepend-icon="mdi-shield-sync"
-              :disabled="dnsLeakGuardMode == 'off' || leakGuardModeSaving"
-              @click="requestApplyLeakGuardTemplate">
-              {{ $t('dns.applyLeakGuard') }}
-            </v-btn>
-          </div>
-        </div>
-      </v-alert>
-    </v-col>
-  </v-row>
-  <v-row>
-    <v-col cols="12">
-      <v-card class="leak-check-card" rounded="xl" elevation="0">
-        <div class="leak-check-header">
-          <div>
-            <div class="text-subtitle-1 font-weight-bold">{{ $t('dns.leakGuardCheck') }}</div>
-            <div class="text-body-2 text-medium-emphasis">{{ $t('dns.leakGuardCheckDesc') }}</div>
-          </div>
-          <div class="leak-check-actions">
-            <v-chip :color="leakGuardStatusColor" variant="flat" density="comfortable">
-              {{ leakGuardStatusText }}
-            </v-chip>
-            <v-btn
-              icon="mdi-refresh"
-              variant="text"
-              size="small"
-              :loading="leakGuardCheckLoading"
-              @click="loadLeakGuardReport"
-            />
-          </div>
-        </div>
-        <v-progress-linear v-if="leakGuardCheckLoading" indeterminate color="primary" />
-        <div class="leak-check-list" v-if="leakGuardChecks.length">
-          <div class="leak-check-item" v-for="check in leakGuardChecks" :key="check.key">
-            <v-icon :color="check.passed ? 'success' : check.severity == 'error' ? 'error' : 'warning'"
-              :icon="check.passed ? 'mdi-check-circle' : check.severity == 'error' ? 'mdi-close-circle' : 'mdi-alert-circle'" />
-            <span>{{ $t(`dns.leakGuardCheckItems.${check.key}`) }}</span>
-            <v-chip
-              v-if="!check.passed"
-              :color="check.severity == 'error' ? 'error' : 'warning'"
-              variant="tonal"
-              density="compact"
-              size="small"
-            >
-              {{ check.severity == 'error' ? $t('dns.severityError') : $t('dns.severityWarning') }}
-            </v-chip>
-          </div>
-        </div>
-      </v-card>
-    </v-col>
-  </v-row>
   <v-row>
     <v-col cols="12" justify="center" align="center">
       <v-btn color="primary" @click="showDnsModal(-1)" style="margin: 0 5px;">{{ $t('dns.add') }}</v-btn>
       <v-btn color="primary" @click="showDnsRuleModal(-1)" style="margin: 0 5px;">{{ $t('dns.rule.add') }}</v-btn>
-      <v-btn variant="outlined" color="warning" @click="saveConfig" :loading="loading" :disabled="stateChange || leakGuardModeSaving">
+      <v-btn variant="outlined" color="warning" @click="saveConfig" :loading="loading" :disabled="stateChange">
         {{ $t('actions.save') }}
       </v-btn>
     </v-col>
@@ -201,7 +105,7 @@
           <v-row>
             <v-col>{{ $t('objects.tls') }}</v-col>
             <v-col>
-              {{ Object.hasOwn(item,'tls') ? $t(item.tls?.enabled ? 'enable' : 'disable') : '-'  }}
+              {{ Object.hasOwn(item,'tls') ? $t(item.type == 'tls' || item.tls?.enabled ? 'enable' : 'disable') : '-'  }}
             </v-col>
           </v-row>
         </v-card-text>
@@ -312,46 +216,9 @@ import DnsRuleVue from '@/layouts/modals/DnsRule.vue'
 import { Config } from '@/types/config'
 import { actionDnsRuleKeys, dnsRule } from '@/types/dns'
 import { FindDiff } from '@/plugins/utils'
-import { push } from 'notivue'
-import { i18n } from '@/locales'
-import HttpUtils from '@/plugins/httputil'
 
 const oldConfig = ref(<any>{})
 const loading = ref(false)
-const settings = ref(<any>{})
-const dnsLeakGuardMode = ref('recommended')
-const oldDnsLeakGuardMode = ref('recommended')
-const leakGuardModeSaving = ref(false)
-const leakGuardCheckLoading = ref(false)
-const leakGuardReport = ref<any>(null)
-const leakGuardConfirm = ref({ visible: false })
-
-const leakGuardStatusColor = computed(() => {
-  if (!leakGuardReport.value) return 'default'
-  if (leakGuardReport.value.status == 'passed') return 'success'
-  if (leakGuardReport.value.status == 'failed') return 'error'
-  return 'warning'
-})
-
-const leakGuardStatusText = computed(() => {
-  if (!leakGuardReport.value) return i18n.global.t('loading')
-  if (leakGuardReport.value.status == 'passed') return i18n.global.t('dns.leakGuardPassed')
-  if (leakGuardReport.value.status == 'failed') return i18n.global.t('dns.leakGuardFailed')
-  return i18n.global.t('dns.leakGuardWarning')
-})
-
-const dnsLeakGuardModes = computed(() => [
-  { title: i18n.global.t('dns.leakGuardModes.off'), value: 'off' },
-  { title: i18n.global.t('dns.leakGuardModes.recommended'), value: 'recommended' },
-  { title: i18n.global.t('dns.leakGuardModes.strict'), value: 'strict' },
-])
-
-const leakGuardChecks = computed(() => leakGuardReport.value?.checks ?? [])
-
-const normalizeLeakGuardMode = (mode: unknown) => {
-  return ['off', 'recommended', 'strict'].includes(String(mode)) ? String(mode) : 'recommended'
-}
-
 const appConfig = computed((): Config => {
   return <Config> Data().config
 })
@@ -361,64 +228,13 @@ onBeforeMount( async () => {
   if (!appConfig.value.dns) appConfig.value.dns = { servers: [], rules: [] }
   if (!appConfig.value.dns.servers) appConfig.value.dns.servers = []
   if (!appConfig.value.dns.rules) appConfig.value.dns.rules = []
-  if (!appConfig.value.route) appConfig.value.route = { rules: [], rule_set: [], default_domain_resolver: '' }
-  if (!appConfig.value.route.rules) appConfig.value.route.rules = []
-  if (!appConfig.value.route.rule_set) appConfig.value.route.rule_set = []
-
   loading.value = true
   while (Data().lastLoad == 0) {
     await new Promise(resolve => setTimeout(resolve, 100))
   }
   oldConfig.value = JSON.parse(JSON.stringify(Data().config))
-  await loadSettings()
-  await loadLeakGuardReport()
   loading.value = false
 })
-
-const loadSettings = async () => {
-  const msg = await HttpUtils.get('api/settings')
-  if (!msg.success) return
-  settings.value = msg.obj ?? {}
-  dnsLeakGuardMode.value = normalizeLeakGuardMode(settings.value.dnsLeakGuardMode)
-  oldDnsLeakGuardMode.value = dnsLeakGuardMode.value
-}
-
-const loadLeakGuardReport = async () => {
-  leakGuardCheckLoading.value = true
-  try {
-    const msg = await HttpUtils.get('api/dnsLeakGuardCheck')
-    leakGuardReport.value = msg.success ? msg.obj : null
-  } finally {
-    leakGuardCheckLoading.value = false
-  }
-}
-
-const persistLeakGuardMode = async (mode: unknown, refreshReport = true) => {
-  if (leakGuardModeSaving.value) return false
-  const nextMode = normalizeLeakGuardMode(mode)
-  const previousMode = oldDnsLeakGuardMode.value
-  if (nextMode == previousMode) return true
-
-  leakGuardModeSaving.value = true
-  try {
-    const msg = await HttpUtils.post('api/save', { object: 'settings', action: 'set', data: JSON.stringify({ dnsLeakGuardMode: nextMode }) })
-    if (msg.success) {
-      settings.value = { ...settings.value, ...(msg.obj?.settings ?? {}), dnsLeakGuardMode: nextMode }
-      dnsLeakGuardMode.value = nextMode
-      oldDnsLeakGuardMode.value = nextMode
-      if (refreshReport) await loadLeakGuardReport()
-    } else {
-      dnsLeakGuardMode.value = previousMode
-    }
-    return msg.success
-  } finally {
-    leakGuardModeSaving.value = false
-  }
-}
-
-const saveLeakGuardMode = async (mode: unknown) => {
-  await persistLeakGuardMode(mode)
-}
 
 const tsTags = computed((): string[] => {
   return Data().endpoints?.filter((e:any) => e.type == "tailscale").map((e:any) => e.tag)
@@ -435,118 +251,17 @@ const clients = computed((): string[] => {
 const stateChange = computed(() => {
   return FindDiff.deepCompare(appConfig.value.dns,oldConfig.value.dns)
     && FindDiff.deepCompare(appConfig.value.route,oldConfig.value.route)
-    && dnsLeakGuardMode.value == oldDnsLeakGuardMode.value
 })
 
 const saveConfig = async () => {
   loading.value = true
-  let success = true
-  const modeChanged = dnsLeakGuardMode.value != oldDnsLeakGuardMode.value
-  if (modeChanged) {
-    success = await persistLeakGuardMode(dnsLeakGuardMode.value, false)
-  }
-  if (success) {
-    const dnsChanged = !FindDiff.deepCompare(appConfig.value.dns,oldConfig.value.dns)
-    const routeChanged = !FindDiff.deepCompare(appConfig.value.route,oldConfig.value.route)
-    if (dnsChanged || routeChanged || modeChanged) {
-      success = await Data().save("config", "set", appConfig.value)
-    }
-  }
-  if (success) {
-    oldConfig.value = JSON.parse(JSON.stringify(Data().config))
-    await loadLeakGuardReport()
+  const dnsChanged = !FindDiff.deepCompare(appConfig.value.dns,oldConfig.value.dns)
+  const routeChanged = !FindDiff.deepCompare(appConfig.value.route,oldConfig.value.route)
+  if (dnsChanged || routeChanged) {
+    const success = await Data().save("config", "set", appConfig.value)
+    if (success) oldConfig.value = JSON.parse(JSON.stringify(Data().config))
   }
   loading.value = false
-}
-
-const requestApplyLeakGuardTemplate = () => {
-  if (dnsLeakGuardMode.value == 'off') return
-  leakGuardConfirm.value.visible = true
-}
-
-const confirmApplyLeakGuardTemplate = () => {
-  leakGuardConfirm.value.visible = false
-  applyLeakGuardTemplate()
-}
-
-const applyLeakGuardTemplate = () => {
-  if (dnsLeakGuardMode.value == 'off') return
-  dns.value.servers = [
-    {
-      tag: 'remote-dns',
-      type: 'tls',
-      server: '1.1.1.1',
-      server_port: 853,
-      detour: 'direct',
-      tls: {},
-    },
-    {
-      tag: 'local-dns',
-      type: 'udp',
-      server: '223.5.5.5',
-      server_port: 53,
-      detour: 'direct',
-    },
-  ]
-  dns.value.rules = [
-    {
-      domain_suffix: ['.lan', '.local'],
-      action: 'route',
-      server: 'local-dns',
-    },
-  ]
-  dns.value.final = 'remote-dns'
-  dns.value.strategy = 'prefer_ipv4'
-  dns.value.disable_cache = false
-  dns.value.disable_expire = false
-  dns.value.independent_cache = true
-  dns.value.reverse_mapping = true
-  if (!appConfig.value.route) appConfig.value.route = { rules: [], rule_set: [], default_domain_resolver: '' }
-  if (!appConfig.value.route.rules) appConfig.value.route.rules = []
-  appConfig.value.route.auto_detect_interface = true
-  const rules = appConfig.value.route.rules as any[]
-  appConfig.value.route.rules = insertDNSHijackRules(rules)
-  if (dnsLeakGuardMode.value == 'strict') {
-    appConfig.value.route.default_domain_resolver = 'remote-dns'
-  } else if (!appConfig.value.route.default_domain_resolver) {
-    appConfig.value.route.default_domain_resolver = 'remote-dns'
-  }
-  push.success(i18n.global.t('dns.leakGuardApplied'))
-}
-
-const hasDNSProtocolHijack = (rules: any[]) => {
-  return rules.some((rule: any) => rule.action == 'hijack-dns' && (
-    rule.protocol == 'dns' || rule.protocol?.includes?.('dns')
-  ))
-}
-
-const hasPort53Hijack = (rules: any[]) => {
-  let tcpCovered = false
-  let udpCovered = false
-  for (const rule of rules) {
-    if (rule.action != 'hijack-dns' || !(rule.port == 53 || rule.port?.includes?.(53))) continue
-    if (!rule.network) return true
-    if (hasRuleValue(rule.network, 'tcp')) tcpCovered = true
-    if (hasRuleValue(rule.network, 'udp')) udpCovered = true
-    if (tcpCovered && udpCovered) return true
-  }
-  return false
-}
-
-const hasRuleValue = (value: any, expected: string) => {
-  if (typeof value == 'string') return value == expected
-  return Array.isArray(value) && value.includes(expected)
-}
-
-const insertDNSHijackRules = (rules: any[]) => {
-  const additions = []
-  if (!hasDNSProtocolHijack(rules)) additions.push({ protocol: ['dns'], action: 'hijack-dns' })
-  if (!hasPort53Hijack(rules)) additions.push({ port: 53, network: ['tcp', 'udp'], action: 'hijack-dns' })
-  if (additions.length == 0) return rules
-  if (rules[0]?.action == 'sniff') {
-    return [rules[0], ...additions, ...rules.slice(1)]
-  }
-  return [...additions, ...rules]
 }
 
 const inboundTags = computed((): string[] => {
@@ -661,65 +376,6 @@ const onDrop = (index: any) => {
 </script>
 
 <style scoped>
-.dns-leak-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.dns-leak-copy {
-  min-width: 0;
-  flex: 1 1 auto;
-}
-
-.dns-leak-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex: 0 0 auto;
-}
-
-.dns-mode-select {
-  width: 240px;
-}
-
-.leak-check-card {
-  border: 1px solid rgba(var(--v-border-color), 0.1);
-  background: rgba(var(--v-theme-surface), 0.72);
-  padding: 16px;
-}
-
-.leak-check-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.leak-check-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.leak-check-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 10px;
-  margin-top: 14px;
-}
-
-.leak-check-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  border-radius: 12px;
-  background: rgba(var(--v-theme-background), 0.52);
-  padding: 9px 10px;
-  font-size: 0.9rem;
-}
-
 .dns-server-card-row {
   row-gap: 16px;
 }
@@ -752,19 +408,6 @@ const onDrop = (index: any) => {
 }
 
 @media (max-width: 720px) {
-  .dns-leak-toolbar,
-  .dns-leak-actions,
-  .leak-check-header,
-  .leak-check-actions {
-    align-items: stretch;
-    flex-direction: column;
-    width: 100%;
-  }
-
-  .dns-mode-select {
-    width: 100%;
-  }
-
   .dns-server-card-row {
     row-gap: 18px;
   }

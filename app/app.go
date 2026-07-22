@@ -1,7 +1,9 @@
 package app
 
 import (
+	"fmt"
 	"log"
+	"os"
 
 	"github.com/yongwei9527-art/s-ui-go/config"
 	"github.com/yongwei9527-art/s-ui-go/core"
@@ -17,12 +19,13 @@ import (
 
 type APP struct {
 	service.SettingService
-	configService *service.ConfigService
-	webServer     *web.Server
-	subServer     *sub.Server
-	cronJob       *cronjob.CronJob
-	logger        *logging.Logger
-	core          *core.Core
+	configService    *service.ConfigService
+	xrayXHTTPService *service.XrayXHTTPService
+	webServer        *web.Server
+	subServer        *sub.Server
+	cronJob          *cronjob.CronJob
+	logger           *logging.Logger
+	core             *core.Core
 }
 
 func NewApp() *APP {
@@ -38,6 +41,9 @@ func (a *APP) Init() error {
 	if err != nil {
 		return err
 	}
+	if initialPassword := database.TakeGeneratedInitialAdminPassword(); initialPassword != "" {
+		fmt.Fprintf(os.Stderr, "\nIMPORTANT: first-start S-UI administrator credentials\nusername: %s\npassword: %s\nChange this password after the first login.\n\n", config.GetInitialAdminUsername(), initialPassword)
+	}
 
 	// Init Setting
 	a.SettingService.GetAllSetting()
@@ -49,6 +55,7 @@ func (a *APP) Init() error {
 	a.subServer = sub.NewServer()
 
 	a.configService = service.NewConfigService(a.core)
+	a.xrayXHTTPService = &service.XrayXHTTPService{}
 
 	return nil
 }
@@ -83,6 +90,9 @@ func (a *APP) Start() error {
 	if err != nil {
 		logger.Error(err)
 	}
+	if err = a.xrayXHTTPService.StartIfEnabled(); err != nil {
+		logger.Warning("Xray XHTTP sidecar was not started: ", err)
+	}
 
 	return nil
 }
@@ -96,6 +106,10 @@ func (a *APP) Stop() {
 	err = a.webServer.Stop()
 	if err != nil {
 		logger.Warning("stop Web Server err:", err)
+	}
+	err = a.xrayXHTTPService.Stop()
+	if err != nil {
+		logger.Warning("stop Xray XHTTP sidecar err:", err)
 	}
 	err = a.configService.StopCore()
 	if err != nil {

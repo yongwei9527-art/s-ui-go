@@ -184,16 +184,19 @@ func (s *ConfigService) restartCoreWithConfig(config json.RawMessage) error {
 		startCoreMu.Unlock()
 	}()
 
+	// Build the pending configuration before stopping the running core. If the
+	// stored configuration cannot be generated, the currently working core
+	// remains available instead of being unnecessarily taken offline.
+	rawConfig, err := s.GetConfig(string(config))
+	if err != nil {
+		logger.Error("restart sing-box err (get config):", err.Error())
+		return err
+	}
 	if corePtr != nil && corePtr.IsRunning() {
 		if err := corePtr.Stop(); err != nil {
 			logger.Error("restart sing-box err (stop):", err.Error())
 			return err
 		}
-	}
-	rawConfig, err := s.GetConfig(string(config))
-	if err != nil {
-		logger.Error("restart sing-box err (get config):", err.Error())
-		return err
 	}
 	if err := corePtr.Start(*rawConfig); err != nil {
 		logger.Error("restart sing-box err (start):", err.Error())
@@ -219,10 +222,10 @@ func (s *ConfigService) CheckOutbound(tag string, link string) core.CheckOutboun
 	if tag == "" {
 		return core.CheckOutboundResult{Error: "missing query parameter: tag"}
 	}
-	if corePtr == nil || !corePtr.IsRunning() {
+	if corePtr == nil {
 		return core.CheckOutboundResult{Error: "core not running"}
 	}
-	return core.CheckOutbound(corePtr.GetCtx(), tag, link)
+	return corePtr.CheckOutbound(tag, link)
 }
 
 func (s *ConfigService) Save(obj string, act string, data json.RawMessage, initUsers string, loginUser string, hostname string) ([]string, error) {
@@ -230,6 +233,7 @@ func (s *ConfigService) Save(obj string, act string, data json.RawMessage, initU
 	var objs []string = []string{obj}
 	var restartConfigAfterCommit json.RawMessage
 	var restartCurrentConfigAfterCommit bool
+	var reloadXrayAfterCommit bool
 
 	db := database.GetDB()
 	tx := db.Begin()
@@ -238,7 +242,15 @@ func (s *ConfigService) Save(obj string, act string, data json.RawMessage, initU
 			tx.Commit()
 			if len(restartConfigAfterCommit) > 0 {
 				go func(configData json.RawMessage) { _ = s.restartCoreWithConfig(configData) }(restartConfigAfterCommit)
-			} else if restartCurrentConfigAfterCommit {
+			}
+			if reloadXrayAfterCommit {
+				go func() {
+					if err := (&XrayXHTTPService{}).ReloadAfterClientChange(); err != nil {
+						logger.Warning("unable to refresh Xray XHTTP clients: ", err)
+					}
+				}()
+			}
+			if restartCurrentConfigAfterCommit {
 				go func() {
 					if corePtr != nil && corePtr.IsRunning() {
 						_ = s.RestartCore()
@@ -256,6 +268,9 @@ func (s *ConfigService) Save(obj string, act string, data json.RawMessage, initU
 
 	switch obj {
 	case "clients":
+		// Xray XHTTP keeps a separate UUID list. Rebuild it after the database
+		// commit so client disablement/deletion becomes effective immediately.
+		reloadXrayAfterCommit = true
 		var inboundIds []uint
 		inboundIds, err = s.ClientService.Save(tx, act, data, hostname)
 		if err == nil && len(inboundIds) > 0 {
@@ -285,7 +300,6 @@ func (s *ConfigService) Save(obj string, act string, data json.RawMessage, initU
 		restartConfigAfterCommit = make(json.RawMessage, len(data))
 		copy(restartConfigAfterCommit, data)
 	case "settings":
-		restartCurrentConfigAfterCommit = settingsChangeDNSLeakGuardMode(data)
 		err = s.SettingService.Save(tx, data)
 	default:
 		return nil, common.NewError("unknown object: ", obj)
@@ -309,15 +323,6 @@ func (s *ConfigService) Save(obj string, act string, data json.RawMessage, initU
 	LastUpdate = time.Now().Unix()
 
 	return objs, nil
-}
-
-func settingsChangeDNSLeakGuardMode(data json.RawMessage) bool {
-	var settings map[string]string
-	if err := json.Unmarshal(data, &settings); err != nil {
-		return false
-	}
-	_, ok := settings["dnsLeakGuardMode"]
-	return ok
 }
 
 func (s *ConfigService) CheckChanges(lu string) (bool, error) {

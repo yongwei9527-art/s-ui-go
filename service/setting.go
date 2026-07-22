@@ -23,58 +23,14 @@ var defaultConfig = `{
     "timestamp": true
   },
   "dns": {
-    "servers": [
-      {
-        "tag": "remote-dns",
-        "type": "tls",
-        "server": "1.1.1.1",
-        "server_port": 853,
-        "tls": {}
-      },
-      {
-        "tag": "local-dns",
-        "type": "udp",
-        "server": "223.5.5.5",
-        "server_port": 53
-      }
-    ],
-    "rules": [
-      {
-        "domain_suffix": [
-          ".lan",
-          ".local"
-        ],
-        "action": "route",
-        "server": "local-dns"
-      }
-    ],
-    "final": "remote-dns",
-    "strategy": "prefer_ipv4",
-    "disable_cache": false,
-    "disable_expire": false,
-    "independent_cache": true,
-    "reverse_mapping": true
+    "servers": [],
+    "rules": []
   },
   "route": {
-    "auto_detect_interface": true,
     "final": "direct",
     "rules": [
       {
         "action": "sniff"
-      },
-      {
-        "protocol": [
-          "dns"
-        ],
-        "action": "hijack-dns"
-      },
-      {
-        "port": 53,
-        "network": [
-          "tcp",
-          "udp"
-        ],
-        "action": "hijack-dns"
       }
     ]
   },
@@ -82,32 +38,31 @@ var defaultConfig = `{
 }`
 
 var defaultValueMap = map[string]string{
-	"webListen":        "",
-	"webDomain":        "",
-	"webPort":          "2095",
-	"secret":           common.Random(32),
-	"webCertFile":      "",
-	"webKeyFile":       "",
-	"webPath":          "/app/",
-	"webURI":           "",
-	"sessionMaxAge":    "0",
-	"trafficAge":       "30",
-	"timeLocation":     "Asia/Tehran",
-	"dnsLeakGuardMode": DNSLeakGuardModeRecommended,
-	"subListen":        "",
-	"subPort":          "2096",
-	"subPath":          "/sub/",
-	"subDomain":        "",
-	"subCertFile":      "",
-	"subKeyFile":       "",
-	"subUpdates":       "12",
-	"subEncode":        "true",
-	"subShowInfo":      "false",
-	"subURI":           "",
-	"subJsonExt":       "",
-	"subClashExt":      "",
-	"config":           defaultConfig,
-	"version":          config.GetVersion(),
+	"webListen":     "",
+	"webDomain":     "",
+	"webPort":       "2095",
+	"secret":        common.Random(32),
+	"webCertFile":   "",
+	"webKeyFile":    "",
+	"webPath":       "/app/",
+	"webURI":        "",
+	"sessionMaxAge": "0",
+	"trafficAge":    "30",
+	"timeLocation":  "Asia/Tehran",
+	"subListen":     "",
+	"subPort":       "2096",
+	"subPath":       "/sub/",
+	"subDomain":     "",
+	"subCertFile":   "",
+	"subKeyFile":    "",
+	"subUpdates":    "12",
+	"subEncode":     "true",
+	"subShowInfo":   "false",
+	"subURI":        "",
+	"subJsonExt":    "",
+	"subClashExt":   "",
+	"config":        defaultConfig,
+	"version":       config.GetVersion(),
 }
 
 type SettingService struct {
@@ -403,14 +358,6 @@ func (s *SettingService) GetNormalizedConfig() (string, error) {
 	return string(normalized), nil
 }
 
-func (s *SettingService) GetDNSLeakGuardMode() (string, error) {
-	mode, err := s.getString("dnsLeakGuardMode")
-	if err != nil {
-		return "", err
-	}
-	return NormalizeDNSLeakGuardMode(mode), nil
-}
-
 func (s *SettingService) SetConfig(config string) error {
 	return s.setString("config", config)
 }
@@ -430,13 +377,6 @@ func (s *SettingService) SaveConfig(tx *gorm.DB, config json.RawMessage) error {
 func (s *SettingService) normalizeCoreConfig(config json.RawMessage) (json.RawMessage, error) {
 	var coreConfig map[string]json.RawMessage
 	if err := json.Unmarshal(config, &coreConfig); err != nil {
-		return nil, err
-	}
-	mode, err := s.GetDNSLeakGuardMode()
-	if err != nil {
-		return nil, err
-	}
-	if err := ensureCoreDNSLeakGuard(coreConfig, mode); err != nil {
 		return nil, err
 	}
 	return json.Marshal(coreConfig)
@@ -478,9 +418,6 @@ func (s *SettingService) Save(tx *gorm.DB, data json.RawMessage) error {
 			if err != nil {
 				return err
 			}
-		}
-		if key == "dnsLeakGuardMode" {
-			obj = NormalizeDNSLeakGuardMode(obj)
 		}
 
 		setting := &model.Setting{}

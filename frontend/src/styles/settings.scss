@@ -18,6 +18,16 @@
 }
 $body-font-family: "Inter", "Segoe UI", "Noto Sans SC", "Microsoft YaHei UI", "PingFang SC", "Vazirmatn", sans-serif;
 
+:root {
+  --sui-font-size-caption: 0.75rem;
+  --sui-font-size-supporting: 0.875rem;
+  --sui-font-size-body: 0.9375rem;
+  --sui-font-size-title: 1.0625rem;
+  --sui-font-size-page-title: 1.25rem;
+  --sui-font-size-code: 0.875rem;
+  --sui-line-height-body: 1.5;
+}
+
 $typoOptions: text-h1, text-sm-h1, text-md-h1, text-lg-h1, text-h2, text-sm-h2,
   text-md-h2, text-lg-h2, text-h3, text-sm-h3, text-md-h3, text-lg-h3, text-h4,
   text-sm-h4, text-md-h4, text-lg-h4, text-h5, text-sm-h5, text-md-h5,
@@ -28,8 +38,9 @@ $typoOptions: text-h1, text-sm-h1, text-md-h1, text-lg-h1, text-h2, text-sm-h2,
 body {
   color: rgba(var(--v-theme-on-background), 0.86);
   font-family: $body-font-family !important;
-  font-size: 16px;
+  font-size: var(--sui-font-size-body);
   letter-spacing: 0.01em;
+  line-height: var(--sui-line-height-body);
   @each $typoOption in $typoOptions {
     .#{$typoOption} {
       font-family: $body-font-family !important;
@@ -42,6 +53,8 @@ body {
     radial-gradient(circle at 18% 12%, rgba(var(--v-theme-primary), 0.08), transparent 28%),
     linear-gradient(135deg, rgb(var(--v-theme-background)) 0%, rgba(var(--v-theme-surface), 0.82) 100%) !important;
   font-family: $body-font-family !important;
+  font-size: var(--sui-font-size-body);
+  line-height: var(--sui-line-height-body);
 }
 
 .v-btn {
@@ -59,6 +72,38 @@ body {
 
 .v-list-item-title,
 .v-btn,
-.v-field__input {
-  font-size: 0.96rem;
+.v-field__input,
+.v-label,
+.v-select__selection,
+.v-tab {
+  font-size: var(--sui-font-size-body);
+}
+
+.v-data-table td {
+  font-size: var(--sui-font-size-body);
+}
+
+.v-data-table th {
+  font-size: var(--sui-font-size-supporting);
+}
+
+.v-field__details,
+.v-messages,
+.text-caption {
+  font-size: var(--sui-font-size-caption);
+}
+
+.text-body-1 {
+  font-size: var(--sui-font-size-body);
+  line-height: var(--sui-line-height-body);
+}
+
+.text-body-2,
+.v-card-subtitle {
+  font-size: var(--sui-font-size-supporting);
+  line-height: var(--sui-line-height-body);
+}
+
+.text-subtitle-1 {
+  font-size: var(--sui-font-size-title);
 }

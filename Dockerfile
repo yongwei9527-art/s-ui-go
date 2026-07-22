@@ -31,7 +31,7 @@ RUN CRONET_ARCH="$TARGETARCH" && \
     chmod 755 ./libcronet.so
 
 COPY . .
-COPY --from=front-builder /app/dist/ /app/web/html/
+COPY --from=front-builder /app/dist/ /app/frontend/dist/
 
 RUN if [ "$TARGETARCH" = "arm" ]; then export GOARM=7; [ "$TARGETVARIANT" = "v6" ] && export GOARM=6; fi; \
     go build -ldflags="-w -s" \

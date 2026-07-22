@@ -58,17 +58,7 @@ if errorlevel 1 (
 
 cd ..
 
-echo 正在重建 web\html 目录...
-if exist "web\html" rmdir /s /q "web\html"
-mkdir "web\html"
-
-echo 正在复制前端构建产物...
-xcopy "frontend\dist\*" "web\html\" /E /I /Y /Q
-if errorlevel 1 (
-    echo 错误：复制前端构建产物失败。
-    pause
-    exit /b 1
-)
+echo 前端构建产物将由 Go 直接嵌入 frontend\dist。
 
 echo.
 echo 请选择 Windows 目标架构：
@@ -90,7 +80,7 @@ set GOOS=windows
 set GOARCH=%GOARCH_VALUE%
 set "OUTPUT=sui-windows-%GOARCH_VALUE%.exe"
 
-go build -ldflags "-w -s" -tags "with_quic,with_grpc,with_utls,with_acme,with_gvisor,with_tailscale" -o "%OUTPUT%" main.go
+go build -ldflags "-w -s" -tags "with_quic,with_grpc,with_utls,with_acme,with_gvisor,with_tailscale,with_naive_outbound,with_purego" -o "%OUTPUT%" main.go
 if errorlevel 1 (
     echo 错误：后端构建失败。
     pause

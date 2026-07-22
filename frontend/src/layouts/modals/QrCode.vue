@@ -46,6 +46,9 @@
             <v-row>
               <v-col style="text-align: center;">
                 <v-chip>{{ $t('setting.clashSub') }}</v-chip><br />
+                <v-alert class="mt-2 text-left" density="compact" type="info" variant="tonal">
+                  {{ $t('setting.clashSubCompatibilityNotice') }}
+                </v-alert>
                 <QrcodeVue :value="clientSub + '?format=clash'" :size="size" @click="copyToClipboard(clientSub + '?format=clash')" :margin="1" style="border-radius: 1rem; cursor: copy;" />
                 <div class="text-caption text-medium-emphasis">{{ $t('client.clickQrCopy') }}</div>
                 <v-text-field dir="ltr" density="compact" variant="underlined" readonly hide-details :model-value="clientSub + '?format=clash'" append-inner-icon="mdi-content-copy" @click:append-inner="copyToClipboard(clientSub + '?format=clash')" />

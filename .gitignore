@@ -5,7 +5,6 @@
 # Keep release ZIP files under dist/ trackable; ignore expanded package folders and other local archives.
 /dist/*
 /frontend/dist/
-/web/html/
 *.zip
 *.tar.gz
 *.7z
@@ -56,3 +55,9 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+# Local build caches and ephemeral test data
+/.cache/
+/.gocache-*/
+/demo-db/
+# Local executable backups
+/sui.exe.backup-*

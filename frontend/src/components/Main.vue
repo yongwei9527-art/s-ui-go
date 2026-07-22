@@ -336,7 +336,7 @@ onBeforeUnmount(() => {
 .dashboard-hero p {
   margin: 0;
   color: rgba(var(--v-theme-on-surface), 0.62);
-  font-size: 0.96rem;
+  font-size: var(--sui-font-size-body);
 }
 
 .hero-status {
@@ -349,7 +349,7 @@ onBeforeUnmount(() => {
   gap: 12px;
   margin-top: 22px;
   color: rgba(var(--v-theme-on-surface), 0.58);
-  font-size: 0.92rem;
+  font-size: var(--sui-font-size-supporting);
 }
 
 .hero-meta span {
@@ -492,7 +492,7 @@ onBeforeUnmount(() => {
   display: block;
   overflow: hidden;
   color: rgba(var(--v-theme-on-surface), 0.9);
-  font-size: 0.96rem;
+  font-size: var(--sui-font-size-body);
   font-weight: 760;
   letter-spacing: -0.01em;
   text-overflow: ellipsis;
@@ -503,8 +503,8 @@ onBeforeUnmount(() => {
   display: block;
   overflow: hidden;
   color: rgba(var(--v-theme-on-surface), 0.54);
-  font-size: 0.8rem;
-  line-height: 1.35;
+  font-size: var(--sui-font-size-supporting);
+  line-height: var(--sui-line-height-body);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -544,7 +544,7 @@ onBeforeUnmount(() => {
 .section-heading h2 {
   margin: 0 0 4px;
   color: rgba(var(--v-theme-on-surface), 0.9);
-  font-size: 1.05rem;
+  font-size: var(--sui-font-size-title);
   font-weight: 760;
 }
 
@@ -552,7 +552,7 @@ onBeforeUnmount(() => {
 .section-heading p {
   margin: 0;
   color: rgba(var(--v-theme-on-surface), 0.52);
-  font-size: 0.88rem;
+  font-size: var(--sui-font-size-supporting);
 }
 
 .log-list,
@@ -577,7 +577,7 @@ onBeforeUnmount(() => {
   flex: 1;
   overflow: hidden;
   color: rgba(var(--v-theme-on-surface), 0.72);
-  font-size: 0.88rem;
+  font-size: var(--sui-font-size-supporting);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -629,7 +629,7 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   margin-bottom: 8px;
   color: rgba(var(--v-theme-on-surface), 0.64);
-  font-size: 0.92rem;
+  font-size: var(--sui-font-size-supporting);
 }
 
 .resource-row strong {

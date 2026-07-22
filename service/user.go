@@ -223,7 +223,20 @@ func (s *UserService) AddToken(username string, expiry int64, desc string) (stri
 	return plainToken, nil
 }
 
-func (s *UserService) DeleteToken(id string) error {
+func (s *UserService) DeleteToken(username string, id string) error {
+	if username == "" || id == "" {
+		return common.NewError("token not found")
+	}
+
 	db := database.GetDB()
-	return db.Model(model.Tokens{}).Where("id = ?", id).Delete(&model.Tokens{}).Error
+	result := db.Model(model.Tokens{}).
+		Where("id = ? AND user_id = (SELECT id FROM users WHERE username = ?)", id, username).
+		Delete(&model.Tokens{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return common.NewError("token not found")
+	}
+	return nil
 }

@@ -87,7 +87,7 @@ const isActiveTheme = (th: string) => {
 
 :deep(.v-toolbar-title) {
   color: rgba(var(--v-theme-on-surface), 0.92);
-  font-size: 1.06rem;
+  font-size: var(--sui-font-size-page-title);
   font-weight: 780;
   letter-spacing: 0.02em;
   text-align: start;

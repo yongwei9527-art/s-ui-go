@@ -130,7 +130,9 @@ func (s *Server) Start() (err error) {
 	s.listener = listener
 
 	s.httpServer = &http.Server{
-		Handler: engine,
+		Handler:           engine,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	go func() {

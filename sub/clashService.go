@@ -69,6 +69,16 @@ func (s *ClashService) GetClash(subId string, hostname string) (*string, []strin
 	}
 
 	checks := NewSubscriptionCheckReport()
+	// Clash/Mihomo conversion has no safe XHTTP representation in this
+	// sing-box-based export path; report the compatibility limitation instead
+	// of silently exporting a broken TCP node.
+	xrayLinks, err := (&service.XrayXHTTPService{}).LinksForClient(client.Id, hostname)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(xrayLinks) > 0 {
+		checks.warn("XHTTP nodes are omitted from Clash/Mihomo subscriptions; use the standard URI subscription with an Xray-compatible client")
+	}
 	outbounds, outTags, err := s.getOutbounds(client.Config, inDatas, checks, hostname)
 	if err != nil {
 		return nil, nil, err
@@ -92,7 +102,7 @@ func (s *ClashService) GetClash(subId string, hostname string) (*string, []strin
 		basicConfig = basicClashConfig
 	}
 
-	resultStr, err := s.ConvertToClashMeta(outbounds, basicConfig)
+	resultStr, err := s.convertToClashMeta(outbounds, basicConfig, checks)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -100,6 +110,7 @@ func (s *ClashService) GetClash(subId string, hostname string) (*string, []strin
 
 	updateInterval, _ := s.SettingService.GetSubUpdates()
 	headers := util.GetHeaders(client, updateInterval)
+	headers = append(headers, checks.Warnings()...)
 
 	return &resultStr, headers, nil
 }
@@ -114,6 +125,12 @@ func (s *ClashService) getClashConfig() (string, error) {
 }
 
 func (s *ClashService) ConvertToClashMeta(outbounds *[]map[string]interface{}, basicConfig string) (string, error) {
+	return s.convertToClashMeta(outbounds, basicConfig, nil)
+}
+
+// convertToClashMeta keeps the public converter free of reporting side effects while
+// allowing GetClash to expose compatibility warnings through SubscriptionCheckReport.
+func (s *ClashService) convertToClashMeta(outbounds *[]map[string]interface{}, basicConfig string, checks *SubscriptionCheckReport) (string, error) {
 	var proxies []interface{}
 	proxyTags := make([]string, 0)
 	for _, obMap := range *outbounds {
@@ -214,6 +231,7 @@ func (s *ClashService) ConvertToClashMeta(outbounds *[]map[string]interface{}, b
 				proxy["udp-over-tcp"] = true
 			}
 		default:
+			checks.warnOnce("Clash/Mihomo subscription skipped outbound %q (protocol %q): the target format does not support this protocol; use the sing-box JSON subscription for this node.", tag, t)
 			continue
 		}
 

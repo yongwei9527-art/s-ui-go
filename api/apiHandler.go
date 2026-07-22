@@ -46,6 +46,12 @@ func (a *APIHandler) postHandler(c *gin.Context) {
 		a.ApiService.RestartApp(c)
 	case "restartSb":
 		a.ApiService.RestartSb(c)
+	case "xray-xhttp-save":
+		a.ApiService.SaveXrayXHTTP(c)
+	case "xray-xhttp-delete":
+		a.ApiService.DeleteXrayXHTTP(c)
+	case "restartXrayXHTTP":
+		a.ApiService.RestartXrayXHTTP(c)
 	case "linkConvert":
 		a.ApiService.LinkConvert(c)
 	case "subConvert":
@@ -85,8 +91,6 @@ func (a *APIHandler) getHandler(c *gin.Context) {
 		a.ApiService.GetStats(c)
 	case "status":
 		a.ApiService.GetStatus(c)
-	case "dnsLeakGuardCheck":
-		a.ApiService.GetDNSLeakGuardCheck(c)
 	case "onlines":
 		a.ApiService.GetOnlines(c)
 	case "logs":
@@ -101,6 +105,8 @@ func (a *APIHandler) getHandler(c *gin.Context) {
 		a.ApiService.GetTokens(c)
 	case "singbox-config":
 		a.ApiService.GetSingboxConfig(c)
+	case "xray-xhttp":
+		a.ApiService.GetXrayXHTTP(c)
 	case "checkOutbound":
 		a.ApiService.GetCheckOutbound(c)
 	default:

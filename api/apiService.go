@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"net/http"
 	"strconv"
 	"time"
 
@@ -26,6 +27,7 @@ type ApiService struct {
 	service.PanelService
 	service.StatsService
 	service.ServerService
+	service.XrayXHTTPService
 }
 
 func (a *ApiService) LoadData(c *gin.Context) {
@@ -211,21 +213,6 @@ func (a *ApiService) GetStatus(c *gin.Context) {
 	jsonObj(c, result, nil)
 }
 
-func (a *ApiService) GetDNSLeakGuardCheck(c *gin.Context) {
-	config, err := a.SettingService.GetNormalizedConfig()
-	if err != nil {
-		jsonObj(c, nil, err)
-		return
-	}
-	mode, err := a.SettingService.GetDNSLeakGuardMode()
-	if err != nil {
-		jsonObj(c, nil, err)
-		return
-	}
-	report, err := service.BuildDNSLeakGuardCheckReport(json.RawMessage(config), mode)
-	jsonObj(c, report, err)
-}
-
 func (a *ApiService) GetOnlines(c *gin.Context) {
 	onlines, err := a.StatsService.GetOnlines()
 	jsonObj(c, onlines, err)
@@ -339,6 +326,43 @@ func (a *ApiService) RestartSb(c *gin.Context) {
 	jsonMsg(c, "restartSb", err)
 }
 
+func (a *ApiService) GetXrayXHTTP(c *gin.Context) {
+	data, err := a.XrayXHTTPService.GetData()
+	jsonObj(c, data, err)
+}
+
+func (a *ApiService) SaveXrayXHTTP(c *gin.Context) {
+	var request service.XrayXHTTPSaveRequest
+	if err := json.Unmarshal([]byte(c.Request.FormValue("data")), &request); err != nil {
+		jsonMsg(c, "save", err)
+		return
+	}
+	if err := a.XrayXHTTPService.Save(request); err != nil {
+		jsonMsg(c, "save", err)
+		return
+	}
+	data, err := a.XrayXHTTPService.GetData()
+	jsonObj(c, data, err)
+}
+
+func (a *ApiService) DeleteXrayXHTTP(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Request.FormValue("id"), 10, 32)
+	if err == nil {
+		err = a.XrayXHTTPService.Delete(uint(id))
+	}
+	if err != nil {
+		jsonMsg(c, "delete", err)
+		return
+	}
+	data, err := a.XrayXHTTPService.GetData()
+	jsonObj(c, data, err)
+}
+
+func (a *ApiService) RestartXrayXHTTP(c *gin.Context) {
+	err := a.XrayXHTTPService.Restart()
+	jsonMsg(c, "restartXrayXHTTP", err)
+}
+
 func (a *ApiService) LinkConvert(c *gin.Context) {
 	link := c.Request.FormValue("link")
 	result, _, err := util.GetOutbound(link, 0)
@@ -351,7 +375,10 @@ func (a *ApiService) SubConvert(c *gin.Context) {
 	jsonObj(c, result, err)
 }
 
+const maxDatabaseImportBytes int64 = 256 << 20 // 256 MiB, including multipart overhead.
+
 func (a *ApiService) ImportDb(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxDatabaseImportBytes)
 	file, _, err := c.Request.FormFile("db")
 	if err != nil {
 		jsonMsg(c, "", err)
@@ -395,8 +422,9 @@ func (a *ApiService) AddToken(c *gin.Context) {
 }
 
 func (a *ApiService) DeleteToken(c *gin.Context) {
+	loginUser := GetLoginUser(c)
 	tokenId := c.Request.FormValue("id")
-	err := a.UserService.DeleteToken(tokenId)
+	err := a.UserService.DeleteToken(loginUser, tokenId)
 	jsonMsg(c, "", err)
 }
 

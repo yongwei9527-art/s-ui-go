@@ -17,17 +17,23 @@
   <v-row>
     <v-col cols="12">
       <v-alert
+        v-model="defaultProtocolNoticeVisible"
         color="primary"
         icon="mdi-information-outline"
         variant="tonal"
         rounded="lg"
+        closable
         class="mb-2"
       >
         <div class="text-subtitle-1 font-weight-bold">{{ $t('inbounds.defaultProtocolNoticeTitle') }}</div>
         <div class="text-body-2">{{ $t('inbounds.defaultProtocolNoticeDesc') }}</div>
       </v-alert>
     </v-col>
-    <v-col cols="12" justify="center" align="center">
+    <v-col cols="12" class="d-flex flex-wrap justify-center align-center ga-2">
+      <v-btn color="primary" variant="text" @click="showDefaultProtocolNotice">
+        <v-icon start>mdi-information-outline</v-icon>
+        {{ $t('inbounds.defaultProtocolNoticeTitle') }}
+      </v-btn>
       <v-btn color="primary" @click="showModal(0)">{{ $t('actions.add') }}</v-btn>
     </v-col>
   </v-row>
@@ -126,6 +132,11 @@ import { Config } from '@/types/config'
 import { computed, ref } from 'vue'
 import { createInbound, Inbound } from '@/types/inbounds'
 import RandomUtil from '@/plugins/randomUtil'
+import { useOneTimeNotice } from '@/composables/useOneTimeNotice'
+
+const { visible: defaultProtocolNoticeVisible, show: showDefaultProtocolNotice } = useOneTimeNotice(
+  's-ui.inbound-default-protocol-notice.v1'
+)
 
 const appConfig = computed((): Config => {
   return <Config> Data().config

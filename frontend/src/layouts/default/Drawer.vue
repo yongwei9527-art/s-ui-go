@@ -50,6 +50,7 @@ const showDrawer = computed((): boolean => {
 const menu = [
   { title: 'pages.home', icon: 'mdi-home',  path: '/' },
   { title: 'pages.inbounds', icon: 'mdi-cloud-download',  path: '/inbounds' },
+  { title: 'Xray XHTTP', icon: 'mdi-lan-connect', path: '/xray-xhttp' },
   { title: 'pages.clients', icon: 'mdi-account-multiple',  path: '/clients' },
   { title: 'pages.outbounds', icon: 'mdi-cloud-upload',  path: '/outbounds' },
   { title: 'pages.endpoints', icon: 'mdi-cloud-tags',  path: '/endpoints' },
@@ -81,7 +82,7 @@ const Logout = async () => {
   height: 68px;
   padding: 0 24px;
   color: rgba(var(--v-theme-on-surface), 0.9);
-  font-size: 1.12rem;
+  font-size: var(--sui-font-size-title);
   font-weight: 800;
   letter-spacing: 0.02em;
 }
@@ -133,7 +134,7 @@ const Logout = async () => {
 }
 
 :deep(.v-list-item-title) {
-  font-size: 0.88rem;
+  font-size: var(--sui-font-size-supporting);
   font-weight: 650;
 }
 

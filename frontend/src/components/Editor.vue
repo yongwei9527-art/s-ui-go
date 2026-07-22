@@ -93,7 +93,7 @@ export default {
   border: 1px solid v-bind('theme.current.colors["outline"]');
   border-radius: 4px;
   overflow: hidden;
-  font-size: 14px; /* Consistent font size */
+  font-size: var(--sui-font-size-code); /* Consistent font size */
 }
 
 .line-numbers {
@@ -122,7 +122,7 @@ export default {
   font-family: monospace !important;
   white-space: pre;
   mask-image: inherit;
-  font-size: 14px !important; /* Match font size */
+  font-size: var(--sui-font-size-code) !important; /* Match font size */
 }
 
 /* Ensure textarea and line numbers align */

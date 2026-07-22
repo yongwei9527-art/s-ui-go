@@ -24,6 +24,15 @@ func GetGeneratedInitialAdminPassword() string {
 	return generatedInitialAdminPassword
 }
 
+// TakeGeneratedInitialAdminPassword returns the random password created for
+// a first-start database once, then clears it so it cannot be emitted again
+// during a later in-process restart.
+func TakeGeneratedInitialAdminPassword() string {
+	password := generatedInitialAdminPassword
+	generatedInitialAdminPassword = ""
+	return password
+}
+
 func initUser() error {
 	var count int64
 	err := db.Model(&model.User{}).Count(&count).Error
@@ -31,17 +40,31 @@ func initUser() error {
 		return err
 	}
 	if count == 0 {
-		initialPassword := common.Random(24)
+		if err := config.ValidateInitialAdminUsername(); err != nil {
+			return err
+		}
+		initialPassword, configured := config.GetInitialAdminPassword()
+		if configured && strings.TrimSpace(initialPassword) == "" {
+			return errors.New("SUI_INITIAL_ADMIN_PASSWORD must not be empty or whitespace")
+		}
+		if !configured {
+			initialPassword = common.Random(24)
+		}
 		password, err := common.HashPassword(initialPassword)
 		if err != nil {
 			return err
 		}
 		user := &model.User{
-			Username: "admin",
+			Username: config.GetInitialAdminUsername(),
 			Password: password,
 		}
-		generatedInitialAdminPassword = initialPassword
-		return db.Create(user).Error
+		if err := db.Create(user).Error; err != nil {
+			return err
+		}
+		if !configured {
+			generatedInitialAdminPassword = initialPassword
+		}
+		return nil
 	}
 	return nil
 }
@@ -123,8 +146,13 @@ func InitDB(dbPath string) error {
 		&model.Stats{},
 		&model.Client{},
 		&model.Changes{},
+		&model.XrayXHTTPInbound{},
+		&model.XrayXHTTPClient{},
 	)
 	if err != nil {
+		return err
+	}
+	if err := migrateLegacyBootstrapOnlyTLSTemplateNames(db); err != nil {
 		return err
 	}
 	err = seedDefaultTlsAndInbounds()

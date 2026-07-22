@@ -143,6 +143,12 @@ func (s *ClientService) Save(tx *gorm.DB, act string, data json.RawMessage, host
 			}
 			inboundIds = common.UnionUintArray(inboundIds, clientInbounds)
 		}
+		// Keep sidecar assignments in sync. Otherwise a deleted SQLite row ID
+		// could be reused by a later client and inherit an old XHTTP UUID.
+		err = tx.Where("client_id in ?", ids).Delete(&model.XrayXHTTPClient{}).Error
+		if err != nil {
+			return nil, err
+		}
 		err = tx.Where("id in ?", ids).Delete(model.Client{}).Error
 		if err != nil {
 			return nil, err
@@ -159,6 +165,12 @@ func (s *ClientService) Save(tx *gorm.DB, act string, data json.RawMessage, host
 			return nil, err
 		}
 		err = json.Unmarshal(client.Inbounds, &inboundIds)
+		if err != nil {
+			return nil, err
+		}
+		// Delete the sidecar association before deleting the client for the same
+		// reason as bulk deletion: client IDs must never inherit old UUIDs.
+		err = tx.Where("client_id = ?", id).Delete(&model.XrayXHTTPClient{}).Error
 		if err != nil {
 			return nil, err
 		}
@@ -371,12 +383,13 @@ func (s *ClientService) UpdateLinksByInboundChange(tx *gorm.DB, inbounds *[]mode
 	return nil
 }
 
-func (s *ClientService) DepleteClients() ([]uint, error) {
+func (s *ClientService) DepleteClients() ([]uint, bool, error) {
 	var err error
 	var clients []model.Client
 	var changes []model.Changes
 	var users []string
 	var inboundIds []uint
+	var authorizationChanged bool
 
 	dt := time.Now().Unix()
 	db := database.GetDB()
@@ -393,16 +406,16 @@ func (s *ClientService) DepleteClients() ([]uint, error) {
 		}
 	}()
 
-	// Reset clients
+	// Reset clients. A periodic reset may reactivate a previously depleted user.
 	inboundIds, err = s.ResetClients(tx, dt)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	// Deplete clients
 	err = tx.Model(model.Client{}).Where("enable = true AND ((volume >0 AND up+down > volume) OR (expiry > 0 AND expiry < ?))", dt).Scan(&clients).Error
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	for _, client := range clients {
@@ -425,18 +438,20 @@ func (s *ClientService) DepleteClients() ([]uint, error) {
 	if len(changes) > 0 {
 		err = tx.Model(model.Client{}).Where("enable = true AND ((volume >0 AND up+down > volume) OR (expiry > 0 AND expiry < ?))", dt).Update("enable", false).Error
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		err = tx.Model(model.Changes{}).Create(&changes).Error
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		LastUpdate = dt
 	}
 
-	return inboundIds, nil
+	// len(inboundIds) covers normal inbounds; the explicit boolean also covers
+	// users assigned exclusively to the Xray sidecar.
+	authorizationChanged = len(clients) > 0 || len(inboundIds) > 0
+	return inboundIds, authorizationChanged, nil
 }
-
 func (s *ClientService) ResetClients(tx *gorm.DB, dt int64) ([]uint, error) {
 	var err error
 	var resetClients, allClients []*model.Client

@@ -63,6 +63,8 @@ func GetDb(exclude string) ([]byte, error) {
 		&model.Stats{},
 		&model.Client{},
 		&model.Changes{},
+		&model.XrayXHTTPInbound{},
+		&model.XrayXHTTPClient{},
 	)
 	if err != nil {
 		return nil, err
@@ -79,6 +81,8 @@ func GetDb(exclude string) ([]byte, error) {
 	var clients []model.Client
 	var stats []model.Stats
 	var changes []model.Changes
+	var xrayXHTTPInbounds []model.XrayXHTTPInbound
+	var xrayXHTTPClients []model.XrayXHTTPClient
 
 	// Perform scans and handle errors
 	if err := db.Model(&model.Setting{}).Scan(&settings).Error; err != nil {
@@ -141,6 +145,21 @@ func GetDb(exclude string) ([]byte, error) {
 		return nil, err
 	} else if len(clients) > 0 {
 		if err := backupDb.Save(clients).Error; err != nil {
+			return nil, err
+		}
+	}
+
+	if err := db.Model(&model.XrayXHTTPInbound{}).Scan(&xrayXHTTPInbounds).Error; err != nil {
+		return nil, err
+	} else if len(xrayXHTTPInbounds) > 0 {
+		if err := backupDb.Save(xrayXHTTPInbounds).Error; err != nil {
+			return nil, err
+		}
+	}
+	if err := db.Model(&model.XrayXHTTPClient{}).Scan(&xrayXHTTPClients).Error; err != nil {
+		return nil, err
+	} else if len(xrayXHTTPClients) > 0 {
+		if err := backupDb.Save(xrayXHTTPClients).Error; err != nil {
 			return nil, err
 		}
 	}

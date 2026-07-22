@@ -4,25 +4,50 @@ axios.defaults.headers.post['Content-Type'] = 'application/x-www-form-urlencoded
 axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest'
 
 axios.defaults.baseURL = "./"
+const api = axios.create()
 const pendingRequests = new Map()
 
-axios.interceptors.request.use(
-    (config) => {
-        // Generate a unique key for the request
-        const requestKey = `${config.method}:${config.url}`
+const stableRequestValue = (value: any): string => {
+    if (value === undefined || value === null) return ''
+    if (value instanceof URLSearchParams) return value.toString()
+    if (typeof value !== 'object') return String(value)
 
-        // Check if there is already a pending request with the same key
-        if (pendingRequests.has(requestKey)) {
-            const cancelSource = pendingRequests.get(requestKey)
-            cancelSource.cancel('Duplicate request cancelled')
+    const ordered: Record<string, any> = {}
+    for (const key of Object.keys(value).sort()) {
+        ordered[key] = value[key]
+    }
+    return JSON.stringify(ordered)
+}
+
+// Different outbound checks share one URL but use different query parameters.
+// Include parameters in the key so bulk checks do not cancel each other.
+const getRequestKey = (config: any): string | null => {
+    if (config.data instanceof FormData) return null
+    return `${config.method ?? 'get'}:${config.url ?? ''}?${stableRequestValue(config.params)}:${stableRequestValue(config.data)}`
+}
+
+const clearPendingRequest = (config: any) => {
+    const requestKey = getRequestKey(config)
+    if (requestKey === null) return
+
+    const pending = pendingRequests.get(requestKey)
+    if (pending?.token === config.cancelToken) {
+        pendingRequests.delete(requestKey)
+    }
+}
+
+api.interceptors.request.use(
+    (config) => {
+        const requestKey = getRequestKey(config)
+        if (requestKey !== null && pendingRequests.has(requestKey)) {
+            pendingRequests.get(requestKey).cancel('Duplicate request cancelled')
         }
 
-        // Create a new cancel token for the request
         const cancelSource = axios.CancelToken.source()
         config.cancelToken = cancelSource.token
-
-        // Store the cancel token in the pending requests map
-        pendingRequests.set(requestKey, cancelSource)
+        if (requestKey !== null) {
+            pendingRequests.set(requestKey, cancelSource)
+        }
 
         if (config.data instanceof FormData) {
             config.headers['Content-Type'] = 'multipart/form-data'
@@ -32,26 +57,19 @@ axios.interceptors.request.use(
     (error) => Promise.reject(error),
 )
 
-axios.interceptors.response.use(
+api.interceptors.response.use(
     (response) => {
-        // Remove the request from the pending requests map
-        const requestKey = `${response.config.method}:${response.config.url}`
-        pendingRequests.delete(requestKey)
+        clearPendingRequest(response.config)
         return response
     },
     (error) => {
         if (axios.isCancel(error)) {
-            // Handle duplicate request cancellation here if needed
             console.warn(error.message)
-        } else {
-            // Remove the request from the pending requests map on error
-            const requestKey = `${error.config.method}:${error.config.url}`
-            pendingRequests.delete(requestKey)
+        } else if (error.config) {
+            clearPendingRequest(error.config)
         }
         return Promise.reject(error)
-    }
+    },
 )
-
-const api = axios.create()
 
 export default api

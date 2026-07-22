@@ -1,33 +1,61 @@
 package util
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/yongwei9527-art/s-ui-go/logger"
 	"github.com/yongwei9527-art/s-ui-go/util/common"
 )
 
+const maxExternalSubscriptionBytes = 8 << 20 // 8 MiB
+
+var externalSubscriptionTimeout = 15 * time.Second
+
+func newExternalSubscriptionClient() *http.Client {
+	// Clone the default transport so subscription retrieval honours standard
+	// HTTP(S)_PROXY / NO_PROXY settings instead of silently bypassing them.
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	return &http.Client{
+		Transport: transport,
+		Timeout:   externalSubscriptionTimeout,
+	}
+}
+
 func GetExternalLink(url string) string {
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	ctx, cancel := context.WithTimeout(context.Background(), externalSubscriptionTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		logger.Warning("sub: Error creating HTTP request:", err)
+		return ""
 	}
 
-	client := &http.Client{Transport: tr}
-
-	response, err := client.Get(url)
+	response, err := newExternalSubscriptionClient().Do(req)
 	if err != nil {
 		logger.Warning("sub: Error making HTTP request:", err)
 		return ""
 	}
 	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		logger.Warning("sub: External subscription returned HTTP status:", response.Status)
+		return ""
+	}
 
-	body, err := io.ReadAll(response.Body)
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxExternalSubscriptionBytes+1))
 	if err != nil {
 		logger.Warning("sub: Error reading response body:", err)
+		return ""
+	}
+	if len(body) > maxExternalSubscriptionBytes {
+		logger.Warning("sub: External subscription exceeds maximum size")
 		return ""
 	}
 

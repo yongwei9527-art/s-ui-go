@@ -16,7 +16,7 @@ func NewDepleteJob() *DepleteJob {
 }
 
 func (s *DepleteJob) Run() {
-	inboundIds, err := s.ClientService.DepleteClients()
+	inboundIds, xrayAuthorizationChanged, err := s.ClientService.DepleteClients()
 	if err != nil {
 		logger.Warning("Disable depleted users failed: ", err)
 		return
@@ -25,6 +25,11 @@ func (s *DepleteJob) Run() {
 		err := s.InboundService.RestartInbounds(database.GetDB(), inboundIds)
 		if err != nil {
 			logger.Error("unable to restart inbounds: ", err)
+		}
+	}
+	if xrayAuthorizationChanged {
+		if err := (&service.XrayXHTTPService{}).ReloadAfterClientChange(); err != nil {
+			logger.Error("unable to refresh Xray XHTTP clients: ", err)
 		}
 	}
 }

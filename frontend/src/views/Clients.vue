@@ -35,25 +35,44 @@
     :tag="stats.tag"
     @close="closeStats"
   />
-  <v-row>
-    <v-col cols="12">
-      <v-alert
-        color="primary"
-        icon="mdi-account-key-outline"
-        variant="tonal"
-        rounded="lg"
-        class="mb-2"
-      >
-        <div class="text-subtitle-1 font-weight-bold">{{ $t('client.defaultUserNoticeTitle') }}</div>
-        <div class="text-body-2">{{ $t('client.defaultUserNoticeDesc') }}</div>
-      </v-alert>
-    </v-col>
-  </v-row>
-  <v-row justify="center" align="center">
-    <v-col cols="auto">
-      <v-btn color="primary" @click="showModal(0)">{{ $t('actions.add') }}</v-btn>
-    </v-col>
-    <v-col cols="auto">
+  <section class="clients-page">
+    <v-alert
+      v-model="defaultUserNoticeVisible"
+      color="primary"
+      icon="mdi-account-key-outline"
+      variant="tonal"
+      rounded="xl"
+      closable
+      class="clients-notice"
+    >
+      <div class="text-subtitle-1 font-weight-bold">{{ $t('client.defaultUserNoticeTitle') }}</div>
+      <div class="text-body-2">{{ $t('client.defaultUserNoticeDesc') }}</div>
+    </v-alert>
+
+    <v-card class="clients-toolbar" elevation="0" rounded="xl">
+      <div class="clients-toolbar__heading">
+        <div class="clients-toolbar__title">
+          <v-icon color="primary" size="20">mdi-account-group-outline</v-icon>
+          {{ $t('pages.clients') }}
+        </div>
+        <v-chip color="primary" size="small" variant="tonal">
+          <v-icon start size="16">mdi-account-multiple-outline</v-icon>
+          {{ clients.length }}
+        </v-chip>
+      </div>
+      <div class="clients-toolbar__actions">
+        <v-btn
+          class="clients-help-button"
+          color="primary"
+          variant="text"
+          @click="showDefaultUserNotice"
+        >
+          <v-icon start>mdi-information-outline</v-icon>
+          <span class="clients-help-button__label">{{ $t('client.defaultUserNoticeTitle') }}</span>
+        </v-btn>
+        <v-btn color="primary" prepend-icon="mdi-account-plus-outline" @click="showModal(0)">
+          {{ $t('actions.add') }}
+        </v-btn>
       <v-menu v-model="actionMenu" :close-on-content-click="false" location="bottom center">
         <template v-slot:activator="{ props }">
           <v-btn v-bind="props" hide-details variant="text" icon>
@@ -75,8 +94,6 @@
           </v-list-item>
         </v-list>
       </v-menu>
-    </v-col>
-    <v-col cols="auto">
       <v-menu v-model="filterMenu" :close-on-content-click="false" location="bottom center">
         <template v-slot:activator="{ props }">
           <v-btn v-bind="props" hide-details variant="text" icon>
@@ -139,10 +156,10 @@
           </v-card-actions>
         </v-card>
       </v-menu>
-    </v-col>
-  </v-row>
-  <v-row>
-    <v-col cols="12">
+      </div>
+    </v-card>
+
+    <v-card class="clients-table-card" elevation="0" rounded="xl">
       <v-data-table
         :headers="headers"
         :items="filterSettings.enabled ? filterSettings.filteredClients : clients"
@@ -155,7 +172,7 @@
         :mobile="smAndDown"
         mobile-breakpoint="sm"
         width="100%"
-        class="elevation-3 rounded"
+        class="clients-table"
         >
         <template v-slot:item.inbounds="{ item }">
           <span>
@@ -240,16 +257,117 @@
         </v-icon>
       </template>
       </v-data-table>
-    </v-col>
-  </v-row>
+    </v-card>
+  </section>
 </template>
-<style>
-.v-data-table__tr--mobile td {
+<style scoped>
+.clients-page {
+  display: grid;
+  gap: 16px;
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
+.clients-notice {
+  margin: 0;
+  border: 1px solid rgba(var(--v-theme-primary), 0.18);
+  box-shadow: 0 12px 28px rgba(var(--v-theme-primary), 0.08);
+}
+
+.clients-toolbar,
+.clients-table-card {
+  border: 1px solid rgba(var(--v-border-color), 0.1);
+  background: rgba(var(--v-theme-surface), 0.76) !important;
+  box-shadow: 0 14px 30px rgba(31, 45, 61, 0.08);
+  backdrop-filter: blur(14px);
+}
+
+.clients-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 76px;
+  padding: 14px 18px;
+}
+
+.clients-toolbar__heading,
+.clients-toolbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.clients-toolbar__heading {
+  min-width: 0;
+}
+
+.clients-toolbar__eyebrow {
+  color: rgba(var(--v-theme-on-surface), 0.62);
+  font-size: var(--sui-font-size-caption);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.clients-toolbar__title {
+  color: rgba(var(--v-theme-on-surface), 0.94);
+  font-size: var(--sui-font-size-page-title);
+  font-weight: 780;
+  line-height: 1.15;
+}
+
+.clients-toolbar__actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.clients-table-card {
+  overflow: hidden;
+}
+
+.clients-table :deep(.v-table__wrapper) {
+  overflow-x: auto;
+}
+
+.clients-table :deep(.v-table__wrapper > table) {
+  min-width: 1020px;
+}
+
+.clients-table :deep(th) {
+  color: rgba(var(--v-theme-on-surface), 0.72);
+  font-size: var(--sui-font-size-supporting);
+  font-weight: 760;
+  letter-spacing: 0.025em;
+  white-space: nowrap;
+}
+
+.clients-table :deep(td) {
+  vertical-align: middle;
+}
+
+:deep(.v-data-table__tr--mobile td) {
   height: fit-content;
   min-height: 36px !important;
 }
-.v-data-table__tr--mobile td div {
-  width:max-content;
+
+:deep(.v-data-table__tr--mobile td div) {
+  width: max-content;
+}
+
+@media (max-width: 760px) {
+  .clients-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .clients-toolbar__actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .clients-help-button__label {
+    display: none;
+  }
 }
 </style>
 <script lang="ts" setup>
@@ -264,6 +382,7 @@ import { computed, ref } from 'vue'
 import { HumanReadable } from '@/plugins/utils'
 import { i18n, locale } from '@/locales'
 import { useDisplay } from 'vuetify'
+import { useOneTimeNotice } from '@/composables/useOneTimeNotice'
 
 const { smAndDown } = useDisplay()
 
@@ -292,6 +411,10 @@ const groups = computed((): string[] => {
 
 const actionMenu = ref(false)
 const filterMenu = ref(false)
+const { visible: defaultUserNoticeVisible, show: showDefaultUserNotice } = useOneTimeNotice(
+  's-ui.client-default-user-notice.v1'
+)
+
 const filterSettings = ref({
   enabled: false,
   state: '',
@@ -308,14 +431,14 @@ const filterItems = [
 ]
 
 const headers = [
-  { title: i18n.global.t('client.name'), key: 'name' },
-  { title: i18n.global.t('client.desc'), key: 'desc' },
-  { title: i18n.global.t('client.group'), key: 'group' },
-  { title: i18n.global.t('pages.inbounds'), key: 'inbounds', width: 10 },
-  { title: i18n.global.t('actions.action'), key: 'actions', sortable: false },
-  { title: i18n.global.t('stats.volume'), key: 'volume' },
-  { title: i18n.global.t('date.expiry'), key: 'expiry' },
-  { title: i18n.global.t('online'), key: 'online' },
+  { title: i18n.global.t('client.name'), key: 'name', width: 150 },
+  { title: i18n.global.t('client.desc'), key: 'desc', width: 250 },
+  { title: i18n.global.t('client.group'), key: 'group', width: 120 },
+  { title: i18n.global.t('pages.inbounds'), key: 'inbounds', width: 84 },
+  { title: i18n.global.t('actions.action'), key: 'actions', sortable: false, width: 140 },
+  { title: i18n.global.t('stats.volume'), key: 'volume', width: 170 },
+  { title: i18n.global.t('date.expiry'), key: 'expiry', width: 100 },
+  { title: i18n.global.t('online'), key: 'online', width: 80 },
   { key: 'data-table-group', width: 0 },
 ]
 

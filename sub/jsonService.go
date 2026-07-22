@@ -57,6 +57,15 @@ func (j *JsonService) GetJson(subId string, format string, hostname string) (*st
 	}
 
 	checks := NewSubscriptionCheckReport()
+	// The embedded sing-box core does not support XHTTP. Keep XHTTP links in
+	// the URI subscription only and make JSON users aware of the omission.
+	xrayLinks, err := (&service.XrayXHTTPService{}).LinksForClient(client.Id, hostname)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(xrayLinks) > 0 {
+		checks.warn("XHTTP nodes are omitted from sing-box JSON subscriptions; use the standard URI subscription with an Xray-compatible client")
+	}
 	outbounds, outTags, err := j.getOutbounds(client.Config, inDatas, checks, hostname)
 	if err != nil {
 		return nil, nil, err
@@ -96,6 +105,7 @@ func (j *JsonService) GetJson(subId string, format string, hostname string) (*st
 
 	updateInterval, _ := j.SettingService.GetSubUpdates()
 	headers := util.GetHeaders(client, updateInterval)
+	headers = append(headers, checks.Warnings()...)
 
 	return &resultStr, headers, nil
 }
@@ -288,22 +298,7 @@ func (j *JsonService) addOthers(jsonConfig *map[string]interface{}) error {
 	if err != nil {
 		return err
 	}
-	dnsLeakGuardMode, err := j.SettingService.GetDNSLeakGuardMode()
-	if err != nil {
-		return err
-	}
 	if len(othersStr) == 0 {
-		if dnsLeakGuardMode != service.DNSLeakGuardModeOff {
-			(*jsonConfig)["dns"] = service.DefaultDNSLeakGuardConfig("proxy")
-			if err := service.EnsureRouteDNSHijack(route, dnsLeakGuardMode); err != nil {
-				return err
-			}
-			if dnsMap, ok := (*jsonConfig)["dns"].(map[string]interface{}); ok {
-				if err := service.ValidateRouteDefaultDomainResolver(dnsMap, route); err != nil {
-					return err
-				}
-			}
-		}
 		(*jsonConfig)["route"] = route
 		return nil
 	}
@@ -315,18 +310,8 @@ func (j *JsonService) addOthers(jsonConfig *map[string]interface{}) error {
 	if _, ok := othersJson["log"]; ok {
 		(*jsonConfig)["log"] = othersJson["log"]
 	}
-	if dnsLeakGuardMode == service.DNSLeakGuardModeOff {
-		delete(*jsonConfig, "dns")
-	} else if dns, ok := othersJson["dns"]; ok {
-		if dnsMap, ok := dns.(map[string]interface{}); ok {
-			if err := service.EnsureDNSLeakGuard(dnsMap, dnsLeakGuardMode, "proxy"); err != nil {
-				return err
-			}
-			dns = dnsMap
-		}
+	if dns, ok := othersJson["dns"]; ok {
 		(*jsonConfig)["dns"] = dns
-	} else {
-		(*jsonConfig)["dns"] = service.DefaultDNSLeakGuardConfig("proxy")
 	}
 	if _, ok := othersJson["inbounds"]; ok {
 		(*jsonConfig)["inbounds"] = othersJson["inbounds"]
@@ -343,16 +328,6 @@ func (j *JsonService) addOthers(jsonConfig *map[string]interface{}) error {
 	}
 	if defaultDomainResolver, ok := othersJson["default_domain_resolver"].(string); ok {
 		route["default_domain_resolver"] = defaultDomainResolver
-	}
-	if dnsLeakGuardMode != service.DNSLeakGuardModeOff {
-		if err := service.EnsureRouteDNSHijack(route, dnsLeakGuardMode); err != nil {
-			return err
-		}
-		if dnsMap, ok := (*jsonConfig)["dns"].(map[string]interface{}); ok {
-			if err := service.ValidateRouteDefaultDomainResolver(dnsMap, route); err != nil {
-				return err
-			}
-		}
 	}
 	(*jsonConfig)["route"] = route
 
