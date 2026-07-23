@@ -122,13 +122,14 @@ func (s *ConfigService) StartCore() error {
 	startCoreMu.Lock()
 	if startCoreInProgress {
 		startCoreMu.Unlock()
-		return nil
+		return common.NewError("sing-box core start is already in progress")
 	}
 	cooldown := coreStartCooldown()
-	if time.Since(lastStartFailTime) < cooldown {
+	if elapsed := time.Since(lastStartFailTime); elapsed < cooldown {
+		remaining := cooldown - elapsed
 		logger.Info("start core cooldown ", cooldown/time.Second, " seconds")
 		startCoreMu.Unlock()
-		return nil
+		return common.NewErrorf("sing-box core start is cooling down after a failure; retry in %s", remaining.Round(time.Second))
 	}
 	startCoreInProgress = true
 	startCoreMu.Unlock()
@@ -154,6 +155,7 @@ func (s *ConfigService) StartCore() error {
 	}
 	startCoreMu.Lock()
 	startFailCount = 0
+	lastStartFailTime = time.Time{}
 	startCoreMu.Unlock()
 	logger.Info("sing-box started")
 	return nil

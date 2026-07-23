@@ -4,7 +4,7 @@ import "time"
 
 // XrayXHTTPInbound is deliberately separate from Inbound: the embedded
 // sing-box core cannot parse XHTTP, so these records are rendered for the
-// Xray sidecar only.
+// embedded Xray runtime only.
 type XrayXHTTPInbound struct {
 	Id          uint   `json:"id" gorm:"primaryKey;autoIncrement"`
 	Enable      bool   `json:"enable"`
@@ -27,7 +27,7 @@ type XrayXHTTPInbound struct {
 }
 
 // XrayXHTTPClient keeps the per-client UUID out of the global inbound and
-// lets one S-UI subscription aggregate sing-box and Xray sidecar links.
+// lets one S-UI subscription aggregate sing-box and embedded Xray links.
 type XrayXHTTPClient struct {
 	Id        uint   `json:"id" gorm:"primaryKey;autoIncrement"`
 	InboundID uint   `json:"inboundId" gorm:"not null;uniqueIndex:idx_xray_xhttp_inbound_client"`

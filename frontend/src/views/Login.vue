@@ -2,7 +2,7 @@
   <div class="login-page">
     <div class="login-bg login-bg-one"></div>
     <div class="login-bg login-bg-two"></div>
-    <div class="login-background-brand" aria-hidden="true">S-UI</div>
+    <div class="login-background-brand" aria-hidden="true">s-ui-go</div>
 
     <v-container class="login-container">
       <v-row justify="center" align="center" class="login-row">

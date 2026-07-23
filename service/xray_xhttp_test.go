@@ -2,13 +2,24 @@ package service
 
 import (
 	"encoding/json"
+	"net"
+	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/op/go-logging"
 	"github.com/yongwei9527-art/s-ui-go/config"
 	"github.com/yongwei9527-art/s-ui-go/database"
 	"github.com/yongwei9527-art/s-ui-go/database/model"
+	"github.com/yongwei9527-art/s-ui-go/internal/xrayruntime"
+	"github.com/yongwei9527-art/s-ui-go/logger"
+)
+
+const (
+	testXrayRealityPrivateKey = "aGSYystUbf59_9_6LKRxD27rmSW_-2_nyd9YG_Gwbks"
+	testXrayRealityPublicKey  = "E59WjnvZcQMu7tR7_BgyhycuEdBS-CtKxfImRCdAvFM"
 )
 
 // TestFreshInstallAutoEnabledXrayRealityTemplates exercises the same database
@@ -60,6 +71,13 @@ func TestFreshInstallAutoEnabledXrayRealityTemplates(t *testing.T) {
 			t.Fatalf("seeded Xray config is missing %s: %s", want, text)
 		}
 	}
+	embedded, err := xrayruntime.New(generated)
+	if err != nil {
+		t.Fatalf("embedded Xray source rejected the generated default config: %v", err)
+	}
+	if err := embedded.Close(); err != nil {
+		t.Fatalf("close prepared embedded Xray instance: %v", err)
+	}
 
 	var client model.Client
 	if err := database.GetDB().Where("name = ?", "default-user").First(&client).Error; err != nil {
@@ -78,13 +96,164 @@ func TestFreshInstallAutoEnabledXrayRealityTemplates(t *testing.T) {
 			t.Fatalf("default client links are missing %q: %s", want, joined)
 		}
 	}
+
+	outbounds, err := sidecar.SubscriptionOutboundsForClient(client.Id, "203.0.113.10")
+	if err != nil {
+		t.Fatalf("create default client structured outbounds: %v", err)
+	}
+	if len(outbounds) != 2 {
+		t.Fatalf("default client structured outbound count = %d, want 2", len(outbounds))
+	}
+	byTransport := map[string]map[string]interface{}{}
+	for _, outbound := range outbounds {
+		if transport, ok := outbound["transport"].(map[string]interface{}); ok {
+			byTransport[transport["type"].(string)] = outbound
+		} else {
+			byTransport["tcp"] = outbound
+		}
+	}
+	if byTransport["tcp"]["flow"] != "xtls-rprx-vision" {
+		t.Fatalf("TCP structured outbound is missing Vision flow: %#v", byTransport["tcp"])
+	}
+	xhttpTransport := byTransport["xhttp"]["transport"].(map[string]interface{})
+	if xhttpTransport["path"] != "/xhttp" || xhttpTransport["mode"] != "auto" {
+		t.Fatalf("XHTTP structured transport = %#v", xhttpTransport)
+	}
+}
+
+func TestXraySaveFailureRestoresDatabaseAndPreviousRuntime(t *testing.T) {
+	logger.InitLogger(logging.ERROR)
+	t.Setenv("SUI_DB_FOLDER", t.TempDir())
+	t.Setenv("SUI_INITIAL_ADMIN_PASSWORD", "test-only-initial-password")
+	if err := database.InitDB(config.GetDBPath()); err != nil {
+		t.Fatalf("initialize database: %v", err)
+	}
+	sidecar := &XrayXHTTPService{}
+	t.Cleanup(func() {
+		_ = sidecar.Stop()
+		if sqlDB, err := database.GetDB().DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+
+	var client model.Client
+	if err := database.GetDB().Where("name = ?", "default-user").First(&client).Error; err != nil {
+		t.Fatalf("load default client: %v", err)
+	}
+	oldPort := reserveAndReleaseTCPPort(t)
+	newPort := reserveAndReleaseTCPPort(t)
+	for newPort == oldPort {
+		newPort = reserveAndReleaseTCPPort(t)
+	}
+	inbound := model.XrayXHTTPInbound{
+		Enable: true, Tag: "rollback-reality-tcp", Listen: "127.0.0.1", Port: uint16(oldPort),
+		ServerName: "www.example.com", Dest: "www.example.com:443",
+		PrivateKey: testXrayRealityPrivateKey, PublicKey: testXrayRealityPublicKey,
+		ShortID: "0123456789abcdef", Fingerprint: "chrome", Transport: "tcp",
+	}
+	if err := sidecar.Save(XrayXHTTPSaveRequest{Inbound: inbound, ClientIDs: []uint{client.Id}}); err != nil {
+		t.Fatalf("start initial embedded Xray runtime: %v", err)
+	}
+	var saved model.XrayXHTTPInbound
+	if err := database.GetDB().Where("tag = ?", inbound.Tag).First(&saved).Error; err != nil {
+		t.Fatalf("load saved inbound: %v", err)
+	}
+	assertTCPPortOpen(t, oldPort)
+
+	blocker, err := net.Listen("tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(newPort)))
+	if err != nil {
+		t.Fatalf("occupy replacement port: %v", err)
+	}
+	defer blocker.Close()
+
+	update := saved
+	update.Port = uint16(newPort)
+	update.PrivateKey = "" // Exercise private-key preservation on an edit.
+	err = sidecar.Save(XrayXHTTPSaveRequest{Inbound: update, ClientIDs: []uint{client.Id}})
+	if err == nil {
+		t.Fatal("save unexpectedly succeeded on an occupied replacement port")
+	}
+	if status := sidecar.Status(); status["running"] != true {
+		t.Fatalf("previous runtime was not restored: %#v", status)
+	}
+	var restored model.XrayXHTTPInbound
+	if err := database.GetDB().First(&restored, saved.Id).Error; err != nil {
+		t.Fatalf("load restored inbound: %v", err)
+	}
+	if restored.Port != uint16(oldPort) || restored.PrivateKey != testXrayRealityPrivateKey {
+		t.Fatalf("database was not restored: %#v", restored)
+	}
+	assertTCPPortOpen(t, oldPort)
+}
+
+func TestXrayRestartRemovesPrivateConfigAfterDisablingLastInbound(t *testing.T) {
+	logger.InitLogger(logging.ERROR)
+	t.Setenv("SUI_DB_FOLDER", t.TempDir())
+	t.Setenv("SUI_INITIAL_ADMIN_PASSWORD", "test-only-initial-password")
+	if err := database.InitDB(config.GetDBPath()); err != nil {
+		t.Fatalf("initialize database: %v", err)
+	}
+	sidecar := &XrayXHTTPService{}
+	t.Cleanup(func() {
+		_ = sidecar.Stop()
+		if sqlDB, err := database.GetDB().DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+
+	var client model.Client
+	if err := database.GetDB().Where("name = ?", "default-user").First(&client).Error; err != nil {
+		t.Fatalf("load default client: %v", err)
+	}
+	inbound := model.XrayXHTTPInbound{
+		Enable: true, Tag: "private-config-cleanup", Listen: "127.0.0.1", Port: uint16(reserveAndReleaseTCPPort(t)),
+		ServerName: "www.example.com", Dest: "www.example.com:443",
+		PrivateKey: testXrayRealityPrivateKey, PublicKey: testXrayRealityPublicKey,
+		ShortID: "0123456789abcdef", Fingerprint: "chrome", Transport: "tcp",
+	}
+	if err := sidecar.Save(XrayXHTTPSaveRequest{Inbound: inbound, ClientIDs: []uint{client.Id}}); err != nil {
+		t.Fatalf("start embedded Xray runtime: %v", err)
+	}
+	if _, err := os.Stat(sidecar.configPath()); err != nil {
+		t.Fatalf("private Xray config was not written: %v", err)
+	}
+	if err := database.GetDB().Model(&model.XrayXHTTPInbound{}).Where("tag = ?", inbound.Tag).Update("enable", false).Error; err != nil {
+		t.Fatalf("disable Xray inbound: %v", err)
+	}
+	if err := sidecar.Restart(); err != nil {
+		t.Fatalf("restart after disabling last inbound: %v", err)
+	}
+	if _, err := os.Stat(sidecar.configPath()); !os.IsNotExist(err) {
+		t.Fatalf("private Xray config should be removed after disable, stat err = %v", err)
+	}
+}
+func reserveAndReleaseTCPPort(t *testing.T) int {
+	t.Helper()
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve TCP port: %v", err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	if err := listener.Close(); err != nil {
+		t.Fatalf("release TCP port: %v", err)
+	}
+	return port
+}
+
+func assertTCPPortOpen(t *testing.T, port int) {
+	t.Helper()
+	conn, err := net.DialTimeout("tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), time.Second)
+	if err != nil {
+		t.Fatalf("TCP port %d is not open: %v", port, err)
+	}
+	_ = conn.Close()
 }
 
 func TestXrayXHTTPConfigShape(t *testing.T) {
 	inbound := model.XrayXHTTPInbound{
 		Enable: true, Tag: "vless-reality-xhttp-2088", Listen: "0.0.0.0", Port: 2088,
-		ServerName: "www.example.com", Dest: "www.example.com:443", PrivateKey: "private-key",
-		PublicKey: "public-key", ShortID: "0123456789abcdef", Fingerprint: "chrome", Path: "/xhttp", Mode: "auto",
+		ServerName: "www.example.com", Dest: "www.example.com:443", PrivateKey: testXrayRealityPrivateKey,
+		PublicKey: testXrayRealityPublicKey, ShortID: "0123456789abcdef", Fingerprint: "chrome", Path: "/xhttp", Mode: "auto",
 	}
 	if err := validateXrayXHTTPInbound(inbound); err != nil {
 		t.Fatalf("valid inbound rejected: %v", err)
@@ -105,8 +274,8 @@ func TestXrayXHTTPConfigShape(t *testing.T) {
 func TestXrayTCPVisionConfigShape(t *testing.T) {
 	inbound := model.XrayXHTTPInbound{
 		Enable: true, Tag: "vless-reality-tcp-10443", Listen: "0.0.0.0", Port: 10443,
-		ServerName: "www.example.com", Dest: "www.example.com:443", PrivateKey: "private-key",
-		PublicKey: "public-key", ShortID: "0123456789abcdef", Fingerprint: "chrome", Transport: "tcp",
+		ServerName: "www.example.com", Dest: "www.example.com:443", PrivateKey: testXrayRealityPrivateKey,
+		PublicKey: testXrayRealityPublicKey, ShortID: "0123456789abcdef", Fingerprint: "chrome", Transport: "tcp",
 	}
 	if err := validateXrayXHTTPInbound(inbound); err != nil {
 		t.Fatalf("valid TCP Vision inbound rejected: %v", err)
@@ -159,8 +328,46 @@ func TestXrayXHTTPLinkShape(t *testing.T) {
 		t.Errorf("XHTTP link unexpectedly contains Vision flow: %s", link)
 	}
 }
+
+func TestXraySubscriptionOutboundShape(t *testing.T) {
+	inbound := model.XrayXHTTPInbound{
+		Tag: "xhttp", Port: 2088, ServerName: "www.example.com", PublicKey: "public-key",
+		ShortID: "0123456789abcdef", Fingerprint: "chrome", Transport: "xhttp", Path: "/xhttp", Mode: "stream-up",
+	}
+	outbound := xraySubscriptionOutbound(inbound, "test-uuid", "2001:db8::1")
+	if outbound["type"] != "vless" || outbound["server"] != "2001:db8::1" || outbound["uuid"] != "test-uuid" || outbound["udp"] != true {
+		t.Fatalf("unexpected structured Xray outbound or missing UDP capability: %#v", outbound)
+	}
+	transport, ok := outbound["transport"].(map[string]interface{})
+	if !ok || transport["type"] != "xhttp" || transport["path"] != "/xhttp" || transport["mode"] != "stream-up" {
+		t.Fatalf("unexpected XHTTP transport: %#v", outbound["transport"])
+	}
+	tls, ok := outbound["tls"].(map[string]interface{})
+	if !ok || tls["server_name"] != "www.example.com" {
+		t.Fatalf("unexpected Reality TLS settings: %#v", outbound["tls"])
+	}
+	reality, ok := tls["reality"].(map[string]interface{})
+	if !ok || reality["public_key"] != "public-key" || reality["short_id"] != "0123456789abcdef" {
+		t.Fatalf("unexpected Reality options: %#v", tls["reality"])
+	}
+}
+
+func TestXrayStatusReportsEmbeddedSourceRuntime(t *testing.T) {
+	status := (&XrayXHTTPService{}).Status()
+	if status["engine"] != "embedded" || status["sourceIntegrated"] != true {
+		t.Fatalf("Xray status does not report source-integrated runtime: %#v", status)
+	}
+	version, ok := status["version"].(string)
+	if !ok || strings.TrimSpace(version) == "" {
+		t.Fatalf("Xray status has no embedded source version: %#v", status)
+	}
+	if status["configured"] != true {
+		t.Fatalf("embedded Xray runtime unexpectedly requires an external binary: %#v", status)
+	}
+}
+
 func TestValidateXrayXHTTPInboundRejectsUnsafeValues(t *testing.T) {
-	base := model.XrayXHTTPInbound{Tag: "xhttp", Listen: "0.0.0.0", Port: 2088, ServerName: "example.com", Dest: "example.com:443", PrivateKey: "private", PublicKey: "public", ShortID: "abcd", Fingerprint: "chrome", Path: "/xhttp", Mode: "auto"}
+	base := model.XrayXHTTPInbound{Tag: "xhttp", Listen: "0.0.0.0", Port: 2088, ServerName: "example.com", Dest: "example.com:443", PrivateKey: testXrayRealityPrivateKey, PublicKey: testXrayRealityPublicKey, ShortID: "abcd", Fingerprint: "chrome", Path: "/xhttp", Mode: "auto"}
 	badPath := base
 	badPath.Path = "xhttp"
 	if err := validateXrayXHTTPInbound(badPath); err == nil {
@@ -195,6 +402,16 @@ func TestValidateXrayXHTTPInboundRejectsUnsafeValues(t *testing.T) {
 	badTransport.Transport = "grpc"
 	if err := validateXrayXHTTPInbound(badTransport); err == nil {
 		t.Fatal("unsupported Xray Reality transport was accepted")
+	}
+	badFingerprint := base
+	badFingerprint.Fingerprint = "not-a-real-fingerprint"
+	if err := validateXrayXHTTPInbound(badFingerprint); err == nil || !strings.Contains(err.Error(), "fingerprint") {
+		t.Fatalf("unsupported Reality fingerprint error = %v", err)
+	}
+	badPublicKey := base
+	badPublicKey.PublicKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	if err := validateXrayXHTTPInbound(badPublicKey); err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("mismatched Reality key pair error = %v", err)
 	}
 }
 
@@ -231,18 +448,4 @@ func TestSingBoxInboundUDPOnly(t *testing.T) {
 	if singBoxInboundUDPOnly("vless") {
 		t.Fatal("VLESS must be treated as TCP-capable")
 	}
-}
-
-func TestWaitForXrayXHTTPStartup(t *testing.T) {
-	exited := make(chan struct{})
-	close(exited)
-	if err := waitForXrayXHTTPStartup(exited, time.Millisecond); err == nil {
-		t.Fatal("immediately exited sidecar was reported as started")
-	}
-
-	running := make(chan struct{})
-	if err := waitForXrayXHTTPStartup(running, time.Millisecond); err != nil {
-		t.Fatalf("running sidecar was rejected: %v", err)
-	}
-	close(running)
 }

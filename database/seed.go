@@ -589,7 +589,7 @@ func seedDefaultClient(tx *gorm.DB, inbounds []model.Inbound, seedHost string) e
 	return tx.Create(&client).Error
 }
 
-// seedDefaultXrayRealityTemplates creates Xray sidecar templates during the same
+// seedDefaultXrayRealityTemplates creates embedded Xray templates during the same
 // first-boot transaction that creates the sing-box templates. The packaged Linux
 // installer explicitly opts in to both Reality presets only after it has verified
 // their ports and target, so a fresh installation starts with usable Xray endpoints.
@@ -598,7 +598,7 @@ func seedDefaultXrayRealityTemplates(tx *gorm.DB, singBoxInbounds []model.Inboun
 	var client model.Client
 	if err := tx.Where("name = ?", defaultTemplateClientName).First(&client).Error; err != nil {
 		// A partially populated legacy database can have no TLS/inbounds yet
-		// already contain users. Do not manufacture a new sidecar assignment in
+		// already contain users. Do not manufacture a new Xray assignment in
 		// that upgrade-shaped state; these drafts are first-boot defaults only.
 		if err == gorm.ErrRecordNotFound {
 			return nil
@@ -655,10 +655,10 @@ func seedDefaultXrayRealityTemplates(tx *gorm.DB, singBoxInbounds []model.Inboun
 	return nil
 }
 
-// autoEnableDefaultXrayReality is intentionally opt-in. A raw binary or a
-// Docker/custom deployment may not include Xray-core or may be behind a firewall
-// policy that forbids opening public listeners. install-linux.sh sets this only
-// after it has installed the bundled Xray binary and checked all default ports.
+// autoEnableDefaultXrayReality is intentionally opt-in because Docker/custom
+// deployments may have firewall policies that forbid opening public listeners.
+// The Linux installer sets this only after checking the Reality target and all
+// default ports; Xray-core itself is already compiled into the sui process.
 func autoEnableDefaultXrayReality() bool {
 	value := strings.ToLower(strings.TrimSpace(os.Getenv("SUI_AUTOCONFIGURE_XRAY_REALITY")))
 	return value == "1" || value == "true" || value == "yes"

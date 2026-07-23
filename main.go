@@ -31,7 +31,9 @@ func runApp() {
 
 		switch sig {
 		case syscall.SIGHUP:
-			app.RestartApp()
+			if err := app.RestartApp(); err != nil {
+				log.Fatal(err)
+			}
 		default:
 			app.Stop()
 			return
@@ -44,6 +46,9 @@ func main() {
 		runApp()
 		return
 	} else {
-		cmd.ParseCmd()
+		if err := cmd.ParseCmd(); err != nil {
+			log.Print(err)
+			os.Exit(1)
+		}
 	}
 }

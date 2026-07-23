@@ -1,407 +1,145 @@
-# S-UI 在 Ubuntu VPS 的生产部署指南
+# s-ui-go 0.1 在 Ubuntu VPS 的部署指南
 
-本文面向 Ubuntu VPS 的**非容器化、systemd 托管**部署。目标是让程序以低权限用户运行；管理面板与订阅服务仅监听 `127.0.0.1`，由反向代理（可选）负责公网 HTTPS。本文不修改项目默认监听值，而是在首次初始化后通过管理界面保存运行设置。
+> **用户可见名称：** s-ui-go 0.1
+> **发布标签：** [`s-ui-go-v0.1.0`](https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.0)
 
-> **部署前的边界**
->
-> - 面板和订阅服务的项目默认端口分别为 `2095` 与 `2096`，默认监听空地址（所有网卡）。因此，必须先完成 UFW，再进行第一次启动；不要在防火墙开放 `2095/2096`。
-> - 数据库是 SQLite，默认路径由 `SUI_DB_FOLDER` 决定；本指南固定为 `/opt/s-ui/db/s-ui.db`。
-> - 首次管理员环境变量仅在数据库中尚无用户时使用。成功初始化后应从环境文件删除管理员密码并重启服务。
-> - 以下命令假定使用有 sudo 权限的 Ubuntu 管理员账户。将示例域名、用户名和密码替换为自己的真实值。
+本文说明 Ubuntu VPS 的非容器化安装。受支持的包内安装方式要求 **systemd**；默认安装目录为 `/usr/local/s-ui`。本文中的 `sui` 是程序文件名，`s-ui` 是 systemd 服务与管理命令。
 
-## 1. 选择产物与安装最小依赖
+## 1. 部署边界与前置条件
 
-### 直接使用已构建的 Linux 产物（推荐）
+- 使用带 systemd 的 Ubuntu（例如 22.04/24.04），并以具有 `sudo` 权限的账户执行；不要在没有 systemd 的容器、精简 chroot 或 WSL 环境中按本指南部署。
+- 本节使用 amd64 发布资产，先确认 `uname -m` 为 `x86_64`。其他架构只能使用同一 Release 中实际发布的匹配 ZIP 与校验文件。
+- Linux 的发布契约是 **`s-ui-linux-amd64.zip` + `s-ui-linux-amd64.zip.sha256`**，不是单独的 `sui-linux-amd64` 裸二进制。
+- 云安全组/云防火墙不受 VPS 内安装器控制；即使本机服务已监听，仍须由你在云平台确认入站规则。
+- 管理面板与订阅端口默认为 `2095` / `2096`。安装器不会承诺或要求自动对公网开放它们；生产环境应优先限制监听地址并经 HTTPS 反代或 SSH 隧道管理。
 
-从**可信发布来源**下载与 VPS 架构匹配的项目产物，连同发布方提供的校验值一起验证。仓库中使用的可执行文件命名为：
-
-| `uname -m` 输出 | 应使用的文件 |
-| --- | --- |
-| `x86_64` | `sui-linux-amd64` |
-| `aarch64` | `sui-linux-arm64` |
-| 其他 ARM 32 位 | `sui-linux-arm` |
-
-下载产物后先执行：
+确认 systemd：
 
 ```bash
-uname -m
-sha256sum /path/to/downloaded/sui-linux-amd64
+systemctl --version
+systemctl is-system-running --wait || true
 ```
 
-仅在校验值与可信发布信息一致时继续。本文后续把确认过的产物称为 `sui`。
+## 2. 从固定 Release 下载并校验 ZIP
 
-最小运行依赖：
+先安装依赖：
 
 ```bash
 sudo apt update
-sudo apt install -y ca-certificates curl openssl sqlite3 ufw
+sudo apt install -y ca-certificates curl unzip openssl iproute2 coreutils
 ```
 
-`sqlite3` 用于一致性备份和完整性检查；程序本身运行时不依赖系统 Go 或 Node.js。
-
-### 从当前源码构建（可选）
-
-仓库已有 `build.sh`，它会执行前端依赖安装与构建，然后用 `go build` 生成当前目录下的 `sui`。构建机（可与 VPS 分离）需要：
+不要从任何可变分支或通过 `curl | bash` 建立 bootstrap。请只信任固定 Release 的 ZIP 及其同名校验资产：
 
 ```bash
-sudo apt update
-sudo apt install -y git build-essential nodejs npm golang-go
-cd /path/to/s-ui-source
-./build.sh
+TAG='s-ui-go-v0.1.0'
+ASSET='s-ui-linux-amd64.zip'
+BASE="https://github.com/yongwei9527-art/s-ui-go/releases/download/${TAG}"
+
+mkdir -p ~/s-ui-go-install && cd ~/s-ui-go-install
+curl -fL -O "${BASE}/${ASSET}"
+curl -fL -O "${BASE}/${ASSET}.sha256"
+sha256sum --check "${ASSET}.sha256"
+unzip -t "${ASSET}"
+rm -rf package && unzip -q "${ASSET}" -d package
+cd package
+ls -l sui install-linux.sh XRAY-CORE-NOTICE.md
 ```
 
-构建完成后只把生成的 `sui` 文件部署到 VPS；不要把 `node_modules`、源码工作树或构建账户凭据复制到 `/opt/s-ui`。
+只有 `sha256sum --check` 输出 `OK` 且 `unzip -t` 成功时才继续。已验证的压缩包内含 `sui`、`install-linux.sh`、服务管理文件和合规说明；不会有独立 `xray` 文件。
 
-## 2. 创建受限服务用户和目录布局
+## 3. 使用包内安装器
 
-创建没有登录 shell 的专用账户，并建立目录：
+在上一步解压出的 `package` 目录执行：
 
 ```bash
-sudo useradd --system --home-dir /opt/s-ui --shell /usr/sbin/nologin --user-group s-ui
-
-sudo install -d -o root -g root -m 0755 /opt/s-ui
-sudo install -d -o s-ui -g s-ui -m 0750 /opt/s-ui/db /opt/s-ui/logs /opt/s-ui/cert
-sudo install -d -o root -g root -m 0700 /opt/s-ui/backups
-sudo install -d -o root -g s-ui -m 0750 /etc/s-ui
+sudo bash ./install-linux.sh
 ```
 
-推荐布局：
+此安装路径固定为“**校验 ZIP → 解压 → 使用包内 `sui` / `install-linux.sh`**”。安装器将程序放到 `/usr/local/s-ui` 并由 systemd 管理 `s-ui.service`。
 
-```text
-/opt/s-ui/
-├── sui                 # root:root，0755；可执行文件
-├── db/                 # s-ui:s-ui，0750；包含 s-ui.db（及 WAL/SHM）
-├── logs/               # s-ui:s-ui，0750
-├── cert/               # s-ui:s-ui，0750；仅在程序自身配置证书时使用
-└── backups/            # root:root，0700；离线或 SQLite 一致性备份
+### 全新安装的严格检查与回滚
 
-/etc/s-ui/s-ui.env      # root:s-ui，0640；systemd 环境文件
-/etc/systemd/system/s-ui.service
-```
+全新安装会在创建可用配置前检查 Reality 目标、端口占用和双核心实际启动状态：
 
-复制已经校验的可执行文件（以下以 amd64 为例）：
+| 核心 | 默认入站 | 默认端口 |
+| --- | --- | --- |
+| sing-box | VLESS Reality | `443/tcp` |
+| 内置 Xray-core | VLESS Reality TCP Vision | `10443/tcp` |
+| 内置 Xray-core | VLESS Reality XHTTP | `2088/tcp` |
+
+检查通过后，安装器会启用并确认三个监听。检查、安装或 systemd 启动任一步失败时，安装器会中止并回滚本次全新安装产生的状态，不把“仅面板启动”误报为双核心可用。
+
+已有数据库的升级不会擅自重置管理员、面板设置或现有协议配置；安装器会备份升级前状态，在失败时恢复。`--allow-manual-xray` 仅适合明确接受 Xray 默认模板暂时关闭的高级人工部署，不能视为双核心默认可用的成功结果。
+
+## 4. 防火墙、云安全组与面板暴露
+
+安装成功只表示 VPS 本机的配置与监听检查通过，不代表公网已可用。请在**本机防火墙和云安全组**中分别确认实际需要的端口：
 
 ```bash
-sudo install -o root -g root -m 0755 /path/to/downloaded/sui-linux-amd64 /opt/s-ui/sui
-sudo -u s-ui /opt/s-ui/sui -v
-```
-
-## 3. 首次管理员变量与 systemd 服务
-
-生成一个仅用于首次启动的强密码，例如：
-
-```bash
-openssl rand -base64 32
-```
-
-创建 `/etc/s-ui/s-ui.env`。`SUI_HOME` 是本服务单元使用的运维变量；当前程序实际使用的是 `SUI_DB_FOLDER`。请把示例密码替换为上一步输出，不要把它提交到 Git、shell 历史、工单或聊天记录中：
-
-```bash
-sudo tee /etc/s-ui/s-ui.env >/dev/null <<'EOF'
-SUI_HOME=/opt/s-ui
-SUI_DB_FOLDER=/opt/s-ui/db
-SUI_DEBUG=false
-SUI_INITIAL_ADMIN_USERNAME=admin
-SUI_INITIAL_ADMIN_PASSWORD=replace-with-a-random-password
-EOF
-sudo chown root:s-ui /etc/s-ui/s-ui.env
-sudo chmod 0640 /etc/s-ui/s-ui.env
-```
-
-创建受限 systemd 单元 `/etc/systemd/system/s-ui.service`：
-
-```ini
-[Unit]
-Description=S-UI Proxy Panel
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=s-ui
-Group=s-ui
-EnvironmentFile=/etc/s-ui/s-ui.env
-WorkingDirectory=/opt/s-ui
-ExecStart=/opt/s-ui/sui
-Restart=on-failure
-RestartSec=10
-UMask=0077
-
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectHome=true
-ProtectSystem=strict
-ReadWritePaths=/opt/s-ui/db /opt/s-ui/logs /opt/s-ui/cert
-
-[Install]
-WantedBy=multi-user.target
-```
-
-安装、加载并启用服务：
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now s-ui
-sudo systemctl status s-ui --no-pager
-sudo journalctl -u s-ui -n 100 --no-pager
-```
-
-如果启动失败，先检查 `/etc/s-ui/s-ui.env` 是否存在空的 `SUI_INITIAL_ADMIN_PASSWORD`。程序会拒绝使用显式空密码创建管理员。
-
-首次登录确认成功后，删除**两行**首次管理员变量，保留其它变量：
-
-```bash
-sudo sed -i '/^SUI_INITIAL_ADMIN_USERNAME=/d; /^SUI_INITIAL_ADMIN_PASSWORD=/d' /etc/s-ui/s-ui.env
-sudo systemctl restart s-ui
-```
-
-> 仅当数据库中还没有用户时，这两个变量才生效；删除它们不会修改已创建的管理员账户。
-
-## 4. 先收紧网络，再将监听地址设为 127.0.0.1
-
-在首次访问前先启用 UFW。若当前 SSH 不是 22 端口，先把下面的 `22` 改成实际端口，并确认保留当前 SSH 会话，避免将自己锁在 VPS 外：
-
-```bash
-sudo ufw default deny incoming
-sudo ufw default allow outgoing
-sudo ufw allow 22/tcp
-sudo ufw allow 80/tcp
+# 仅在你确认需要将代理端口对公网开放时执行；按实际安全策略限制来源。
 sudo ufw allow 443/tcp
-sudo ufw enable
+sudo ufw allow 10443/tcp
+sudo ufw allow 2088/tcp
 sudo ufw status verbose
 ```
 
-此规则集**不开放** `2095` 或 `2096`。这样即使程序的首次数据库还保留项目默认的空监听地址，公网也无法访问它。
+- 不要把 `2095/tcp`、`2096/tcp` 作为“安装必需端口”对所有来源开放。推荐将 Web 面板和订阅监听限制到 `127.0.0.1`，再通过可信 HTTPS 反代或 SSH 本地转发访问。
+- 如果本机 UFW 已启用，包内安装器只会针对通过严格检查的代理端口采取相应动作；它不会替你配置云安全组、也不替你承诺面板/订阅端口对公网可达。
+- 新增或变更端口后，必须同时检查 UFW（或其他本机防火墙）与云厂商安全组/网络 ACL。
 
-使用 SSH 本地转发访问刚启动的面板：
+## 5. Reality 的非 443 端口风险
 
-```bash
-ssh -N -L 2095:127.0.0.1:2095 your-ssh-user@your-vps-ip
-```
+默认 sing-box Reality 使用 `443/tcp`，但内置 Xray TCP Vision 与 XHTTP 分别使用 `10443/tcp` 和 `2088/tcp`。后二者都是非 443 Reality 入站。
 
-在本机浏览器访问 `http://127.0.0.1:2095/app/` 并登录。进入 **设置** 页面后：
+[Xray 官方 Reality/传输配置文档](https://xtls.github.io/en/config/transport.html) 提示：当 Reality 服务使用非 443 端口时，Reality 目标站可能对相关来源施加封锁。默认 `10443`/`2088` 并非无风险伪装。部署前应在自己的网络条件下评估以下选择：
 
-1. 在“界面”页把“监听地址”设为 `127.0.0.1`，保留或按需修改面板端口与路径；
-2. 在“订阅”页把“监听地址”也设为 `127.0.0.1`，保留或按需修改订阅端口与路径；
-3. 保存设置，然后使用页面的“重启应用”操作，或执行 `sudo systemctl restart s-ui`。
+1. 让 Reality 服务与访问目标的路径使用不同 IP（降低相互关联的风险）；
+2. 使用适当的端口映射；
+3. 明确接受该封锁风险；或
+4. 不能接受风险时，不启用这两个默认非 443 入站。
 
-重启后在 VPS 上确认仅有 loopback 监听：
+不要把 Reality 放在 CDN 后方。更改 Reality 目标、`serverName`、`dest`、密钥、short ID 或端口后，应重新进行实际连通性测试。
 
-```bash
-sudo ss -ltnp | grep -E ':(2095|2096)\b'
-sudo systemctl is-active s-ui
-```
+## 6. 验证、运行与客户端范围
 
-输出应显示 `127.0.0.1:2095` 和 `127.0.0.1:2096`，而不是 `0.0.0.0:*` 或 `[::]:*`。
-
-## 5. 有域名时：可选的 Caddy TLS 反代
-
-Caddy **不是强制要求**。若你拥有域名并希望把面板或订阅稳定地公开给互联网，建议使用任意可信 HTTPS 反代；以下仅给出 Caddy 示例。开始前让域名 A/AAAA 记录指向该 VPS，并保持 UFW 的 `80/443` 已放行。
-
-安装 Caddy：
+安装后检查：
 
 ```bash
-sudo apt update
-sudo apt install -y caddy
-```
-
-例如面板域名为 `panel.example.com`、订阅域名为 `sub.example.com`，创建 `/etc/caddy/Caddyfile`：
-
-```caddyfile
-panel.example.com {
-    reverse_proxy 127.0.0.1:2095
-}
-
-sub.example.com {
-    reverse_proxy 127.0.0.1:2096
-}
-```
-
-该配置保留原始路径，因此面板路径仍是 `/app/`、订阅路径仍是 `/sub/`，除非你已在 S-UI 设置页面改过它们。订阅实际请求还必须携带客户端对应的订阅 ID（即 `/sub/<your-subscription-id>`）。验证并加载：
-
-```bash
-sudo caddy validate --config /etc/caddy/Caddyfile
-sudo systemctl enable --now caddy
-sudo systemctl reload caddy
-curl -fsSI https://panel.example.com/app/
-curl -fsSI https://sub.example.com/sub/<your-subscription-id>
-```
-
-Caddy 终止 TLS 时，不要再为 S-UI 的 loopback 监听配置重复的 `webCertFile/webKeyFile` 或 `subCertFile/subKeyFile`；由 Caddy 对公网提供证书即可。将 S-UI 设置中的面板/订阅域名按实际公网域名填写，可便于它生成正确的地址。
-
-## 6. 无域名安全模式（推荐于暂时没有域名）
-
-没有域名时，**不要**把管理面板公开到公网。保持面板的 `webListen=127.0.0.1`，通过 SSH LocalForward 管理：
-
-```bash
-ssh -N -L 2095:127.0.0.1:2095 your-ssh-user@your-vps-ip
-```
-
-然后仅在自己的电脑上打开：
-
-```text
-http://127.0.0.1:2095/app/
-```
-
-订阅也应优先保持 `subListen=127.0.0.1`。不建议长期使用裸 HTTP、IP 地址加自签名证书，或让客户端忽略证书错误来进行公网订阅分发：订阅内容可能包含用户标识和连接配置，明文传输可被窥探或篡改；自签名/IP 证书无法提供稳定、可验证的公共身份。
-
-### 若确实必须无域名公开订阅
-
-这不是推荐的生产方案。最低限度应满足以下条件：
-
-1. 面板仍始终保持 `127.0.0.1`；**只**将订阅监听地址改为公网地址，并明确知道这会使订阅端口接受网络连接；
-2. 不要添加对全网开放的 `2096/tcp` UFW 规则；只允许已知、固定的客户端出口 IP，例如：
-
-   ```bash
-   sudo ufw allow from 203.0.113.10 to any port 2096 proto tcp
-   sudo ufw status numbered
-   ```
-
-   将 `203.0.113.10` 换成真实的固定客户端 IP；移动网络、漫游或不固定 IP 的客户端不适用该策略；
-3. 同时检查 VPS 服务商安全组/云防火墙，确保它也只允许相同来源和端口；
-4. 明确接受裸 HTTP 的被动窃听、内容篡改、订阅泄漏与可用性风险。IP 自签名证书并不能替代由可信 CA 为域名签发的证书；
-5. 一旦具备域名条件，迁移到“有域名时”的 HTTPS 反代方案，并删除该 `2096` 白名单规则：
-
-   ```bash
-   sudo ufw delete allow from 203.0.113.10 to any port 2096 proto tcp
-   ```
-
-## 7. 数据库备份、恢复前检查与日常验证
-
-S-UI 使用 SQLite，并启用 WAL。**不要**在服务运行时只用 `cp` 复制 `s-ui.db`；应使用 SQLite 的 `.backup` 生成一致性快照：
-
-```bash
-sudo sqlite3 /opt/s-ui/db/s-ui.db ".backup '/opt/s-ui/backups/s-ui-$(date +%F-%H%M%S).db'"
-sudo find /opt/s-ui/backups -maxdepth 1 -type f -name 's-ui-*.db' -printf '%f\n'
-sudo sqlite3 /opt/s-ui/backups/s-ui-YYYY-MM-DD-HHMMSS.db 'PRAGMA integrity_check;'
-```
-
-最后一条应返回 `ok`。备份文件含有管理员数据、令牌、客户端与订阅配置，应维持目录 `0700`，并把加密后的副本传送到独立的受控存储。
-
-每次部署或改动监听设置后，执行：
-
-```bash
-sudo systemctl is-active s-ui
 sudo systemctl status s-ui --no-pager
 sudo journalctl -u s-ui -n 100 --no-pager
-sudo ss -ltnp | grep -E ':(2095|2096)\b'
-sudo ufw status verbose
-```
-
-有域名且使用 Caddy 时，额外确认：
-
-```bash
-sudo systemctl is-active caddy
-curl -fsSI https://panel.example.com/app/
-curl -fsSI https://sub.example.com/sub/<your-subscription-id>
-```
-
-## 8. 上线前最小检查清单
-
-- [ ] `s-ui` 以 `s-ui` 系统用户运行，而不是 root；
-- [ ] `/etc/s-ui/s-ui.env` 为 `root:s-ui`、`0640`，且首次管理员密码变量已在首次登录后删除；
-- [ ] 面板与订阅监听均确认是 `127.0.0.1`；
-- [ ] UFW 和云防火墙只放行 SSH、`80/tcp`、`443/tcp`；没有全网开放 `2095/2096`；
-- [ ] 有公网分发需求时使用已验证域名和可信 TLS；
-- [ ] 已执行 SQLite `.backup`，并对备份运行 `PRAGMA integrity_check`；
-- [ ] 已保存可用的 SSH 登录路径和离线备份，避免因反代或防火墙改动失去管理能力。
-## 9. 首装自动配置：Xray Reality sidecar
-
-S-UI 的主核心仍是 sing-box。**使用包含 Xray 的 Linux amd64 安装包进行全新安装**时，安装器会执行以下自动配置：
-
-1. 校验默认 Reality 目标 `go.microsoft.com:443` 的 DNS/TLS 可达性；
-2. 确认 `443/tcp`、`10443/tcp` 与 `2088/tcp` 均未被占用；
-3. 创建并自动启用 `xray-vless-reality-tcp-*`（VLESS + Reality + TCP + XTLS Vision）和 `xray-vless-reality-xhttp-*`（VLESS + Reality + XHTTP）；
-4. systemd 启动后确认 sing-box 与 Xray 分别已监听 `443/tcp`、`10443/tcp`、`2088/tcp`；
-5. 若 UFW 已处于活动状态，仅添加这三个 TCP 端口的放行规则；不会启用 UFW、改变默认策略或修改 SSH 规则。若规则写入失败，安装会以错误结束，避免输出“已可用”的假阳性结果。
-
-| 模板 | 传输 | 候选端口 | 全新核心包首次状态 |
-|---|---|---:|---:|
-| `xray-vless-reality-tcp-*` | VLESS + Reality + TCP + XTLS Vision | `10443/tcp` | 自动启用 |
-| `xray-vless-reality-xhttp-*` | VLESS + Reality + XHTTP | `2088/tcp` | 自动启用 |
-
-这样可直接使用 sing-box 的 `443/tcp` VLESS Reality、Xray 的 `10443/tcp` TCP Vision 与 `2088/tcp` XHTTP。XHTTP 必须使用支持 `type=xhttp` 的近期客户端；不支持时可直接使用同批自动生成的 TCP Vision 节点。如果目标验证失败、任一默认端口已被占用、安装包不含 Xray，或不是全新数据库，安装器不会强行暴露 Xray 端口，而是保留模板供管理员手动处理。
-
-> 云安全组/厂商防火墙不在 VPS 的控制范围内，安装器不能自动修改。部署完成后仍须在云平台放行 `443/tcp`、`10443/tcp` 与 `2088/tcp`；安装输出会明确提示这一项。
-
-> 当前 sidecar 仅实现上述两种 **VLESS + Reality** 组合；它不是通用 Xray 协议管理器。VMess、Trojan、Shadowsocks、gRPC、WS/TLS 等不作为 Xray 首装默认项。它们会引入可信证书/域名、客户端兼容性或重复端口的额外要求。
-
-### 9.1 安装经校验的 Xray-core（仅准备启用 sidecar 时）
-
-不要使用 `curl | bash`、`latest` 浮动下载、`--no-check-certificate` 或未经审核的第三方脚本。应从 Xray-core 官方固定发布版本取得**预先独立核验的 SHA-256**，再以 root 安装为只读可执行文件：
-
-```bash
-# 在受控变更记录中填写固定版本、对应架构文件名和已独立核验的哈希。
-XRAY_VERSION='vX.Y.Z'
-XRAY_ASSET='Xray-linux-64.zip'       # x86_64 示例；先以 uname -m 确认架构
-XRAY_SHA256='replace-with-verified-sha256'
-
-cd /tmp
-curl --fail --location --proto '=https' --tlsv1.2 \
-  --output "$XRAY_ASSET" \
-  "https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/${XRAY_ASSET}"
-printf '%s  %s\n' "$XRAY_SHA256" "$XRAY_ASSET" | sha256sum --check --strict -
-
-sudo apt update
-sudo apt install -y unzip
-tmpdir="$(mktemp -d)"
-umask 077
-unzip -qq "/tmp/${XRAY_ASSET}" xray -d "$tmpdir"
-sudo install -d -o root -g root -m 0755 /opt/s-ui/bin
-sudo install -o root -g root -m 0755 "$tmpdir/xray" /opt/s-ui/bin/xray
-rm -rf -- "$tmpdir"
-sudo rm -f "/tmp/${XRAY_ASSET}"
-sudo -u s-ui /opt/s-ui/bin/xray version
-```
-
-只有 `sha256sum` 明确返回 `OK` 才继续。校验值应来自独立、受控的发布核验记录；不要仅把同一个未验证下载页面的哈希当作来源真实性保证。
-
-在 `/etc/s-ui/s-ui.env` 加入绝对路径（不要依赖 systemd 的 `PATH`）：
-
-```ini
-SUI_XRAY_BINARY=/opt/s-ui/bin/xray
-```
-
-然后执行：
-
-```bash
-sudo systemctl restart s-ui
-sudo systemctl status s-ui --no-pager
-```
-
-### 9.1.1 Linux amd64 核心包含包
-
-Linux amd64 核心包含包固定使用官方 `XTLS/Xray-core v26.3.27` 的 `Xray-linux-64.zip`。归档的 SHA-256 为：
-
-```text
-23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae
-```
-
-先在 VPS 上运行 `uname -m`。只有输出为 `x86_64` 时才可使用这个包；ARM64 必须使用同一版本的 `Xray-linux-arm64-v8a.zip` 及其自身官方 `.dgst` 校验值，不能复用 amd64 哈希。
-
-安装核心包含包时，`install-linux.sh` 会将包内的 `xray` 放入 `/opt/s-ui/xray`，并在生成的 `s-ui.service` 中设置 `SUI_XRAY_BINARY=/opt/s-ui/xray`。安装后执行：
-
-```bash
-sudo /opt/s-ui/xray version
-sudo systemctl cat s-ui
-sudo systemctl status s-ui --no-pager
-```
-
-如使用不包含 `xray` 的包，按上一节的固定版本、下载校验与绝对路径配置流程安装核心。
-
-### 9.2 验证与客户端兼容性
-
-首装自动配置的 TCP Vision 订阅链接使用 `type=tcp&flow=xtls-rprx-vision`；XHTTP 链接使用 `type=xhttp` 及默认的 `path=/xhttp`、`mode=auto`。两者都应通过**标准 URI 订阅**导入。仅将 XHTTP 节点导入支持 `type=xhttp` 的近期客户端；不兼容的客户端请使用 TCP Vision 节点。JSON / Clash / Mihomo 订阅不会伪造输出 sidecar Xray 节点，应使用标准 URI 订阅。
-
-验证三个默认 Reality 入站是否已经可用：
-
-```bash
 sudo ss -ltnp | grep -E ':(443|10443|2088)\b'
-sudo /opt/s-ui/xray version
-sudo systemctl status s-ui --no-pager
-sudo journalctl -u s-ui -n 100 --no-pager
+sudo /usr/local/s-ui/sui -v
 ```
 
-更改 Reality 目标或端口前，在面板的 Xray 页面中确认 `serverName`、`dest`、私钥/公钥、16 位十六进制 short ID、客户端关联和未冲突的监听端口。新增端口时，还应同步在 UFW 和云安全组放行该实际端口。
+Xray-core `v26.3.27`（Go 模块 `github.com/xtls/xray-core v1.260327.0`）的源码已编译进 `sui`；不存在也不需要单独的 `xray` 可执行文件或 `SUI_XRAY_BINARY`。
 
-不要放行管理面板/订阅的 `2095`、`2096`。Reality 私钥会保存在 S-UI 数据库和受限权限的 sidecar 配置中；数据库备份必须按敏感凭据保护。若私钥泄露，应重新生成私钥、公钥与 short ID，并向客户端更新订阅。
+| 客户端/核心 | Reality TCP Vision | XHTTP | 说明 |
+| --- | --- | --- | --- |
+| v2rayNG / v2rayN（选择 Xray-core） | 可使用 Xray 扩展 | 取决于客户端与所选 Xray-core 版本 | 导入标准 VLESS URI，并确认客户端实际使用 Xray-core。 |
+| Mihomo **≥ 1.19.22** | 支持 Reality TCP Vision 配置 | 支持 XHTTP 配置 | 使用新版 Mihomo/Clash Meta 的订阅输出，并在自己的设备上验证。 |
+| 旧 Clash / 旧 Clash Meta | 不保证 | 不保证 | 不作为兼容承诺。 |
+| v2fly / V2Ray-core | 不支持 | 不支持 | Reality、XTLS Vision、XHTTP 是 Xray 扩展。 |
+
+XHTTP 的支持范围比 TCP Vision 更窄。不能确认 `type=xhttp` 时，优先使用 TCP Vision 标准 URI。以上是核心/配置兼容性说明，**并不表示已经对每一种客户端版本和网络环境完成真实实测**。
+
+## 7. 更新、恢复与敏感数据
+
+升级时再次执行第 2 节的 ZIP 校验流程，解压后运行新的包内 `install-linux.sh`。不要用“下载一个裸 `sui` 并校验它”的方式替代发布流程。升级失败时先查看：
+
+```bash
+sudo journalctl -u s-ui -n 200 --no-pager
+sudo systemctl status s-ui --no-pager
+```
+
+Reality 私钥、数据库和安装状态应视为敏感凭据。仅给 root 或受控服务账户最小权限，备份应加密并保存在受控位置；私钥泄露后应重新生成私钥、公钥与 short ID，并更新客户端订阅。
+
+## 8. 官方参考
+
+- s-ui-go 0.1 Release：<https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.0>
+- Xray-core `v26.3.27`：<https://github.com/XTLS/Xray-core/releases/tag/v26.3.27>
+- Xray Reality/传输文档：<https://xtls.github.io/en/config/transport.html>
+- Mihomo VLESS：<https://wiki.metacubex.one/en/config/proxies/vless/>
+- Mihomo transport/XHTTP：<https://wiki.metacubex.one/en/config/proxies/transport/>
+- Mihomo 官方发布记录（确认 `v1.19.22` 或更高）：<https://github.com/MetaCubeX/mihomo/releases>
+- Xray-core MPL-2.0：<https://github.com/XTLS/Xray-core/blob/main/LICENSE>

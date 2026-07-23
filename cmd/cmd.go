@@ -10,7 +10,7 @@ import (
 	"github.com/yongwei9527-art/s-ui-go/config"
 )
 
-func ParseCmd() {
+func ParseCmd() error {
 	var showVersion bool
 	flag.BoolVar(&showVersion, "v", false, "show version")
 
@@ -54,61 +54,66 @@ func ParseCmd() {
 
 	flag.Parse()
 	if showVersion {
-		fmt.Println("S-UI Panel\t", config.GetVersion())
+		fmt.Println("s-ui-go\t", config.GetVersion())
 		info, ok := debug.ReadBuildInfo()
 		if ok {
 			for _, dep := range info.Deps {
-				if dep.Path == "github.com/sagernet/sing-box" {
+				switch dep.Path {
+				case "github.com/sagernet/sing-box":
 					fmt.Println("Sing-Box\t", dep.Version)
-					break
+				case "github.com/xtls/xray-core":
+					fmt.Println("Xray-core\t", dep.Version)
 				}
 			}
 		}
-		return
+		return nil
 	}
 
 	switch os.Args[1] {
 	case "admin":
 		err := adminCmd.Parse(os.Args[2:])
 		if err != nil {
-			fmt.Println(err)
-			return
+			return err
 		}
 		switch {
 		case show:
-			showAdmin()
+			return showAdmin()
 		case reset:
-			resetAdmin()
+			return resetAdmin()
 		default:
-			updateAdmin(username, password)
-			showAdmin()
+			if err := updateAdmin(username, password); err != nil {
+				return err
+			}
+			return showAdmin()
 		}
 
 	case "uri":
-		getPanelURI()
+		return getPanelURI()
 
 	case "migrate":
 		if err := migration.MigrateDb(); err != nil {
-			fmt.Println("Migration failed:", err)
+			return fmt.Errorf("migration failed: %w", err)
 		}
+		return nil
 
 	case "setting":
 		err := settingCmd.Parse(os.Args[2:])
 		if err != nil {
-			fmt.Println(err)
-			return
+			return err
 		}
 		switch {
 		case show:
-			showSetting()
+			return showSetting()
 		case reset:
-			resetSetting()
+			return resetSetting()
 		default:
-			updateSetting(port, path, subPort, subPath)
-			showSetting()
+			if err := updateSetting(port, path, subPort, subPath); err != nil {
+				return err
+			}
+			return showSetting()
 		}
 	default:
-		fmt.Println("Invalid subcommands")
 		flag.Usage()
+		return fmt.Errorf("invalid subcommand %q", os.Args[1])
 	}
 }

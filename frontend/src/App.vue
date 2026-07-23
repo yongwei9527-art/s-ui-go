@@ -23,7 +23,7 @@ import { inject, ref, Ref } from 'vue'
 const loading:Ref = inject('loading')?? ref(false)
 
 // Change page title
-document.title = "S-UI " + document.location.hostname
+document.title = "s-ui-go 0.1 · " + document.location.hostname
 </script>
 
 <style>

@@ -9,7 +9,7 @@
   >
     <div class="drawer-brand">
       <div class="brand-logo">S</div>
-      <span>S-UI</span>
+      <span>s-ui-go</span>
     </div>
 
     <v-list density="compact" nav>

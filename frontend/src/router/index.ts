@@ -88,7 +88,7 @@ const router = createRouter({
   routes,
 })
 
-const DEFAULT_TITLE = 'S-UI'
+const DEFAULT_TITLE = 's-ui-go 0.1'
 let intervalId:any
 
 // Navigation guard to check authentication state

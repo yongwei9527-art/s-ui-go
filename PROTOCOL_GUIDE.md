@@ -1,11 +1,27 @@
-# S-UI 协议组合建议方案
+# s-ui-go 0.1 协议组合建议方案
 
-本文说明 S-UI 面板中常见代理协议的组合方式、适用场景、TLS / Reality / ECH / Transport / Mux / DNS 配置要点，以及常见配置问题。
+本文说明 s-ui-go 0.1 面板中常见代理协议的组合方式、适用场景、TLS / Reality / ECH / Transport / Mux / DNS 配置要点，以及常见配置问题。
+
+> **版本约定：** 用户可见名称为 **s-ui-go 0.1**；发布标签为 [`s-ui-go-v0.1.0`](https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.0)。本文中的 `sui` 是程序文件名。
 
 > 快速建议：无域名自建 VPS 可优先评估 `VLESS + Reality + TCP`；CDN 场景可评估 `VLESS/Trojan + TLS + WebSocket`；弱网和 UDP 场景可评估 `Hysteria2/TUIC`；本地代理入口使用 `Mixed`；桌面全局代理使用 `Tun`；软路由或网关透明代理使用 `TProxy`。
 
-> 全新安装提示：S-UI 首次初始化会自动生成 VLESS Reality、Hysteria2、TUIC、Trojan TLS、VMess WS TLS、Shadowsocks 2022、Naive TLS、AnyTLS、Hysteria TLS 默认入站、对应 TLS/Reality 模板和 `default-user` 客户端。使用包含 Xray 的 Linux amd64 核心包全新安装时，安装器会校验 Reality 目标、`443/tcp`、`10443/tcp` 与 `2088/tcp`，自动启用 **Xray VLESS Reality TCP Vision** 和 **Xray VLESS Reality XHTTP**；若 UFW 已启用，会仅增加这三个 TCP 端口规则。XHTTP 应通过标准 URI 订阅导入支持 `type=xhttp` 的近期客户端；不支持时请使用自动生成的 TCP Vision 节点。云安全组无法在 VPS 内自动修改，仍需在云平台放行 `443/tcp`、`10443/tcp` 与 `2088/tcp`。Hysteria/Hysteria2/TUIC 使用 UDP，必须在 VPS 系统防火墙和云安全组放行对应 UDP 端口；默认自签 TLS 模板为了快速可用会在客户端侧启用 `insecure`，正式使用建议替换为真实域名证书或 ACME。Mixed/SOCKS/HTTP 更适合作为本地代理入口，默认不公网创建，避免开放代理风险。
+> 全新 Ubuntu/systemd 安装提示：Xray-core Go 源码已经编译进 `sui`，Linux ZIP 不含独立 `xray` 文件。校验发布 ZIP 与同名 `.sha256` 后，包内安装器会严格检查 Reality 目标、`443/tcp`、`10443/tcp`、`2088/tcp` 和双核心启动状态；成功后默认启用 sing-box Reality（443）、Xray Reality TCP Vision（10443）与 Xray Reality XHTTP（2088）。失败会中止并回滚本次安装。云安全组仍须由部署者确认；面板/订阅端口 `2095/2096` 不作为自动公网放行承诺。
 
+## 发布版本、内置核心与客户端范围
+
+当前内置的是 **Xray-core `v26.3.27`**，Go 模块为 **`github.com/xtls/xray-core v1.260327.0`**。它的源码被编译进 `sui`；没有独立 `xray` 文件，适用 MPL-2.0，见 [XRAY-CORE-NOTICE.md](XRAY-CORE-NOTICE.md)。
+
+| 客户端/核心 | Reality TCP Vision | XHTTP | 使用边界 |
+| --- | --- | --- | --- |
+| v2rayNG / v2rayN（选用 Xray-core） | 可使用 Xray 扩展 | 取决于客户端和 Xray-core 版本 | 必须确认客户端实际使用 Xray-core。 |
+| Mihomo **≥ 1.19.22** | 支持 Reality TCP Vision 配置 | 支持 XHTTP 配置 | 使用当前 Mihomo/Clash Meta 的订阅输出。 |
+| 旧 Clash / 旧 Clash Meta | 不保证 | 不保证 | 不作为兼容承诺。 |
+| v2fly / V2Ray-core | 不支持 | 不支持 | Reality、XTLS Vision、XHTTP 是 Xray 扩展。 |
+
+XHTTP 的客户端支持范围比 TCP Vision 窄。不能确认 `type=xhttp` 时，优先导入 TCP Vision 标准 URI。以上是配置/核心兼容性边界，**不表示每种客户端版本已经完成真实端到端实测**。
+
+官方参考：[Xray Reality/传输配置](https://xtls.github.io/en/config/transport.html)、[Xray-core v26.3.27](https://github.com/XTLS/Xray-core/releases/tag/v26.3.27)、[Mihomo VLESS](https://wiki.metacubex.one/en/config/proxies/vless/)、[Mihomo transport](https://wiki.metacubex.one/en/config/proxies/transport/)。
 ## 0. 按场景配置协议组合
 
 本节按部署条件选择协议组合，并给出面板中的配置步骤。后续章节提供参数解释、速查表和排错清单。
@@ -785,6 +801,9 @@ DNS 服务器地址，按实际配置决定
 - SNI 和目标站合理。
 - uTLS 指纹开启。
 
+**s-ui-go 0.1 双核心默认值：** sing-box Reality 为 `443/tcp`；Xray Reality TCP Vision 为 `10443/tcp`；Xray Reality XHTTP 为 `2088/tcp`。后两项不是 443。
+
+**非 443 风险：** [Xray 官方 Reality/传输文档](https://xtls.github.io/en/config/transport.html) 提示，使用非 `443` Reality 端口时，目标站可能对相关来源施加封锁。可评估让 Reality 服务与访问目标使用不同 IP、进行端口映射，或明确接受风险；无法接受时不要启用 `10443`/`2088` 默认入站。每次更换 `dest`、端口或网络出口后都应重新实测。
 ### ECH
 
 适合：
@@ -840,7 +859,7 @@ Tun/TProxy：必须接管 DNS
 [ ] TLS enabled 但 server_name 空时能 warning
 [ ] Reality enabled 但 public_key 空时能 warning
 [ ] DNS-sensitive outbound 缺少 DNS hijack 时能 warning
-[ ] Clash 导出没有丢失关键字段
+[ ] Mihomo ≥ 1.19.22 的 Reality TCP Vision/XHTTP 导出没有丢失关键字段；不把旧 Clash/旧 Clash Meta 当作兼容对象
 ```
 
 ## 8. 依赖模块是否要更新

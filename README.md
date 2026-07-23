@@ -1,10 +1,11 @@
-# s-ui-go 社区构建版
+# s-ui-go 0.1
 
 > 基于开源 S-UI / s-ui-go 项目的社区维护构建，提供 Windows、Linux、macOS 发布包、安装脚本、服务管理脚本及相关配置说明。
+>
+> **版本约定：** 用户可见名称为 **s-ui-go 0.1**；本次发布标签为 [`s-ui-go-v0.1.0`](https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.0)。文档中的 `sui` 是程序文件名，`s-ui` 是 Linux 服务/管理命令，不代表另一套版本。
 
-[![Build](https://img.shields.io/badge/build-latest--project--upload-blue)](https://github.com/yongwei9527-art/s-ui-go/tree/latest-project-upload)
+[![Release](https://img.shields.io/badge/release-s--ui--go%200.1-blue)](https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.0)
 [![License](https://img.shields.io/badge/license-GPL--3.0-green)](LICENSE)
-
 ## 目录
 
 - [项目说明](#项目说明)
@@ -56,16 +57,17 @@
 
 ## 下载
 
-最新版本：**v1.4.2.3**
+当前用户可见版本：**s-ui-go 0.1**
+发布标签：**`s-ui-go-v0.1.0`**
+Release 页面：<https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.0>
 
-Release 页面：<https://github.com/yongwei9527-art/s-ui-go/releases/tag/v1.4.2.3>
-
-| 系统 | 架构 | 下载文件 |
+| 系统 | 架构 | 发布资产 |
 | --- | --- | --- |
-| Windows | amd64 | [`s-ui-windows-amd64.zip`](https://github.com/yongwei9527-art/s-ui-go/releases/download/v1.4.2.3/s-ui-windows-amd64.zip) |
-| Linux | amd64 | [`s-ui-linux-amd64.zip`](https://github.com/yongwei9527-art/s-ui-go/releases/download/v1.4.2.3/s-ui-linux-amd64.zip) |
-| macOS | amd64 | [`s-ui-macos-amd64.zip`](https://github.com/yongwei9527-art/s-ui-go/releases/download/v1.4.2.3/s-ui-macos-amd64.zip) |
+| Windows | amd64 | [`s-ui-windows-amd64.zip`](https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.0/s-ui-windows-amd64.zip) |
+| Linux | amd64 | [`s-ui-linux-amd64.zip`](https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.0/s-ui-linux-amd64.zip) + [`s-ui-linux-amd64.zip.sha256`](https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.0/s-ui-linux-amd64.zip.sha256) |
+| macOS | amd64 | [`s-ui-macos-amd64.zip`](https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.0/s-ui-macos-amd64.zip) |
 
+Linux 的发布单元是 **ZIP 与同名 ZIP 的 `.sha256` 文件**。先校验 ZIP，再解压并使用包内的 `sui` 或 `install-linux.sh`；不要把一个不存在的“裸二进制校验文件”当作发布契约。
 ## 快速安装
 
 ### Windows
@@ -76,127 +78,61 @@ Release 页面：<https://github.com/yongwei9527-art/s-ui-go/releases/tag/v1.4.2
 4. 按提示设置面板端口、面板路径、订阅端口、订阅路径、管理员账号和密码。
 5. 安装完成后，可使用 `s-ui-windows.bat` 管理服务。
 
-### Linux
+### Linux（Ubuntu / systemd）
 
-以下只列出常用服务器系统的详细安装步骤。安装时建议使用 `root` 用户，或确保当前用户具备 `sudo` 权限。
+Linux 的包内安装器要求 **systemd**。推荐 Ubuntu 22.04/24.04 等带 systemd 的 VPS，`uname -m` 应为 `x86_64` 才能使用本节的 amd64 资产。安装后的默认目录是 `/usr/local/s-ui`。
 
-#### Debian / Ubuntu
+1. 安装校验和运行依赖：
 
-1. 更新软件源并安装基础依赖：
+   ```bash
+   sudo apt update
+   sudo apt install -y ca-certificates curl unzip openssl iproute2 coreutils
+   systemctl --version
+   ```
 
-```bash
-sudo apt update -y
-sudo apt install -y curl wget tar unzip
-```
+2. **只从固定 Release 资产建立信任链**。下载 ZIP 及其同名校验文件、校验 ZIP、测试压缩包、再解压：
 
-2. 下载安装脚本：
+   ```bash
+   TAG='s-ui-go-v0.1.0'
+   ASSET='s-ui-linux-amd64.zip'
+   BASE="https://github.com/yongwei9527-art/s-ui-go/releases/download/${TAG}"
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/latest-project-upload/install.sh -o install.sh
-```
+   mkdir -p ~/s-ui-go-install && cd ~/s-ui-go-install
+   curl -fL -O "${BASE}/${ASSET}"
+   curl -fL -O "${BASE}/${ASSET}.sha256"
+   sha256sum --check "${ASSET}.sha256"
+   unzip -t "${ASSET}"
+   rm -rf package && unzip -q "${ASSET}" -d package
+   cd package
+   ```
 
-3. 执行安装脚本：
+3. 已校验的 ZIP 内含 `sui` 与包内安装器；通常使用安装器：
 
-```bash
-sudo bash install.sh
-```
+   ```bash
+   sudo bash ./install-linux.sh
+   ```
 
-4. 按脚本提示设置以下内容：
+   这是“校验 ZIP → 解压 → 使用包内 `sui` / `install-linux.sh`”的完整流程。不要使用 `curl | bash`，也不要从任何可变分支下载 bootstrap；一键安装的可审计信任边界只能是固定 Release 的 ZIP 与其同名 `.sha256`。
 
-- Web 面板端口
-- Web 面板访问路径
-- 订阅服务端口
-- 订阅访问路径
-- 管理员账号和密码
+4. 全新安装会严格检查 Reality 目标、所需端口和双核心启动状态；通过后启用下列默认入站：
 
-5. 安装完成后，脚本会自动读取服务器 IP，并输出可直接访问的完整面板地址，例如：
+   | 核心 | 默认入站 | 端口 |
+   | --- | --- | --- |
+   | sing-box | VLESS Reality | `443/tcp` |
+   | 内置 Xray-core | VLESS Reality TCP Vision | `10443/tcp` |
+   | 内置 Xray-core | VLESS Reality XHTTP | `2088/tcp` |
 
-```text
-公网完整地址：
-http://服务器公网IP:2095/app/
-```
+   若严格检查、安装或启动失败，安装器会停止并回滚本次变更；已有数据库升级会保留既有面板、管理员和协议配置，并使用安装前备份恢复失败状态。只有明确接受 Xray 默认模板保持关闭的高级场景才应使用 `--allow-manual-xray`。
 
-如果安装完成后想再次查看地址，可以在服务器上执行：
+5. 安装后核对本机服务：
 
-```bash
-s-ui
-```
+   ```bash
+   sudo systemctl status s-ui --no-pager
+   sudo ss -ltnp | grep -E ':(443|10443|2088)\b'
+   sudo /usr/local/s-ui/sui -v
+   ```
 
-然后选择 **10. 查看面板设置和访问地址**。
-
-也可以手动读取服务器公网 IP 并拼接默认访问地址：
-
-```bash
-SERVER_IP="$(curl -fsSL https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')"
-echo "http://${SERVER_IP}:2095/app/"
-```
-
-如果安装时保持默认端口和路径，则完整地址格式为：
-
-```text
-http://服务器公网IP:2095/app/
-```
-
-#### CentOS / Rocky / AlmaLinux / Oracle Linux
-
-1. 安装基础依赖：
-
-```bash
-sudo yum install -y curl wget tar unzip
-```
-
-2. 如果系统启用了防火墙，放行面板和订阅端口。以下以默认端口 `2095`、`2096` 为例：
-
-```bash
-sudo firewall-cmd --permanent --add-port=2095/tcp
-sudo firewall-cmd --permanent --add-port=2096/tcp
-sudo firewall-cmd --reload
-```
-
-如果安装时自定义了端口，请把上面的 `2095`、`2096` 换成你的实际端口。
-
-3. 下载安装脚本：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/latest-project-upload/install.sh -o install.sh
-```
-
-4. 执行安装脚本：
-
-```bash
-sudo bash install.sh
-```
-
-5. 按脚本提示设置面板端口、访问路径、订阅端口、订阅路径、管理员账号和密码。
-
-6. 安装完成后，脚本会自动读取服务器 IP，并输出可直接访问的完整面板地址，例如：
-
-```text
-公网完整地址：
-http://服务器公网IP:2095/app/
-```
-
-如果安装完成后想再次查看地址，可以在服务器上执行：
-
-```bash
-s-ui
-```
-
-然后选择 **10. 查看面板设置和访问地址**。
-
-也可以手动读取服务器公网 IP 并拼接默认访问地址：
-
-```bash
-SERVER_IP="$(curl -fsSL https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')"
-echo "http://${SERVER_IP}:2095/app/"
-```
-
-如果安装时保持默认端口和路径，则完整地址格式为：
-
-```text
-http://服务器公网IP:2095/app/
-```
-
+   安装器**不会承诺自动开放**管理面板/订阅端口 `2095/2096`；推荐将它们限制为本机并经 HTTPS 反代或 SSH 转发访问。无论本机 UFW 状态如何，云厂商安全组/云防火墙都需要你自行确认 `443/tcp`、`10443/tcp`、`2088/tcp` 是否按实际需求放行。完整的 Ubuntu 部署与恢复说明见 [Ubuntu 部署指南](UBUNTU_DEPLOYMENT.md)。
 ### macOS
 
 1. 下载 `s-ui-macos-amd64.zip`。
@@ -214,14 +150,14 @@ sudo ./install-macos.sh
 
 | 服务 | 地址 |
 | --- | --- |
-| Web 面板 | `http://localhost:2095/app/` |
-| 订阅服务 | `http://localhost:2096/sub/` |
+| Web 面板 | 端口 `2095`，默认路径 `/app/`（地址取决于监听设置与防火墙） |
+| 订阅服务 | 端口 `2096`，默认路径 `/sub/`（地址取决于监听设置与防火墙） |
 
 ## 协议选择建议
 
 如果不确定应该使用哪种协议组合，可以先阅读：
 
-- [S-UI 协议组合建议方案](PROTOCOL_GUIDE.md)
+- [s-ui-go 0.1 协议组合建议方案](PROTOCOL_GUIDE.md)
 
 快速建议：
 
@@ -310,9 +246,9 @@ login.microsoftonline.com
 ```powershell
 .\build-windows.ps1 -System windows -Architecture amd64 -Package -NonInteractive
 # Linux/macOS 包可以在 Windows 上使用纯 Go SQLite 驱动关闭 CGO 交叉构建。
-.\fetch-xray-core.ps1
-.\build-windows.ps1 -System linux -Architecture amd64 -NoCGO -SkipFrontend -Package -NonInteractive
-.\build-windows.ps1 -System darwin -Architecture amd64 -NoCGO -SkipFrontend -Package -NonInteractive
+# 以下命令不使用 -SkipFrontend，因此可从干净检出构建 frontend/dist。
+.\build-windows.ps1 -System linux -Architecture amd64 -NoCGO -Package -NonInteractive
+.\build-windows.ps1 -System darwin -Architecture amd64 -NoCGO -Package -NonInteractive
 ```
 
 生成文件：
@@ -332,29 +268,34 @@ login.microsoftonline.com
 | `-NoCGO` | 关闭 CGO，适合从 Windows 交叉构建 Linux/macOS 包 |
 | `-SkipFrontend` | 跳过前端构建，需要已有 `frontend/dist/` |
 | `-Package` | 生成 `dist/*.zip` 发布压缩包 |
-| Linux amd64 `-Package` | 自动打入已校验的 Xray-core `v26.3.27`，供默认 XHTTP/Reality sidecar 使用 |
+| Linux amd64 `-Package` | Xray-core Go 源码依赖已编译进 `sui`，压缩包不附带独立 `xray` 文件 |
 | `-NonInteractive` | 构建完成后不等待输入 |
 | `-ListCleanCandidates` | 只列出可清理候选，不删除文件 |
 
-### Linux XHTTP / Reality 随包核心
+### Linux XHTTP / Reality 内置核心与兼容性
 
-`VLESS + Reality + XHTTP` 由独立的 Xray-core sidecar 提供，不能只依赖 S-UI 主程序。Linux amd64 发布包默认包含已校验的 `xray` 可执行文件；安装脚本会安装到 `/opt/s-ui/xray`，并通过 systemd 的 `SUI_XRAY_BINARY` 环境变量启用。
+`VLESS + Reality + TCP Vision/XHTTP` 所需的 Xray-core Go 源码已编译进 `sui`。当前上游源码版本为 **Xray-core `v26.3.27`**，对应 Go 模块 **`github.com/xtls/xray-core v1.260327.0`**（由 `go.mod`/`go.sum` 固定）。Linux 发布 ZIP 不包含、也不会启动独立 `xray` 可执行文件；运行时不需要 `SUI_XRAY_BINARY`。Xray-core 使用 MPL-2.0，详见 [XRAY-CORE-NOTICE.md](XRAY-CORE-NOTICE.md)。
 
-- 固定上游：`XTLS/Xray-core v26.3.27` / `Xray-linux-64.zip`
-- SHA-256：`23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae`
-- 手机端请使用真正支持 **VLESS + Reality + XHTTP** 的 Xray 客户端，并添加**标准 URI 订阅**；JSON、Clash/Mihomo 订阅会省略 XHTTP 节点。
-- 使用前在 VPS 执行 `uname -m`；本包仅适用于 `x86_64`。ARM64 需要使用 `Xray-linux-arm64-v8a.zip` 构建对应包。
+客户端兼容性是**能力边界**，不是“每个客户端、每个版本都已真实实测”的承诺：
 
-完整部署与防火墙步骤见 [Ubuntu 部署说明](UBUNTU_DEPLOYMENT.md#9-首装自动配置xray-reality-sidecar)。
+| 客户端/核心 | Reality TCP Vision | XHTTP | 使用建议 |
+| --- | --- | --- | --- |
+| v2rayNG / v2rayN（选择 Xray-core） | 支持所需 Xray 扩展 | 支持取决于客户端与所选 Xray-core 版本 | 导入标准 VLESS URI；确认应用实际选中了 Xray-core。 |
+| Mihomo **≥ 1.19.22** | 支持 Reality TCP Vision 配置/订阅输出 | 支持 XHTTP 配置/订阅输出 | 使用当前 Mihomo/Clash Meta，并在目标设备上自行连通性验证。 |
+| 旧 Clash、旧 Clash Meta | 不保证 | 不保证 | 不要把它们当作此功能的兼容目标。 |
+| v2fly / V2Ray-core | 不支持这些 Xray 专有扩展 | 不支持 | 改用 Xray-core。 |
 
-### Linux / macOS 手动构建
+XHTTP 的客户端覆盖范围比 Reality TCP Vision 更窄；无法确认 `type=xhttp` 时，优先使用 TCP Vision 的标准 URI。
 
-```bash
-./build.sh
-```
+> **非 443 Reality 风险：** 默认 Xray 入站 `10443` 和 `2088` 不是 443。Xray 官方 Reality 配置说明提示，非 443 端口可能使 Reality 目标站对来源产生封锁风险。可评估将 Reality 服务与目标访问路径使用不同 IP、做端口映射，或明确接受该风险；不能接受时不要启用这些默认非 443 入站。请先在自己的网络与目标条件下测试。
 
-`build.sh` 会构建新版前端到 `frontend/dist/`，并生成直接嵌入该产物的后端二进制 `sui`。
+官方参考：
 
+- Xray-core 发布与版本：<https://github.com/XTLS/Xray-core/releases/tag/v26.3.27>
+- Xray Reality/传输配置与非 443 风险：<https://xtls.github.io/en/config/transport.html>
+- Mihomo VLESS 配置：<https://wiki.metacubex.one/en/config/proxies/vless/>
+- Mihomo 传输配置：<https://wiki.metacubex.one/en/config/proxies/transport/>
+- Mihomo 官方发布记录（确认 `v1.19.22` 或更高）：<https://github.com/MetaCubeX/mihomo/releases>
 ## 验证与运行
 
 后端测试：
@@ -436,21 +377,11 @@ $env:SUI_DEBUG="true"
 
 ## English Summary
 
-This repository is a community build of the open-source S-UI / s-ui-go project.
+**User-facing version:** **s-ui-go 0.1**. **Release tag:** [`s-ui-go-v0.1.0`](https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.0).
 
-It provides:
+For Ubuntu/systemd deployments, download the immutable Linux release pair `s-ui-linux-amd64.zip` and `s-ui-linux-amd64.zip.sha256`, verify the ZIP, extract it, then use the packaged `sui` or `install-linux.sh`. Do not bootstrap from a mutable branch. The default install directory is `/usr/local/s-ui`.
 
-- Release packages for Windows, Linux, and macOS amd64
-- Web panel experience in Chinese and English
-- Install, uninstall, and service management scripts
-- DNS leak guard checks, mode configuration, and operation guide
-- Go static analysis cleanup for backup export and DNS leak guard route handling
-- Subscription conversion compatibility for TLS, ECH, WebSocket, TUIC, and Hysteria2
-
-Download the latest release from:
-
-<https://github.com/yongwei9527-art/s-ui-go/releases/tag/v1.4.2.3>
-
+The program embeds Xray-core `v26.3.27` (Go module `v1.260327.0`) into `sui`; no standalone `xray` executable is shipped. Client support is limited to Xray-core based v2rayNG/v2rayN and Mihomo >= 1.19.22 where applicable; XHTTP support is narrower than TCP Vision. See the Chinese sections and [XRAY-CORE-NOTICE.md](XRAY-CORE-NOTICE.md) for details.
 ## 致谢与许可
 
 本项目基于开源 S-UI / s-ui-go 项目整理和构建，感谢原项目作者、历任维护者、社区贡献者以及所有提交问题反馈、测试结果和改进建议的用户。

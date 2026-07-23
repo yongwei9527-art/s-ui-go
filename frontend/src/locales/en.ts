@@ -98,7 +98,7 @@ export default {
       serviceStopped: "Service stopped",
       stopped: "Stopped",
       welcome: "Welcome back, Admin",
-      subtitle: "S-UI Console · Secure, lightweight, visual management",
+      subtitle: "s-ui-go 0.1 · Secure, lightweight, visual management",
       tilesHint: "Manage and add monitoring tiles",
       backupHint: "Back up data and restore system configuration",
       logsHint: "View system logs and events",

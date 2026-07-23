@@ -22,10 +22,27 @@ const (
 	Info  LogLevel = "info"
 	Warn  LogLevel = "warn"
 	Error LogLevel = "error"
+
+	// databaseFileStem remains stable across product renames. Existing S-UI
+	// installations store their data in db/s-ui.db; changing the display name
+	// to s-ui-go must never make an upgrade appear to have lost its database.
+	databaseFileStem = "s-ui"
+
+	// databaseSchemaVersion is intentionally independent from the product/release
+	// version embedded above. It changes only when an explicit data migration is
+	// added under cmd/migration.
+	databaseSchemaVersion = "1.3"
 )
 
 func GetVersion() string {
 	return strings.TrimSpace(version)
+}
+
+// GetDatabaseSchemaVersion returns the latest explicit database migration level.
+// It must not be derived from GetVersion: release naming can change without a
+// database migration (for example, s-ui-go 0.1 replacing the 1.4.x label).
+func GetDatabaseSchemaVersion() string {
+	return databaseSchemaVersion
 }
 
 func GetName() string {
@@ -93,5 +110,5 @@ func GetDBFolderPath() string {
 }
 
 func GetDBPath() string {
-	return fmt.Sprintf("%s/%s.db", GetDBFolderPath(), GetName())
+	return filepath.Join(GetDBFolderPath(), databaseFileStem+".db")
 }

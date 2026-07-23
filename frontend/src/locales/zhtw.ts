@@ -98,7 +98,7 @@ export default {
       serviceStopped: "服務未運行",
       stopped: "未運行",
       welcome: "歡迎回來，管理員",
-      subtitle: "S-UI 控制台 · 安全、輕量、可視化管理",
+      subtitle: "s-ui-go 0.1 · 安全、輕量、可視化管理",
       tilesHint: "管理與添加監控信息卡片",
       backupHint: "備份數據與恢復系統配置",
       logsHint: "查看系統運行日誌與事件",

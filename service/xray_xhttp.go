@@ -1,13 +1,15 @@
 package service
 
 import (
-	"context"
+	"bytes"
+	"crypto/ecdh"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -19,15 +21,13 @@ import (
 	"github.com/yongwei9527-art/s-ui-go/config"
 	"github.com/yongwei9527-art/s-ui-go/database"
 	"github.com/yongwei9527-art/s-ui-go/database/model"
+	"github.com/yongwei9527-art/s-ui-go/internal/xrayruntime"
 	"github.com/yongwei9527-art/s-ui-go/logger"
 	"github.com/yongwei9527-art/s-ui-go/util/common"
 	"gorm.io/gorm"
 )
 
-const (
-	xrayXHTTPConfigName         = "xray-xhttp.json"
-	xrayXHTTPStartupGracePeriod = time.Second
-)
+const xrayXHTTPConfigName = "xray-xhttp.json"
 
 type XrayXHTTPSaveRequest struct {
 	Inbound   model.XrayXHTTPInbound `json:"inbound"`
@@ -36,9 +36,8 @@ type XrayXHTTPSaveRequest struct {
 
 type xrayXHTTPRuntime struct {
 	mu         sync.Mutex
-	cmd        *exec.Cmd
-	done       chan struct{}
-	stopping   bool
+	server     *xrayruntime.Server
+	active     []byte
 	lastError  string
 	lastExitAt int64
 }
@@ -70,18 +69,16 @@ func (s *XrayXHTTPService) GetClientIDs(inboundID uint) ([]uint, error) {
 func (s *XrayXHTTPService) Status() map[string]interface{} {
 	xrayXHTTPProcess.mu.Lock()
 	defer xrayXHTTPProcess.mu.Unlock()
-	binary, err := findXrayBinary()
 	status := map[string]interface{}{
-		"running":    xrayXHTTPProcess.cmd != nil && xrayXHTTPProcess.cmd.Process != nil,
-		"binary":     binary,
-		"configured": err == nil,
-		"configPath": s.configPath(),
-	}
-	if err != nil {
-		status["error"] = err.Error()
+		"running":          xrayXHTTPProcess.server != nil,
+		"engine":           "embedded",
+		"version":          xrayruntime.Version(),
+		"sourceIntegrated": true,
+		"configured":       true,
+		"configPath":       s.configPath(),
 	}
 	if xrayXHTTPProcess.lastError != "" {
-		status["sidecarError"] = xrayXHTTPProcess.lastError
+		status["runtimeError"] = xrayXHTTPProcess.lastError
 	}
 	if xrayXHTTPProcess.lastExitAt != 0 {
 		status["lastExitAt"] = xrayXHTTPProcess.lastExitAt
@@ -113,15 +110,26 @@ func (s *XrayXHTTPService) GetData() (map[string]interface{}, error) {
 }
 
 func (s *XrayXHTTPService) Save(req XrayXHTTPSaveRequest) error {
+	xrayXHTTPProcess.mu.Lock()
+	defer xrayXHTTPProcess.mu.Unlock()
+
 	inb := req.Inbound
+	var previousInbound *model.XrayXHTTPInbound
+	var previousClients []model.XrayXHTTPClient
 	// The read API intentionally redacts the private key. Preserve it for edits
 	// unless the administrator explicitly supplies a replacement.
-	if inb.Id != 0 && strings.TrimSpace(inb.PrivateKey) == "" {
+	if inb.Id != 0 {
 		var existing model.XrayXHTTPInbound
 		if err := database.GetDB().First(&existing, inb.Id).Error; err != nil {
 			return err
 		}
-		inb.PrivateKey = existing.PrivateKey
+		previousInbound = &existing
+		if strings.TrimSpace(inb.PrivateKey) == "" {
+			inb.PrivateKey = existing.PrivateKey
+		}
+		if err := database.GetDB().Where("inbound_id = ?", inb.Id).Order("id").Find(&previousClients).Error; err != nil {
+			return err
+		}
 	}
 	normalizeXrayXHTTPInbound(&inb)
 	if err := validateXrayXHTTPInbound(inb); err != nil {
@@ -132,14 +140,6 @@ func (s *XrayXHTTPService) Save(req XrayXHTTPSaveRequest) error {
 	}
 	if err := s.validateListenConflicts(inb); err != nil {
 		return err
-	}
-
-	// Enabling needs a real Xray binary. This avoids committing a configuration
-	// which looks healthy in the UI but cannot ever be started.
-	if inb.Enable {
-		if _, err := findXrayBinary(); err != nil {
-			return err
-		}
 	}
 
 	db := database.GetDB()
@@ -183,12 +183,30 @@ func (s *XrayXHTTPService) Save(req XrayXHTTPSaveRequest) error {
 	if err != nil {
 		return err
 	}
-	return s.Restart()
+	if err := s.restartLocked(); err != nil {
+		restoreErr := restoreXrayInboundDatabase(inb.Id, previousInbound, previousClients, "save")
+		if restoreErr != nil {
+			return errors.Join(err, fmt.Errorf("restore Xray database after failed save: %w", restoreErr))
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *XrayXHTTPService) Delete(id uint) error {
 	if id == 0 {
 		return common.NewError("invalid XHTTP inbound id")
+	}
+	xrayXHTTPProcess.mu.Lock()
+	defer xrayXHTTPProcess.mu.Unlock()
+
+	var previousInbound model.XrayXHTTPInbound
+	if err := database.GetDB().First(&previousInbound, id).Error; err != nil {
+		return err
+	}
+	var previousClients []model.XrayXHTTPClient
+	if err := database.GetDB().Where("inbound_id = ?", id).Order("id").Find(&previousClients).Error; err != nil {
+		return err
 	}
 	err := database.GetDB().Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("inbound_id = ?", id).Delete(&model.XrayXHTTPClient{}).Error; err != nil {
@@ -206,7 +224,38 @@ func (s *XrayXHTTPService) Delete(id uint) error {
 	if err != nil {
 		return err
 	}
-	return s.Restart()
+	if err := s.restartLocked(); err != nil {
+		restoreErr := restoreXrayInboundDatabase(id, &previousInbound, previousClients, "delete")
+		if restoreErr != nil {
+			return errors.Join(err, fmt.Errorf("restore Xray database after failed delete: %w", restoreErr))
+		}
+		return err
+	}
+	return nil
+}
+
+func restoreXrayInboundDatabase(id uint, inbound *model.XrayXHTTPInbound, clients []model.XrayXHTTPClient, failedAction string) error {
+	return database.GetDB().Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("inbound_id = ?", id).Delete(&model.XrayXHTTPClient{}).Error; err != nil {
+			return err
+		}
+		if inbound == nil {
+			if err := tx.Delete(&model.XrayXHTTPInbound{}, id).Error; err != nil {
+				return err
+			}
+		} else {
+			if err := tx.Save(inbound).Error; err != nil {
+				return err
+			}
+			if len(clients) > 0 {
+				if err := tx.Create(&clients).Error; err != nil {
+					return err
+				}
+			}
+		}
+		obj := json.RawMessage(fmt.Sprintf(`{"id":%d,"failedAction":%q}`, id, failedAction))
+		return tx.Create(&model.Changes{DateTime: time.Now().Unix(), Actor: "system", Key: "xray-xhttp", Action: "rollback", Obj: obj}).Error
+	})
 }
 
 func (s *XrayXHTTPService) Restart() error {
@@ -226,7 +275,7 @@ func (s *XrayXHTTPService) StartIfEnabled() error {
 	return s.Restart()
 }
 
-// ReloadAfterClientChange refreshes the running sidecar after S-UI client
+// ReloadAfterClientChange refreshes the embedded Xray runtime after S-UI client
 // enablement or membership changes, so expired/disabled users lose access.
 func (s *XrayXHTTPService) ReloadAfterClientChange() error {
 	var count int64
@@ -248,162 +297,174 @@ func (s *XrayXHTTPService) Stop() error {
 func (s *XrayXHTTPService) restartLocked() error {
 	configBytes, enabled, err := s.BuildConfig()
 	if err != nil {
+		recordXrayRuntimeError(err)
 		return err
 	}
 	if !enabled {
-		return stopXrayLocked()
+		if err := stopXrayLocked(); err != nil {
+			return err
+		}
+		// The rendered file contains a Reality private key. Once all Xray
+		// inbounds are disabled, there is no reason to retain it on disk.
+		if err := os.Remove(s.configPath()); err != nil && !os.IsNotExist(err) {
+			recordXrayRuntimeError(err)
+			return fmt.Errorf("remove inactive embedded Xray config: %w", err)
+		}
+		return nil
 	}
-	binary, err := findXrayBinary()
-	if err != nil {
+	if err := xrayruntime.Validate(configBytes); err != nil {
+		err = common.NewErrorf("embedded Xray config test failed: %v", err)
+		recordXrayRuntimeError(err)
 		return err
 	}
 	if err := os.MkdirAll(config.GetDBFolderPath(), 0750); err != nil {
+		recordXrayRuntimeError(err)
 		return err
 	}
-	// Test an isolated temporary file before stopping the live sidecar or
-	// replacing its last known-good configuration.
-	testFile, err := os.CreateTemp(config.GetDBFolderPath(), "xray-xhttp-*.json")
-	if err != nil {
-		return err
-	}
-	testPath := testFile.Name()
-	defer os.Remove(testPath)
-	if err := testFile.Chmod(0600); err != nil {
-		_ = testFile.Close()
-		return err
-	}
-	if _, err := testFile.Write(configBytes); err != nil {
-		_ = testFile.Close()
-		return err
-	}
-	if err := testFile.Close(); err != nil {
-		return err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	test := exec.CommandContext(ctx, binary, "run", "-test", "-c", testPath)
-	if output, err := test.CombinedOutput(); err != nil {
-		if ctx.Err() != nil {
-			return common.NewError("Xray config test timed out")
-		}
-		return common.NewErrorf("Xray config test failed: %v: %s", err, strings.TrimSpace(string(output)))
-	}
+	previousConfig := append([]byte(nil), xrayXHTTPProcess.active...)
+	hadPrevious := xrayXHTTPProcess.server != nil
 	if err := stopXrayLocked(); err != nil {
 		return err
 	}
-	configPath := s.configPath()
-	if err := os.WriteFile(configPath, configBytes, 0600); err != nil {
-		return err
+	candidate, err := xrayruntime.New(configBytes)
+	if err != nil {
+		startErr := common.NewErrorf("create embedded Xray instance: %v", err)
+		return s.failAndRestoreLocked(startErr, previousConfig, hadPrevious)
 	}
-	cmd := exec.Command(binary, "run", "-c", configPath)
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	done := make(chan struct{})
-	xrayXHTTPProcess.cmd = cmd
-	xrayXHTTPProcess.done = done
-	xrayXHTTPProcess.stopping = false
-	xrayXHTTPProcess.lastError = ""
-	xrayXHTTPProcess.lastExitAt = 0
-	go func() {
-		err := cmd.Wait()
-		// Close before acquiring the runtime mutex: stopXrayLocked waits for
-		// process exit while holding that mutex.
-		close(done)
-		xrayXHTTPProcess.mu.Lock()
-		unexpectedExit := false
-		if xrayXHTTPProcess.cmd == cmd {
-			unexpectedExit = !xrayXHTTPProcess.stopping
-			xrayXHTTPProcess.cmd = nil
-			xrayXHTTPProcess.done = nil
-			xrayXHTTPProcess.stopping = false
-			xrayXHTTPProcess.lastExitAt = time.Now().Unix()
-			if unexpectedExit {
-				if err != nil {
-					xrayXHTTPProcess.lastError = err.Error()
-				} else {
-					xrayXHTTPProcess.lastError = "process exited unexpectedly"
-				}
-			}
-		}
-		xrayXHTTPProcess.mu.Unlock()
-		if err != nil && unexpectedExit {
-			logger.Warning("Xray XHTTP sidecar stopped unexpectedly: ", err)
+	candidateOwned := true
+	defer func() {
+		if candidateOwned {
+			_ = candidate.Close()
 		}
 	}()
-	if err := waitForXrayXHTTPStartup(done, xrayXHTTPStartupGracePeriod); err != nil {
-		return err
+	if err := candidate.Start(); err != nil {
+		closeErr := candidate.Close()
+		if closeErr == nil {
+			candidateOwned = false
+		} else {
+			err = errors.Join(err, closeErr)
+		}
+		return s.failAndRestoreLocked(err, previousConfig, hadPrevious)
 	}
-	logger.Info("Xray XHTTP sidecar started on configured XHTTP inbound(s)")
+	configPath := s.configPath()
+	if err := writePrivateFileAtomic(configPath, configBytes); err != nil {
+		closeErr := candidate.Close()
+		if closeErr == nil {
+			candidateOwned = false
+		} else {
+			err = errors.Join(err, closeErr)
+		}
+		return s.failAndRestoreLocked(fmt.Errorf("write embedded Xray config: %w", err), previousConfig, hadPrevious)
+	}
+	xrayXHTTPProcess.server = candidate
+	xrayXHTTPProcess.active = append([]byte(nil), configBytes...)
+	xrayXHTTPProcess.lastError = ""
+	xrayXHTTPProcess.lastExitAt = 0
+	candidateOwned = false
+	logger.Info("Embedded Xray runtime started on configured Reality inbound(s)")
 	return nil
 }
 
-func waitForXrayXHTTPStartup(done <-chan struct{}, grace time.Duration) error {
-	select {
-	case <-done:
-		return common.NewError("Xray XHTTP sidecar exited immediately after start; check the Xray log and listener port")
-	case <-time.After(grace):
-		return nil
+func (s *XrayXHTTPService) failAndRestoreLocked(cause error, previousConfig []byte, hadPrevious bool) error {
+	recordXrayRuntimeError(cause)
+	if !hadPrevious || len(previousConfig) == 0 {
+		return cause
 	}
+	previous, err := xrayruntime.New(previousConfig)
+	if err != nil {
+		return errors.Join(cause, fmt.Errorf("restore previous embedded Xray instance: %w", err))
+	}
+	if err := previous.Start(); err != nil {
+		_ = previous.Close()
+		return errors.Join(cause, fmt.Errorf("restart previous embedded Xray instance: %w", err))
+	}
+	xrayXHTTPProcess.server = previous
+	xrayXHTTPProcess.active = append([]byte(nil), previousConfig...)
+	if err := writePrivateFileAtomic(s.configPath(), previousConfig); err != nil {
+		return errors.Join(cause, fmt.Errorf("restore previous embedded Xray config file: %w", err))
+	}
+	logger.Warning("Embedded Xray update failed; the previous runtime configuration was restored: ", cause)
+	return cause
 }
 
 func stopXrayLocked() error {
-	if xrayXHTTPProcess.cmd == nil || xrayXHTTPProcess.cmd.Process == nil {
+	if xrayXHTTPProcess.server == nil {
 		return nil
 	}
-	cmd := xrayXHTTPProcess.cmd
-	done := xrayXHTTPProcess.done
-	xrayXHTTPProcess.stopping = true
-	if runtime.GOOS == "windows" {
-		// /T terminates descendants too, which is important if a wrapper starts
-		// the actual core process.
-		_ = exec.Command("taskkill", "/PID", fmt.Sprint(cmd.Process.Pid), "/T", "/F").Run()
-	} else {
-		_ = cmd.Process.Signal(os.Interrupt)
+	server := xrayXHTTPProcess.server
+	if err := server.Close(); err != nil {
+		recordXrayRuntimeError(err)
+		return err
 	}
-
-	if done != nil {
-		select {
-		case <-done:
-		case <-time.After(5 * time.Second):
-			// Graceful termination can be ignored by a broken child process.
-			_ = cmd.Process.Kill()
-			select {
-			case <-done:
-			case <-time.After(5 * time.Second):
-				return common.NewError("timed out waiting for Xray XHTTP sidecar to stop")
-			}
-		}
-	}
-	xrayXHTTPProcess.cmd = nil
-	xrayXHTTPProcess.done = nil
-	xrayXHTTPProcess.stopping = false
+	xrayXHTTPProcess.server = nil
+	xrayXHTTPProcess.active = nil
 	return nil
 }
+
+func recordXrayRuntimeError(err error) {
+	if err == nil {
+		return
+	}
+	xrayXHTTPProcess.lastError = err.Error()
+	xrayXHTTPProcess.lastExitAt = time.Now().Unix()
+}
+
+func writePrivateFileAtomic(path string, data []byte) (err error) {
+	file, err := os.CreateTemp(filepath.Dir(path), ".xray-xhttp-*.tmp")
+	if err != nil {
+		return err
+	}
+	tempPath := file.Name()
+	defer func() {
+		_ = file.Close()
+		_ = os.Remove(tempPath)
+	}()
+	if err = file.Chmod(0600); err != nil {
+		return err
+	}
+	if _, err = file.Write(data); err != nil {
+		return err
+	}
+	if err = file.Sync(); err != nil {
+		return err
+	}
+	if err = file.Close(); err != nil {
+		return err
+	}
+	if err = os.Rename(tempPath, path); err != nil {
+		// Unix replaces atomically. Windows does not replace an existing file,
+		// so use a narrow fallback there while preserving the private mode.
+		if runtime.GOOS != "windows" {
+			return err
+		}
+		if removeErr := os.Remove(path); removeErr != nil && !os.IsNotExist(removeErr) {
+			return err
+		}
+		if err = os.Rename(tempPath, path); err != nil {
+			return err
+		}
+	}
+	return os.Chmod(path, 0600)
+}
+
 func (s *XrayXHTTPService) configPath() string {
 	return filepath.Join(config.GetDBFolderPath(), xrayXHTTPConfigName)
 }
 
-func findXrayBinary() (string, error) {
-	if explicit := strings.TrimSpace(os.Getenv("SUI_XRAY_BINARY")); explicit != "" {
-		if info, err := os.Stat(explicit); err == nil && !info.IsDir() {
-			return explicit, nil
-		}
-		return "", common.NewError("SUI_XRAY_BINARY does not point to an executable file")
-	}
-	name := "xray"
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-	}
-	if path, err := exec.LookPath(name); err == nil {
-		return path, nil
-	}
-	return "", common.NewError("Xray binary not found; install xray-core and set SUI_XRAY_BINARY to its executable path")
+func (s *XrayXHTTPService) BuildConfig() ([]byte, bool, error) {
+	var data []byte
+	var enabled bool
+	err := database.GetDB().Transaction(func(tx *gorm.DB) error {
+		var err error
+		data, enabled, err = s.buildConfigSnapshot(tx)
+		return err
+	})
+	return data, enabled, err
 }
 
-func (s *XrayXHTTPService) BuildConfig() ([]byte, bool, error) {
+func (s *XrayXHTTPService) buildConfigSnapshot(tx *gorm.DB) ([]byte, bool, error) {
 	var inbounds []model.XrayXHTTPInbound
-	if err := database.GetDB().Where("enable = ?", true).Order("id").Find(&inbounds).Error; err != nil {
+	if err := tx.Where("enable = ?", true).Order("id").Find(&inbounds).Error; err != nil {
 		return nil, false, err
 	}
 	if len(inbounds) == 0 {
@@ -414,7 +475,7 @@ func (s *XrayXHTTPService) BuildConfig() ([]byte, bool, error) {
 	for _, inb := range inbounds {
 		// Existing XHTTP-only records predate the transport field. Normalize them
 		// while rendering so an upgrade never turns a valid saved configuration
-		// into an invalid sidecar configuration.
+		// into an invalid embedded Xray configuration.
 		normalizeXrayXHTTPInbound(&inb)
 		if err := validateXrayXHTTPInbound(inb); err != nil {
 			return nil, false, err
@@ -423,7 +484,7 @@ func (s *XrayXHTTPService) BuildConfig() ([]byte, bool, error) {
 			UUID string
 			Name string
 		}
-		err := database.GetDB().Table("xray_x_http_clients").Select("xray_x_http_clients.uuid, clients.name").Joins("join clients on clients.id = xray_x_http_clients.client_id").Where("xray_x_http_clients.inbound_id = ? and xray_x_http_clients.enable = ? and clients.enable = ?", inb.Id, true, true).Scan(&rows).Error
+		err := tx.Table("xray_x_http_clients").Select("xray_x_http_clients.uuid, clients.name").Joins("join clients on clients.id = xray_x_http_clients.client_id").Where("xray_x_http_clients.inbound_id = ? and xray_x_http_clients.enable = ? and clients.enable = ?", inb.Id, true, true).Scan(&rows).Error
 		if err != nil {
 			return nil, false, err
 		}
@@ -433,7 +494,7 @@ func (s *XrayXHTTPService) BuildConfig() ([]byte, bool, error) {
 		}
 		// A client can be disabled, expired, or deleted after this inbound was
 		// created. Omit an empty inbound so a subsequent reload revokes access
-		// instead of retaining stale UUIDs in a running sidecar.
+		// instead of retaining stale UUIDs in the running Xray instance.
 		if len(clients) == 0 {
 			continue
 		}
@@ -479,12 +540,29 @@ func xrayClientConfig(transport, id, email string) map[string]string {
 	}
 	return client
 }
-func (s *XrayXHTTPService) LinksForClient(clientID uint, hostname string) ([]string, error) {
-	var rows []struct {
-		model.XrayXHTTPInbound
-		UUID string
+
+type xrayClientSubscriptionRow struct {
+	model.XrayXHTTPInbound
+	UUID string
+}
+
+func (s *XrayXHTTPService) subscriptionRowsForClient(clientID uint) ([]xrayClientSubscriptionRow, error) {
+	var rows []xrayClientSubscriptionRow
+	err := database.GetDB().
+		Table("xray_x_http_inbounds").
+		Select("xray_x_http_inbounds.*, xray_x_http_clients.uuid").
+		Joins("join xray_x_http_clients on xray_x_http_clients.inbound_id = xray_x_http_inbounds.id").
+		Where("xray_x_http_inbounds.enable = ? and xray_x_http_clients.enable = ? and xray_x_http_clients.client_id = ?", true, true, clientID).
+		Order("xray_x_http_inbounds.id").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
 	}
-	err := database.GetDB().Table("xray_x_http_inbounds").Select("xray_x_http_inbounds.*, xray_x_http_clients.uuid").Joins("join xray_x_http_clients on xray_x_http_clients.inbound_id = xray_x_http_inbounds.id").Where("xray_x_http_inbounds.enable = ? and xray_x_http_clients.enable = ? and xray_x_http_clients.client_id = ?", true, true, clientID).Scan(&rows).Error
+	return rows, nil
+}
+
+func (s *XrayXHTTPService) LinksForClient(clientID uint, hostname string) ([]string, error) {
+	rows, err := s.subscriptionRowsForClient(clientID)
 	if err != nil {
 		return nil, err
 	}
@@ -495,7 +573,65 @@ func (s *XrayXHTTPService) LinksForClient(clientID uint, hostname string) ([]str
 	return links, nil
 }
 
+// SubscriptionOutboundsForClient returns the same enabled Xray nodes as the
+// standard VLESS URI subscription, but in the neutral outbound shape consumed
+// by S-UI's Mihomo/Clash converter. It keeps protocol generation in one place
+// and avoids parsing our own URI output back into a lossy structure.
+func (s *XrayXHTTPService) SubscriptionOutboundsForClient(clientID uint, hostname string) ([]map[string]interface{}, error) {
+	rows, err := s.subscriptionRowsForClient(clientID)
+	if err != nil {
+		return nil, err
+	}
+	outbounds := make([]map[string]interface{}, 0, len(rows))
+	for _, row := range rows {
+		outbounds = append(outbounds, xraySubscriptionOutbound(row.XrayXHTTPInbound, row.UUID, hostname))
+	}
+	return outbounds, nil
+}
+
+func xraySubscriptionOutbound(inb model.XrayXHTTPInbound, uuid, hostname string) map[string]interface{} {
+	normalizeXrayXHTTPInbound(&inb)
+	host := strings.Trim(strings.TrimSpace(hostname), "[]")
+	if host == "" {
+		host = inb.ServerName
+	}
+	outbound := map[string]interface{}{
+		"type":        "vless",
+		"tag":         inb.Tag,
+		"server":      host,
+		"server_port": inb.Port,
+		"uuid":        uuid,
+		// Mihomo defaults proxy UDP support to false. The embedded Reality
+		// outbounds support UDP, so expose that capability explicitly.
+		"udp": true,
+		"tls": map[string]interface{}{
+			"enabled":     true,
+			"server_name": inb.ServerName,
+			"reality": map[string]interface{}{
+				"enabled":    true,
+				"public_key": inb.PublicKey,
+				"short_id":   inb.ShortID,
+			},
+			"utls": map[string]interface{}{
+				"enabled":     true,
+				"fingerprint": inb.Fingerprint,
+			},
+		},
+	}
+	if inb.Transport == "tcp" {
+		outbound["flow"] = "xtls-rprx-vision"
+	} else {
+		outbound["transport"] = map[string]interface{}{
+			"type": "xhttp",
+			"path": inb.Path,
+			"mode": inb.Mode,
+		}
+	}
+	return outbound
+}
+
 func xrayVLESSLink(inb model.XrayXHTTPInbound, uuid, hostname string) string {
+	normalizeXrayXHTTPInbound(&inb)
 	host := strings.TrimSpace(hostname)
 	if host == "" {
 		host = inb.ServerName
@@ -508,10 +644,7 @@ func xrayVLESSLink(inb model.XrayXHTTPInbound, uuid, hostname string) string {
 	q.Set("fp", inb.Fingerprint)
 	q.Set("pbk", inb.PublicKey)
 	q.Set("sid", inb.ShortID)
-	transport := strings.ToLower(strings.TrimSpace(inb.Transport))
-	if transport == "" {
-		transport = "xhttp"
-	}
+	transport := inb.Transport
 	q.Set("type", transport)
 	if transport == "tcp" {
 		q.Set("flow", "xtls-rprx-vision")
@@ -528,7 +661,7 @@ func formatLinkHost(host string) string {
 	return host
 }
 
-// validateListenConflicts prevents a saved sidecar configuration from using an
+// validateListenConflicts prevents an embedded Xray configuration from using an
 // endpoint that another XHTTP or TCP-capable sing-box inbound already owns.
 func (s *XrayXHTTPService) validateListenConflicts(candidate model.XrayXHTTPInbound) error {
 	if !candidate.Enable {
@@ -616,7 +749,7 @@ func normalizeXrayXHTTPInbound(inb *model.XrayXHTTPInbound) {
 	inb.PrivateKey = strings.TrimSpace(inb.PrivateKey)
 	inb.PublicKey = strings.TrimSpace(inb.PublicKey)
 	inb.ShortID = strings.TrimSpace(inb.ShortID)
-	inb.Fingerprint = strings.TrimSpace(inb.Fingerprint)
+	inb.Fingerprint = strings.ToLower(strings.TrimSpace(inb.Fingerprint))
 	inb.Transport = strings.ToLower(strings.TrimSpace(inb.Transport))
 	inb.Path = strings.TrimSpace(inb.Path)
 	inb.Mode = strings.TrimSpace(inb.Mode)
@@ -656,6 +789,12 @@ func validateXrayXHTTPInbound(inb model.XrayXHTTPInbound) error {
 	if inb.ServerName == "" || inb.Dest == "" || inb.PrivateKey == "" || inb.PublicKey == "" || inb.ShortID == "" {
 		return common.NewError("Reality server name, destination, private/public key and short ID are required")
 	}
+	if err := validateRealityKeyPair(inb.PrivateKey, inb.PublicKey); err != nil {
+		return err
+	}
+	if !xrayruntime.ValidFingerprint(inb.Fingerprint) {
+		return common.NewError("Reality client fingerprint is not supported by the embedded Xray version")
+	}
 	if net.ParseIP(inb.Listen) == nil {
 		return common.NewError("Xray Reality listen address must be an IP address")
 	}
@@ -685,6 +824,25 @@ func validateXrayXHTTPInbound(inb model.XrayXHTTPInbound) error {
 	portNumber, err := strconv.ParseUint(port, 10, 16)
 	if err != nil || portNumber == 0 {
 		return common.NewError("Reality destination port must be between 1 and 65535")
+	}
+	return nil
+}
+
+func validateRealityKeyPair(privateKeyText, publicKeyText string) error {
+	privateKeyBytes, err := base64.RawURLEncoding.DecodeString(privateKeyText)
+	if err != nil || len(privateKeyBytes) != 32 {
+		return common.NewError("Reality private key must be a 32-byte raw URL-safe Base64 X25519 key")
+	}
+	publicKeyBytes, err := base64.RawURLEncoding.DecodeString(publicKeyText)
+	if err != nil || len(publicKeyBytes) != 32 {
+		return common.NewError("Reality public key must be a 32-byte raw URL-safe Base64 X25519 key")
+	}
+	privateKey, err := ecdh.X25519().NewPrivateKey(privateKeyBytes)
+	if err != nil {
+		return common.NewError("Reality private key is not a valid X25519 key")
+	}
+	if !bytes.Equal(privateKey.PublicKey().Bytes(), publicKeyBytes) {
+		return common.NewError("Reality public key does not match the private key")
 	}
 	return nil
 }

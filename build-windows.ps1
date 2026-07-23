@@ -9,17 +9,16 @@ param(
     [switch]$NoCGO,
     [switch]$SkipFrontend,
     [switch]$Package,
-    # Linux amd64 release packages always include the verified Xray-core
-    # sidecar. This switch is retained for command-line compatibility.
-    [switch]$BundleXrayCore,
     [switch]$NonInteractive,
     [switch]$ListCleanCandidates,
     [switch]$Help
 )
 
+$ErrorActionPreference = 'Stop'
+
 if ($Help) {
     Write-Host "用法："
-    Write-Host "  .\build-windows.ps1 [-System <系统>] [-Architecture <架构>] [-NoCGO] [-SkipFrontend] [-Package] [-BundleXrayCore] [-NonInteractive]"
+    Write-Host "  .\build-windows.ps1 [-System <系统>] [-Architecture <架构>] [-NoCGO] [-SkipFrontend] [-Package] [-NonInteractive]"
     Write-Host "  .\build-windows.ps1 -ListCleanCandidates"
     Write-Host ""
     Write-Host "说明："
@@ -40,8 +39,7 @@ if ($Help) {
     Write-Host "  -NoCGO                关闭 CGO，适合从 Windows 交叉构建 Linux/macOS 包"
     Write-Host "  -SkipFrontend         跳过前端构建；需要已有 frontend/dist 嵌入资源"
     Write-Host "  -Package              生成 dist/*.zip 发布压缩包"
-    Write-Host "  Linux amd64 发布包会自动包含已校验的 Xray-core v26.3.27"
-    Write-Host "  -BundleXrayCore       兼容参数；Linux amd64 发布包默认已包含 Xray-core"
+    Write-Host "  Xray-core Go 源码依赖会编译进 sui；发布包不再附带独立 xray 文件"
     Write-Host "  -NonInteractive       构建完成后不等待输入"
     Write-Host "  -ListCleanCandidates  只列出本地可清理候选，不删除任何文件"
     Write-Host ""
@@ -62,12 +60,153 @@ function Stop-WithMessage($Message) {
     exit 1
 }
 
-if ($BundleXrayCore -and ($System -ne "linux" -or $Architecture -ne "amd64" -or -not $Package)) {
-    Stop-WithMessage "-BundleXrayCore 只能与 -System linux -Architecture amd64 -Package 一起使用"
+function Write-Sha256Sidecar([string]$ArchivePath) {
+    $archive = Get-Item -LiteralPath $ArchivePath -ErrorAction Stop
+    if (-not $archive.PSIsContainer) {
+        $hash = (Get-FileHash -LiteralPath $archive.FullName -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+        $sidecarPath = "$($archive.FullName).sha256"
+        if (Test-Path -LiteralPath $sidecarPath) {
+            Remove-Item -LiteralPath $sidecarPath -Force -ErrorAction Stop
+        }
+        $sidecarContent = "$hash  $($archive.Name)`n"
+        [System.IO.File]::WriteAllText($sidecarPath, $sidecarContent, [System.Text.Encoding]::ASCII)
+        $recorded = [System.IO.File]::ReadAllText($sidecarPath, [System.Text.Encoding]::ASCII).Trim()
+        if ($recorded -cne "$hash  $($archive.Name)") {
+            throw "生成的 SHA256 文件格式无效：$sidecarPath"
+        }
+        Write-Host "已生成校验文件 / Checksum generated: $sidecarPath" -ForegroundColor Green
+        return
+    }
+    throw "不能为目录生成 SHA256 文件：$ArchivePath"
 }
 
-$includeXrayCore = $System -eq "linux" -and $Architecture -eq "amd64" -and $Package
+function Copy-RequiredPackageFile([string]$Source, [string]$DestinationDirectory, [string]$DestinationName) {
+    if (-not (Test-Path -LiteralPath $Source -PathType Leaf)) {
+        throw "发布包缺少必需文件：$Source"
+    }
+    if ([string]::IsNullOrWhiteSpace($DestinationName)) {
+        $DestinationName = [System.IO.Path]::GetFileName($Source)
+    }
+    $destination = Join-Path $DestinationDirectory $DestinationName
+    Copy-Item -LiteralPath $Source -Destination $destination -Force -ErrorAction Stop
+    if (-not (Test-Path -LiteralPath $destination -PathType Leaf)) {
+        throw "必需文件复制失败：$Source -> $destination"
+    }
+}
 
+function Test-LinuxPackageArchive([string]$ArchivePath, [string]$Architecture) {
+    $archive = Get-Item -LiteralPath $ArchivePath -ErrorAction Stop
+    Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction Stop
+    $zip = [System.IO.Compression.ZipFile]::OpenRead($archive.FullName)
+    try {
+        $entries = @($zip.Entries)
+        $fileNames = [System.Collections.Generic.List[string]]::new()
+        foreach ($entry in $entries) {
+            $entryName = $entry.FullName
+            if ([string]::IsNullOrWhiteSpace($entryName) -or
+                $entryName.IndexOf([char]0) -ge 0 -or
+                $entryName.StartsWith('/') -or
+                $entryName.StartsWith('\') -or
+                $entryName.Contains('\') -or
+                $entryName -match '^[A-Za-z]:') {
+                throw "发布 ZIP 包含不安全路径：$entryName"
+            }
+            if (($entryName -split '/') -contains '..') {
+                throw "发布 ZIP 包含路径遍历项：$entryName"
+            }
+            if ($entryName.EndsWith('/')) {
+                throw "发布 ZIP 不应包含目录项：$entryName"
+            }
+            $unixFileType = (($entry.ExternalAttributes -shr 16) -band 0xF000)
+            if ($unixFileType -eq 0xA000) {
+                throw "发布 ZIP 不应包含符号链接项：$entryName"
+            }
+            if ($unixFileType -ne 0 -and $unixFileType -ne 0x8000) {
+                throw "发布 ZIP 包含异常文件类型：$entryName"
+            }
+            [void]$fileNames.Add($entryName)
+        }
+
+        $duplicateEntries = @($fileNames | Group-Object | Where-Object { $_.Count -ne 1 })
+        if ($duplicateEntries.Count -gt 0) {
+            throw "发布 ZIP 包含重复文件项：$($duplicateEntries.Name -join ', ')"
+        }
+
+        $requiredFiles = @(
+            'sui',
+            'install.sh',
+            'install-linux.sh',
+            'uninstall-linux.sh',
+            's-ui.sh',
+            'README.md',
+            'PROTOCOL_GUIDE.md',
+            'RELEASE_NOTES.md',
+            'XRAY-CORE-NOTICE.md'
+        )
+        foreach ($requiredFile in $requiredFiles) {
+            if (@($fileNames | Where-Object { $_ -ceq $requiredFile }).Count -ne 1) {
+                throw "发布 ZIP 缺少或重复必需文件：$requiredFile"
+            }
+        }
+
+        $unexpectedEntries = @($fileNames | Where-Object { $requiredFiles -cnotcontains $_ })
+        if ($unexpectedEntries.Count -gt 0) {
+            throw "发布 ZIP 包含未声明的冗余文件：$($unexpectedEntries -join ', ')"
+        }
+
+        $forbiddenBasenames = @('xray', 'xray.exe', 'sui.exe', "sui-linux-$Architecture", "sui-linux-$Architecture.exe")
+        $forbiddenEntries = @($fileNames | Where-Object {
+            $baseName = ($_ -split '/')[-1].ToLowerInvariant()
+            $forbiddenBasenames -contains $baseName
+        })
+        if ($forbiddenEntries.Count -gt 0) {
+            throw "发布 ZIP 包含独立 Xray 或重复二进制：$($forbiddenEntries -join ', ')"
+        }
+
+        $staticUnitEntries = @($fileNames | Where-Object { (($_ -split '/')[-1]) -ieq 's-ui.service' })
+        if ($staticUnitEntries.Count -gt 0) {
+            throw "发布 ZIP 不应携带静态 s-ui.service：$($staticUnitEntries -join ', ')"
+        }
+    } finally {
+        $zip.Dispose()
+    }
+    Write-Host 'Linux 发布 ZIP 文件集、结构和路径安全检查通过。' -ForegroundColor Green
+}
+function Test-BuildModuleMetadata([string]$BinaryPath) {
+    $metadata = @(& go version -m $BinaryPath)
+    if ($LASTEXITCODE -ne 0) {
+        throw "无法读取构建元数据：$BinaryPath"
+    }
+    $modulePath = (& go list -m -f '{{.Path}}').Trim()
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($modulePath)) {
+        throw '无法读取当前 Go 模块路径。'
+    }
+    $expectedPathLine = "path`t$modulePath"
+    if (@($metadata | Where-Object { $_.Trim() -ceq $expectedPathLine }).Count -ne 1) {
+        throw "构建产物不是模块包 $modulePath；请使用 go build .，不要使用 go build main.go。"
+    }
+    $productModuleLines = @($metadata | Where-Object { $_.Trim().StartsWith("mod`t$modulePath`t", [System.StringComparison]::Ordinal) })
+    if ($productModuleLines.Count -ne 1) {
+        throw "构建产物缺少主模块元数据：$modulePath"
+    }
+    if ($productModuleLines[0] -match '(?:^|\t)v?1\.4(?:[.\-+]|$)') {
+        throw "构建产物仍携带旧版 1.4 产品元数据：$($productModuleLines[0])"
+    }
+
+    $xrayModule = (& go list -m -f '{{.Path}} {{.Version}}' github.com/xtls/xray-core).Trim()
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($xrayModule)) {
+        throw '无法读取 github.com/xtls/xray-core 的模块版本。'
+    }
+    $xrayFields = @($xrayModule -split '\s+', 2)
+    if ($xrayFields.Count -ne 2 -or [string]::IsNullOrWhiteSpace($xrayFields[0]) -or [string]::IsNullOrWhiteSpace($xrayFields[1])) {
+        throw "Xray-core 模块元数据格式无效：$xrayModule"
+    }
+    $expectedXrayPrefix = "dep`t$($xrayFields[0])`t$($xrayFields[1])`t"
+    if (@($metadata | Where-Object { $_.Trim().StartsWith($expectedXrayPrefix, [System.StringComparison]::Ordinal) }).Count -ne 1) {
+        throw "构建产物缺少精确的 Xray-core 模块元数据：$($xrayFields[0]) $($xrayFields[1])。"
+    }
+    Write-Host "已验证模块构建元数据：$modulePath（不含旧版 1.4，包含 $($xrayFields[0]) $($xrayFields[1])）。" -ForegroundColor Green
+}
 function Write-CleanCandidate($Path, $Description, [switch]$Cautious) {
     if (Test-Path $Path) {
         $label = "可清理"
@@ -95,7 +234,6 @@ function Show-CleanCandidates {
     Write-Host ""
     Write-Host "生成目录 / Generated directories:" -ForegroundColor Cyan
     Write-CleanCandidate "frontend\dist" "前端 Vite 构建输出"
-    Write-CleanCandidate "release-assets" "本地发布暂存目录"
 
     if (Test-Path "dist") {
         Get-ChildItem -Path "dist" -Directory -ErrorAction SilentlyContinue |
@@ -156,9 +294,12 @@ if (!$SkipFrontend) {
     Push-Location frontend
     try {
         Write-Host "正在安装前端依赖..." -ForegroundColor Cyan
-        npm install
+        npm ci
         if ($LASTEXITCODE -ne 0) { throw "前端依赖安装失败" }
 
+        Write-Host "正在执行前端代码检查..." -ForegroundColor Cyan
+        npm run lint
+        if ($LASTEXITCODE -ne 0) { throw "前端代码检查失败" }
         Write-Host "正在执行前端构建..." -ForegroundColor Cyan
         npm run build
         if ($LASTEXITCODE -ne 0) { throw "前端构建失败" }
@@ -194,7 +335,8 @@ if (Test-Path $output) {
     Remove-Item $output -Force
 }
 $tags = "with_quic,with_grpc,with_utls,with_acme,with_gvisor,with_tailscale,with_naive_outbound,with_purego"
-$buildArgs = @("build", "-ldflags", "-w -s", "-tags", $tags, "-o", $output, "main.go")
+# Build the module package and suppress VCS-derived pseudo-versions from legacy Git tags.
+$buildArgs = @("build", "-buildvcs=false", "-ldflags", "-w -s", "-tags", $tags, "-o", $output, ".")
 
 try {
     Write-Host "正在构建后端：$System/$Architecture ..." -ForegroundColor Yellow
@@ -207,6 +349,9 @@ try {
         } else {
             Write-Host "构建成功：已关闭 CGO。" -ForegroundColor Green
         }
+        if ($System -eq "linux") {
+            Test-BuildModuleMetadata $output
+        }
     }
 } catch {
     Stop-WithMessage $_
@@ -217,58 +362,65 @@ if ($System -eq "windows") {
         Write-Host "正在移除旧兼容文件：sui.exe" -ForegroundColor Yellow
         Remove-Item "sui.exe" -Force
     }
-    Copy-Item $output "sui.exe" -Force
+    Copy-Item -LiteralPath $output -Destination "sui.exe" -Force -ErrorAction Stop
 }
 
 if ($Package) {
     $packageSystem = $System
     if ($System -eq "darwin") { $packageSystem = "macos" }
     $packageDir = "dist\s-ui-$packageSystem-$Architecture"
-    if (Test-Path $packageDir) { Remove-Item $packageDir -Recurse -Force }
-    New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
-    Copy-Item $output $packageDir -Force
-    Copy-Item "RELEASE_NOTES.md" $packageDir -Force -ErrorAction SilentlyContinue
-    Copy-Item "PROTOCOL_GUIDE.md" $packageDir -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $packageDir) { Remove-Item -LiteralPath $packageDir -Recurse -Force -ErrorAction Stop }
+    New-Item -ItemType Directory -Path $packageDir -Force -ErrorAction Stop | Out-Null
+    $archivePath = "dist\s-ui-$packageSystem-$Architecture.zip"
 
     if ($System -eq "windows") {
-        Copy-Item "s-ui-windows.xml" $packageDir -Force -ErrorAction SilentlyContinue
-        Copy-Item "install-windows.bat" $packageDir -Force -ErrorAction SilentlyContinue
-        Copy-Item "uninstall-windows.bat" $packageDir -Force -ErrorAction SilentlyContinue
-        Copy-Item "s-ui-windows.bat" $packageDir -Force -ErrorAction SilentlyContinue
-        Copy-Item "README.md" $packageDir -Force -ErrorAction SilentlyContinue
-        if (Test-Path "libcronet.dll") { Copy-Item "libcronet.dll" $packageDir -Force }
-        Copy-Item $output "$packageDir\sui.exe" -Force
-        Compress-Archive -Path "$packageDir\*" -DestinationPath "dist\s-ui-$packageSystem-$Architecture.zip" -Force
-        Write-Host "已生成压缩包 / Package generated: dist\s-ui-$packageSystem-$Architecture.zip" -ForegroundColor Green
-    } elseif ($System -eq "linux") {
-        Copy-Item $output "$packageDir\sui" -Force
-        Copy-Item "README.md" $packageDir -Force -ErrorAction SilentlyContinue
-        Copy-Item "install-linux.sh" $packageDir -Force -ErrorAction SilentlyContinue
-        Copy-Item "uninstall-linux.sh" $packageDir -Force -ErrorAction SilentlyContinue
-        Copy-Item "s-ui.sh" $packageDir -Force -ErrorAction SilentlyContinue
-        Copy-Item "s-ui.service" $packageDir -Force -ErrorAction SilentlyContinue
-        if ($includeXrayCore) {
-            $xrayBinary = Join-Path $PSScriptRoot "release-assets\xray-core-v26.3.27-linux-amd64\xray"
-            if (-not (Test-Path -LiteralPath $xrayBinary -PathType Leaf)) {
-                Stop-WithMessage "未找到已校验的 Xray-core：$xrayBinary。请先运行 .\fetch-xray-core.ps1"
-            }
-            Copy-Item -LiteralPath $xrayBinary -Destination "$packageDir\xray" -Force
-            Copy-Item "XRAY-CORE-NOTICE.md" $packageDir -Force
-            Write-Host "已包含 Xray-core v26.3.27（Linux amd64）" -ForegroundColor Green
+        foreach ($document in @('RELEASE_NOTES.md', 'PROTOCOL_GUIDE.md', 'XRAY-CORE-NOTICE.md', 'README.md')) {
+            Copy-RequiredPackageFile $document $packageDir $document
         }
-        Compress-Archive -Path "$packageDir\*" -DestinationPath "dist\s-ui-$packageSystem-$Architecture.zip" -Force
-        Write-Host "已生成压缩包 / Package generated: dist\s-ui-$packageSystem-$Architecture.zip" -ForegroundColor Green
+        foreach ($script in @('s-ui-windows.xml', 'install-windows.bat', 'uninstall-windows.bat', 's-ui-windows.bat')) {
+            Copy-RequiredPackageFile $script $packageDir $script
+        }
+        if (Test-Path -LiteralPath "libcronet.dll" -PathType Leaf) {
+            Copy-Item -LiteralPath "libcronet.dll" -Destination (Join-Path $packageDir 'libcronet.dll') -Force -ErrorAction Stop
+        }
+        Copy-RequiredPackageFile $output $packageDir 'sui.exe'
+        Compress-Archive -Path "$packageDir\*" -DestinationPath $archivePath -Force -ErrorAction Stop
+        Write-Sha256Sidecar $archivePath
+        Write-Host "已生成压缩包 / Package generated: $archivePath" -ForegroundColor Green
+    } elseif ($System -eq "linux") {
+        Copy-RequiredPackageFile $output $packageDir 'sui'
+        foreach ($requiredFile in @(
+            'install.sh',
+            'install-linux.sh',
+            'uninstall-linux.sh',
+            's-ui.sh',
+            'README.md',
+            'PROTOCOL_GUIDE.md',
+            'RELEASE_NOTES.md',
+            'XRAY-CORE-NOTICE.md'
+        )) {
+            Copy-RequiredPackageFile $requiredFile $packageDir $requiredFile
+        }
+        # The installer creates the unit for its selected installation path. Do not ship the
+        # repository's static s-ui.service, which could make a package's service path misleading.
+        Write-Host "Xray-core Go 源码依赖已编译进 sui；未附带独立 xray 文件。" -ForegroundColor Green
+        Compress-Archive -Path "$packageDir\*" -DestinationPath $archivePath -Force -ErrorAction Stop
+        Test-LinuxPackageArchive $archivePath $Architecture
+        Write-Sha256Sidecar $archivePath
+        Write-Host "已生成压缩包 / Package generated: $archivePath" -ForegroundColor Green
     } else {
-        Copy-Item $output "$packageDir\sui" -Force
-        Copy-Item "README.md" $packageDir -Force -ErrorAction SilentlyContinue
-        Copy-Item "install-macos.sh" $packageDir -Force -ErrorAction SilentlyContinue
-        Copy-Item "uninstall-macos.sh" $packageDir -Force -ErrorAction SilentlyContinue
-        Copy-Item "com.s-ui.plist" $packageDir -Force -ErrorAction SilentlyContinue
-        Compress-Archive -Path "$packageDir\*" -DestinationPath "dist\s-ui-$packageSystem-$Architecture.zip" -Force
-        Write-Host "已生成压缩包 / Package generated: dist\s-ui-$packageSystem-$Architecture.zip" -ForegroundColor Green
+        foreach ($document in @('RELEASE_NOTES.md', 'PROTOCOL_GUIDE.md', 'XRAY-CORE-NOTICE.md', 'README.md')) {
+            Copy-RequiredPackageFile $document $packageDir $document
+        }
+        foreach ($script in @('install-macos.sh', 'uninstall-macos.sh', 'com.s-ui.plist')) {
+            Copy-RequiredPackageFile $script $packageDir $script
+        }
+        Copy-RequiredPackageFile $output $packageDir 'sui'
+        Compress-Archive -Path "$packageDir\*" -DestinationPath $archivePath -Force -ErrorAction Stop
+        Write-Sha256Sidecar $archivePath
+        Write-Host "已生成压缩包 / Package generated: $archivePath" -ForegroundColor Green
     }
 }
-
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Green
 Write-Host "构建完成" -ForegroundColor Green

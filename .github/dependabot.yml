@@ -1,0 +1,30 @@
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:00"
+      timezone: Asia/Shanghai
+    allow:
+      - dependency-name: github.com/xtls/xray-core
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: "xray"
+
+  # Keep the full-SHA GitHub Actions pins in the release workflow reviewable and current.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:30"
+      timezone: Asia/Shanghai
+    allow:
+      - dependency-name: actions/checkout
+      - dependency-name: actions/setup-go
+      - dependency-name: actions/setup-node
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: "ci"

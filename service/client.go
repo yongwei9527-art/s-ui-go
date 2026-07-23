@@ -143,7 +143,7 @@ func (s *ClientService) Save(tx *gorm.DB, act string, data json.RawMessage, host
 			}
 			inboundIds = common.UnionUintArray(inboundIds, clientInbounds)
 		}
-		// Keep sidecar assignments in sync. Otherwise a deleted SQLite row ID
+		// Keep embedded Xray assignments in sync. Otherwise a deleted SQLite row ID
 		// could be reused by a later client and inherit an old XHTTP UUID.
 		err = tx.Where("client_id in ?", ids).Delete(&model.XrayXHTTPClient{}).Error
 		if err != nil {
@@ -168,7 +168,7 @@ func (s *ClientService) Save(tx *gorm.DB, act string, data json.RawMessage, host
 		if err != nil {
 			return nil, err
 		}
-		// Delete the sidecar association before deleting the client for the same
+		// Delete the embedded Xray association before deleting the client for the same
 		// reason as bulk deletion: client IDs must never inherit old UUIDs.
 		err = tx.Where("client_id = ?", id).Delete(&model.XrayXHTTPClient{}).Error
 		if err != nil {
@@ -448,7 +448,7 @@ func (s *ClientService) DepleteClients() ([]uint, bool, error) {
 	}
 
 	// len(inboundIds) covers normal inbounds; the explicit boolean also covers
-	// users assigned exclusively to the Xray sidecar.
+	// users assigned exclusively to the embedded Xray runtime.
 	authorizationChanged = len(clients) > 0 || len(inboundIds) > 0
 	return inboundIds, authorizationChanged, nil
 }

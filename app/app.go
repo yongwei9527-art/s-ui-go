@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/yongwei9527-art/s-ui-go/config"
 	"github.com/yongwei9527-art/s-ui-go/core"
@@ -88,20 +89,32 @@ func (a *APP) Start() error {
 
 	err = a.configService.StartCore()
 	if err != nil {
+		if proxyCoresRequired() {
+			return fmt.Errorf("start required sing-box core: %w", err)
+		}
 		logger.Error(err)
 	}
 	if err = a.xrayXHTTPService.StartIfEnabled(); err != nil {
-		// install-linux.sh sets this only after a fresh packaged installation
-		// has verified the bundled core, Reality target, and listener ports.
-		// Do not let systemd report a healthy panel while the promised default
-		// Xray endpoints are unavailable.
-		if os.Getenv("SUI_AUTOCONFIGURE_XRAY_REALITY") == "1" {
-			return fmt.Errorf("start auto-configured Xray Reality sidecar: %w", err)
+		// The Linux package sets SUI_REQUIRE_PROXY_CORES only after a fresh
+		// installation has verified the Reality target and default ports. Do
+		// not let systemd report a healthy panel while either promised core is
+		// unavailable.
+		if proxyCoresRequired() {
+			return fmt.Errorf("start required embedded Xray Reality runtime: %w", err)
 		}
-		logger.Warning("Xray XHTTP sidecar was not started: ", err)
+		logger.Warning("embedded Xray XHTTP runtime was not started: ", err)
 	}
 
 	return nil
+}
+
+func proxyCoresRequired() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("SUI_REQUIRE_PROXY_CORES"))) {
+	case "1", "true", "yes":
+		return true
+	default:
+		return false
+	}
 }
 
 func (a *APP) Stop() {
@@ -116,7 +129,7 @@ func (a *APP) Stop() {
 	}
 	err = a.xrayXHTTPService.Stop()
 	if err != nil {
-		logger.Warning("stop Xray XHTTP sidecar err:", err)
+		logger.Warning("stop embedded Xray XHTTP runtime err:", err)
 	}
 	err = a.configService.StopCore()
 	if err != nil {
@@ -139,9 +152,9 @@ func (a *APP) initLog() {
 	}
 }
 
-func (a *APP) RestartApp() {
+func (a *APP) RestartApp() error {
 	a.Stop()
-	a.Start()
+	return a.Start()
 }
 
 func (a *APP) GetCore() *core.Core {

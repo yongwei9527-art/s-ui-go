@@ -15,27 +15,25 @@ import (
 	"github.com/shirou/gopsutil/v4/net"
 )
 
-func resetSetting() {
+func resetSetting() error {
 	err := database.InitDB(config.GetDBPath())
 	if err != nil {
-		fmt.Println(err)
-		return
+		return err
 	}
 
 	settingService := service.SettingService{}
 	err = settingService.ResetSettings()
 	if err != nil {
-		fmt.Println("重置设置失败：", err)
-	} else {
-		fmt.Println("重置设置成功")
+		return fmt.Errorf("重置设置失败: %w", err)
 	}
+	fmt.Println("重置设置成功")
+	return nil
 }
 
-func updateSetting(port int, path string, subPort int, subPath string) {
+func updateSetting(port int, path string, subPort int, subPath string) error {
 	err := database.InitDB(config.GetDBPath())
 	if err != nil {
-		fmt.Println(err)
-		return
+		return err
 	}
 
 	settingService := service.SettingService{}
@@ -43,48 +41,43 @@ func updateSetting(port int, path string, subPort int, subPath string) {
 	if port > 0 {
 		err := settingService.SetPort(port)
 		if err != nil {
-			fmt.Println("设置面板端口失败：", err)
-		} else {
-			fmt.Println("设置面板端口成功")
+			return fmt.Errorf("设置面板端口失败: %w", err)
 		}
+		fmt.Println("设置面板端口成功")
 	}
 	if path != "" {
 		err := settingService.SetWebPath(path)
 		if err != nil {
-			fmt.Println("设置面板路径失败：", err)
-		} else {
-			fmt.Println("设置面板路径成功")
+			return fmt.Errorf("设置面板路径失败: %w", err)
 		}
+		fmt.Println("设置面板路径成功")
 	}
 	if subPort > 0 {
 		err := settingService.SetSubPort(subPort)
 		if err != nil {
-			fmt.Println("设置订阅端口失败：", err)
-		} else {
-			fmt.Println("设置订阅端口成功")
+			return fmt.Errorf("设置订阅端口失败: %w", err)
 		}
+		fmt.Println("设置订阅端口成功")
 	}
 	if subPath != "" {
 		err := settingService.SetSubPath(subPath)
 		if err != nil {
-			fmt.Println("设置订阅路径失败：", err)
-		} else {
-			fmt.Println("设置订阅路径成功")
+			return fmt.Errorf("设置订阅路径失败: %w", err)
 		}
+		fmt.Println("设置订阅路径成功")
 	}
+	return nil
 }
 
-func showSetting() {
+func showSetting() error {
 	err := database.InitDB(config.GetDBPath())
 	if err != nil {
-		fmt.Println(err)
-		return
+		return err
 	}
 	settingService := service.SettingService{}
 	allSetting, err := settingService.GetAllSetting()
 	if err != nil {
-		fmt.Println("获取当前设置失败：", err)
-		return
+		return fmt.Errorf("获取当前设置失败: %w", err)
 	}
 	fmt.Println("当前面板设置：")
 	fmt.Println("\t面板端口：\t", (*allSetting)["webPort"])
@@ -111,6 +104,7 @@ func showSetting() {
 	if (*allSetting)["subURI"] != "" {
 		fmt.Println("\t订阅 URI：\t", (*allSetting)["subURI"])
 	}
+	return nil
 }
 
 func getPublicIP() string {
@@ -169,11 +163,10 @@ func formatHostForURI(host string) string {
 	return host
 }
 
-func getPanelURI() {
+func getPanelURI() error {
 	err := database.InitDB(config.GetDBPath())
 	if err != nil {
-		fmt.Println(err)
-		return
+		return err
 	}
 	settingService := service.SettingService{}
 	Port, _ := settingService.GetPort()
@@ -198,11 +191,11 @@ func getPanelURI() {
 	}
 	if len(Domain) > 0 {
 		fmt.Println(Proto + formatHostForURI(Domain) + PortText + BasePath)
-		return
+		return nil
 	}
 	if len(Listen) > 0 {
 		fmt.Println(Proto + formatHostForURI(Listen) + PortText + BasePath)
-		return
+		return nil
 	}
 	fmt.Println("本机地址：")
 	netInterfaces, _ := net.Interfaces()
@@ -223,4 +216,5 @@ func getPanelURI() {
 	if pubIP != "" {
 		fmt.Printf("\n公网完整地址：\n%s%s%s\n", Proto, formatHostForURI(pubIP), PortText+BasePath)
 	}
+	return nil
 }

@@ -69,19 +69,20 @@ func (s *ClashService) GetClash(subId string, hostname string) (*string, []strin
 	}
 
 	checks := NewSubscriptionCheckReport()
-	// Clash/Mihomo conversion has no safe XHTTP representation in this
-	// sing-box-based export path; report the compatibility limitation instead
-	// of silently exporting a broken TCP node.
-	xrayLinks, err := (&service.XrayXHTTPService{}).LinksForClient(client.Id, hostname)
-	if err != nil {
-		return nil, nil, err
-	}
-	if len(xrayLinks) > 0 {
-		checks.warn("XHTTP nodes are omitted from Clash/Mihomo subscriptions; use the standard URI subscription with an Xray-compatible client")
-	}
 	outbounds, outTags, err := s.getOutbounds(client.Config, inDatas, checks, hostname)
 	if err != nil {
 		return nil, nil, err
+	}
+
+	xrayOutbounds, err := (&service.XrayXHTTPService{}).SubscriptionOutboundsForClient(client.Id, hostname)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, outbound := range xrayOutbounds {
+		*outbounds = append(*outbounds, outbound)
+		if tag, ok := outbound["tag"].(string); ok && tag != "" {
+			*outTags = append(*outTags, tag)
+		}
 	}
 
 	links := s.LinkService.GetLinks(&client.Links, "external", "")
@@ -149,9 +150,10 @@ func (s *ClashService) convertToClashMeta(outbounds *[]map[string]interface{}, b
 		proxy["type"] = t
 
 		server, _ := obMap["server"].(string)
-		if len(server) > 0 && strings.Contains(server, ":") && !strings.Contains(server, ".") && !(strings.HasPrefix(server, "[") && strings.HasSuffix(server, "]")) {
-			server = "'[" + server + "]'"
-		}
+		// The YAML encoder quotes IPv6 scalars when needed. Do not inject YAML
+		// quotes or RFC 3986 brackets into the value itself: Mihomo expects the
+		// plain host/address string for its server field.
+		server = strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(server), "["), "]")
 		proxy["server"] = server
 
 		proxy["port"] = obMap["server_port"]
@@ -170,6 +172,11 @@ func (s *ClashService) convertToClashMeta(outbounds *[]map[string]interface{}, b
 			if t == "vless" {
 				if flow, ok := obMap["flow"].(string); ok {
 					proxy["flow"] = flow
+				}
+				// UDP is opt-in in Mihomo. Preserve an explicit outbound capability
+				// instead of silently disabling QUIC, DNS, and other UDP traffic.
+				if udp, ok := obMap["udp"].(bool); ok {
+					proxy["udp"] = udp
 				}
 			}
 			if t == "tuic" {
@@ -231,7 +238,9 @@ func (s *ClashService) convertToClashMeta(outbounds *[]map[string]interface{}, b
 				proxy["udp-over-tcp"] = true
 			}
 		default:
-			checks.warnOnce("Clash/Mihomo subscription skipped outbound %q (protocol %q): the target format does not support this protocol; use the sing-box JSON subscription for this node.", tag, t)
+			if checks != nil {
+				checks.warnOnce("Clash/Mihomo subscription skipped outbound %q (protocol %q): the target format does not support this protocol; use the sing-box JSON subscription for this node.", tag, t)
+			}
 			continue
 		}
 
@@ -352,6 +361,16 @@ func (s *ClashService) convertToClashMeta(outbounds *[]map[string]interface{}, b
 					grpcOpts["grpc-service-name"] = service_name
 				}
 				proxy["grpc-opts"] = grpcOpts
+			case "xhttp":
+				proxy["network"] = "xhttp"
+				xhttpOpts := make(map[string]interface{})
+				if path, ok := transport["path"].(string); ok {
+					xhttpOpts["path"] = path
+				}
+				if mode, ok := transport["mode"].(string); ok {
+					xhttpOpts["mode"] = mode
+				}
+				proxy["xhttp-opts"] = xhttpOpts
 			}
 		}
 

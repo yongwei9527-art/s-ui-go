@@ -16,11 +16,11 @@
           <p>{{ $t('main.dashboard.subtitle') }}</p>
         <div class="hero-meta">
           <span>{{ serverSystemVersion }}</span>
-          <span>S-UI v{{ appVersion }}</span>
+          <span>s-ui-go {{ appVersion }}</span>
           <span>{{ $t('main.dashboard.serverIp') }} {{ serverIp }}</span>
         </div>
       </div>
-      <div class="hero-mark" aria-hidden="true">S-UI</div>
+      <div class="hero-mark" aria-hidden="true">s-ui-go</div>
     </section>
 
     <v-row class="stats-row" density="compact">

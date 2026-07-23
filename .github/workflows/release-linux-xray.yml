@@ -1,13 +1,14 @@
-﻿name: Release Linux amd64 with bundled Xray-core
+name: Release s-ui-go 0.1 Linux amd64 with embedded Xray-core
 
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: New release tag (must not already exist)
+        description: New s-ui-go tag (must not already exist)
         required: true
-        default: v1.4.2.3-r2
+        default: s-ui-go-v0.1.0
 
+# The release step needs to create a tag/release and upload exactly the verified assets below.
 permissions:
   contents: write
 
@@ -16,74 +17,241 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out selected revision
-        uses: actions/checkout@v4
+        # actions/checkout v7.0.1, resolved from GitHub's official tag API on 2026-07-23.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        # actions/setup-go v7.0.0, resolved from GitHub's official tag API on 2026-07-23.
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version-file: go.mod
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        # actions/setup-node v7.0.0, resolved from GitHub's official tag API on 2026-07-23.
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Build frontend
-        working-directory: frontend
-        run: |
-          npm ci
-          npm run build
-
-      - name: Fetch and verify pinned Xray-core
+      - name: Verify release tag is new and uses the s-ui-go namespace
+        env:
+          TAG: ${{ inputs.tag }}
         shell: bash
         run: |
           set -euo pipefail
-          readonly XRAY_VERSION='v26.3.27'
-          readonly XRAY_ASSET='Xray-linux-64.zip'
-          readonly XRAY_SHA256='23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae'
-          readonly XRAY_DIR='release-assets/xray-core-v26.3.27-linux-amd64'
-          mkdir -p "$XRAY_DIR"
-          curl --fail --location --proto '=https' --tlsv1.2 --retry 3 \
-            --output "$XRAY_DIR/$XRAY_ASSET" \
-            "https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/${XRAY_ASSET}"
-          printf '%s  %s\n' "$XRAY_SHA256" "$XRAY_DIR/$XRAY_ASSET" | sha256sum --check --strict -
-          unzip -qq "$XRAY_DIR/$XRAY_ASSET" xray -d "$XRAY_DIR"
-          chmod 0755 "$XRAY_DIR/xray"
+          if [[ ! "$TAG" =~ ^s-ui-go-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo 'Release tag must be exactly s-ui-go-vX.Y.Z (for example s-ui-go-v0.1.0).' >&2
+            exit 1
+          fi
+          existing_ref="$(git ls-remote --tags --refs origin "refs/tags/$TAG")"
+          if [[ -n "$existing_ref" ]]; then
+            echo "Tag $TAG already exists; choose a new tag." >&2
+            exit 1
+          fi
+
+      # A clean checkout must generate frontend/dist before Go compiles its embedded assets.
+      - name: Install, lint, and build frontend from the lockfile
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist
+          npm ci
+          npm run lint
+          npm run build
+          test -f dist/index.html
+
+      - name: Verify shell installers
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n install.sh install-linux.sh uninstall-linux.sh s-ui.sh
+
+      - name: Test embedded cores and backend after frontend build
+        env:
+          CGO_ENABLED: "0"
+          GOFLAGS: -mod=readonly
+        shell: bash
+        run: |
+          set -euo pipefail
+          go mod verify
+          go test ./... -count=1 -timeout=15m
+          go vet ./...
+          production_tags='with_quic,with_grpc,with_utls,with_acme,with_gvisor,with_tailscale,with_naive_outbound,with_purego'
+          go test -tags "$production_tags" ./... -run '^$' -count=1 -timeout=15m
+          go test -tags "$production_tags" ./internal/xrayruntime \
+            -run '^TestSingBoxAndEmbeddedXrayOperateTogether$' \
+            -count=1 -timeout=3m
 
       - name: Build Linux amd64 package
+        env:
+          GOFLAGS: -mod=readonly
         shell: pwsh
         run: |
-          ./build-windows.ps1 -System linux -Architecture amd64 -NoCGO -SkipFrontend -Package -BundleXrayCore -NonInteractive
+          ./build-windows.ps1 -System linux -Architecture amd64 -NoCGO -SkipFrontend -Package -NonInteractive
 
-      - name: Verify release archive
+      - name: Prepare verified bootstrap installer asset
         shell: bash
         run: |
           set -euo pipefail
-          unzip -t dist/s-ui-linux-amd64.zip
-          unzip -l dist/s-ui-linux-amd64.zip | grep -E '(^|[[:space:]])xray$'
-          unzip -l dist/s-ui-linux-amd64.zip | grep -F 'XRAY-CORE-NOTICE.md'
-          sha256sum dist/s-ui-linux-amd64.zip
+          rm -f dist/install.sh dist/install.sh.sha256
+          install -m 0755 install.sh dist/install.sh
+          (
+            cd dist
+            sha256sum install.sh > install.sh.sha256
+            sha256sum --strict --check install.sh.sha256
+          )
+          cmp -- install.sh dist/install.sh
 
-      - name: Publish new prerelease without overwriting prior releases
+      - name: Verify release archive and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive='dist/s-ui-linux-amd64.zip'
+          sidecar='dist/s-ui-linux-amd64.zip.sha256'
+          test -f "$archive"
+          test -f "$sidecar"
+          unzip -t "$archive"
+
+          ARCHIVE="$archive" python3 - <<'PY'
+          import os
+          import re
+          import stat
+          import sys
+          import zipfile
+
+          archive = os.environ["ARCHIVE"]
+          required = {
+              "sui",
+              "install.sh",
+              "install-linux.sh",
+              "uninstall-linux.sh",
+              "s-ui.sh",
+              "README.md",
+              "PROTOCOL_GUIDE.md",
+              "RELEASE_NOTES.md",
+              "XRAY-CORE-NOTICE.md",
+          }
+          errors = []
+          with zipfile.ZipFile(archive) as bundle:
+              infos = bundle.infolist()
+              files = []
+              for info in infos:
+                  name = info.filename
+                  if "\x00" in name or name.startswith(("/", "\\")) or "\\" in name:
+                      errors.append(f"unsafe archive path: {name!r}")
+                      continue
+                  if re.match(r"^[A-Za-z]:", name) or any(part == ".." for part in name.split("/")):
+                      errors.append(f"unsafe archive path: {name!r}")
+                      continue
+                  if info.flag_bits & 0x1:
+                      errors.append(f"encrypted archive entry is not allowed: {name!r}")
+                      continue
+                  if info.compress_type not in {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}:
+                      errors.append(f"unsupported compression method: {name!r}")
+                      continue
+                  if info.is_dir():
+                      errors.append(f"directory entries are not allowed: {name!r}")
+                      continue
+                  mode = info.external_attr >> 16
+                  if stat.S_ISLNK(mode):
+                      errors.append(f"symbolic-link entry is not allowed: {name!r}")
+                      continue
+                  if info.create_system == 3 and mode and not stat.S_ISREG(mode):
+                      errors.append(f"special filesystem entry is not allowed: {name!r}")
+                      continue
+                  files.append(name)
+
+          if len(files) != len(set(files)):
+              errors.append("duplicate file entries found in archive")
+          names = set(files)
+          missing = sorted(required - names)
+          unexpected = sorted(names - required)
+          unexpected_required_paths = sorted(name for name in required if files.count(name) != 1)
+          if missing:
+              errors.append("missing required files: " + ", ".join(missing))
+          if unexpected:
+              errors.append("unexpected files in Linux release archive: " + ", ".join(unexpected))
+          if unexpected_required_paths:
+              errors.append("required files are not unique: " + ", ".join(unexpected_required_paths))
+          forbidden_basenames = {"xray", "xray.exe", "sui.exe", "sui-linux-amd64", "sui-linux-amd64.exe"}
+          forbidden = sorted(name for name in files if name.rsplit("/", 1)[-1].lower() in forbidden_basenames)
+          if forbidden:
+              errors.append("forbidden standalone or duplicate executable entries: " + ", ".join(forbidden))
+          if "s-ui.service" in names:
+              errors.append("static s-ui.service must not be shipped; install-linux.sh owns the installation-specific unit")
+          if errors:
+              print("\n".join(errors), file=sys.stderr)
+              sys.exit(1)
+          print("archive has exactly the expected files; structure and path safety verified")
+          PY
+
+          cmp -- install.sh <(unzip -p "$archive" install.sh)
+          tmp_sui="$(mktemp)"
+          trap 'rm -f "$tmp_sui"' EXIT
+          unzip -p "$archive" sui > "$tmp_sui"
+          test -s "$tmp_sui"
+          application_module="$(go list -m -f '{{.Path}}')"
+          xray_module="$(go list -m -f '{{.Path}} {{.Version}}' github.com/xtls/xray-core)"
+          xray_module_path="${xray_module%% *}"
+          xray_module_version="${xray_module#* }"
+          test -n "$xray_module_path"
+          test -n "$xray_module_version"
+          module_metadata="$(go version -m "$tmp_sui")"
+          product_module_line="$(printf '%s\n' "$module_metadata" | grep -F $'mod\t'"$application_module"$'\t')"
+          test -n "$product_module_line"
+          if [[ "$product_module_line" == *$'\tv1.4'* || "$product_module_line" == *$'\t1.4'* ]]; then
+            echo "refusing legacy 1.4 product metadata: $product_module_line" >&2
+            exit 1
+          fi
+          expected_xray_module_line=$'dep\t'"$xray_module_path"$'\t'"$xray_module_version"$'\t'
+          printf '%s\n' "$module_metadata" | grep -F $'path\t'"$application_module"
+          printf '%s\n' "$module_metadata" | grep -F "$expected_xray_module_line"
+
+          (
+            cd dist
+            test "$(wc -l < s-ui-linux-amd64.zip.sha256)" -eq 1
+            read -r digest filename extra < s-ui-linux-amd64.zip.sha256
+            test -z "${extra:-}"
+            test "$filename" = 's-ui-linux-amd64.zip'
+            [[ "$digest" =~ ^[0-9a-fA-F]{64}$ ]]
+            sha256sum --strict --check s-ui-linux-amd64.zip.sha256
+
+            test "$(wc -l < install.sh.sha256)" -eq 1
+            read -r bootstrap_digest bootstrap_filename bootstrap_extra < install.sh.sha256
+            test -z "${bootstrap_extra:-}"
+            test "$bootstrap_filename" = 'install.sh'
+            [[ "$bootstrap_digest" =~ ^[0-9a-fA-F]{64}$ ]]
+            sha256sum --strict --check install.sh.sha256
+          )
+
+      - name: Publish immutable s-ui-go 0.1 prerelease
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
         shell: bash
         run: |
           set -euo pipefail
-          cat > release-notes.md <<'EOF'
-          ## Linux amd64 Xray-core 包含版
+          xray_module_version="$(go list -m -f '{{.Version}}' github.com/xtls/xray-core)"
+          cat > release-notes.md <<EOF
+          ## s-ui-go 0.1 - Linux amd64
 
-          - S-UI 的 XHTTP / Reality sidecar 随包提供已校验的官方 Xray-core `v26.3.27`。
-          - 上游资产：`Xray-linux-64.zip`；SHA-256：`23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae`。
-          - 安装后核心位于 `/opt/s-ui/xray`，并由 systemd 的 `SUI_XRAY_BINARY` 使用。
-          - 仅支持 Linux `x86_64` VPS；ARM64 需使用对应核心资产重新构建。
-          - 手机端请使用支持 VLESS + Reality + XHTTP 的 Xray 客户端和标准 URI 订阅；JSON、Clash/Mihomo 订阅会省略 XHTTP 节点。
+          - This release intentionally publishes **Linux amd64 only**; it does not claim support for other architectures.
+          - Xray-core is compiled from the pinned Go module into \`sui\` (\`${xray_module_version}\`); there is no standalone \`xray\` executable in the ZIP.
+          - The ZIP includes \`sui\`, \`install.sh\`, \`install-linux.sh\`, \`uninstall-linux.sh\`, \`s-ui.sh\`, and the required release/protocol/notices documents.
+          - \`s-ui.service\` is deliberately excluded: \`install-linux.sh\` installs the unit for the selected installation path, avoiding a misleading static unit.
+          - Verify \`s-ui-linux-amd64.zip\` with \`s-ui-linux-amd64.zip.sha256\`. The sidecar contains the relative basename only.
+          - The bootstrap is published as \`install.sh\` plus \`install.sh.sha256\`; verify that pair before using the immutable release asset.
           EOF
-          gh release create "$TAG" dist/s-ui-linux-amd64.zip \
+          gh release create "$TAG" \
+            dist/s-ui-linux-amd64.zip \
+            dist/s-ui-linux-amd64.zip.sha256 \
+            dist/install.sh \
+            dist/install.sh.sha256 \
             --target "$GITHUB_SHA" \
-            --title "$TAG" \
+            --title 's-ui-go 0.1 (Linux amd64)' \
             --prerelease \
             --notes-file release-notes.md
