@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -69,9 +70,9 @@ func seedDefaultTlsAndInbounds() error {
 		if err := seedDefaultClient(tx, inbounds, seedHost); err != nil {
 			return err
 		}
-		// The Xray sidecar is optional and no binary is bundled by the installer.
-		// Create safe, disabled Reality templates for a genuinely new database,
-		// but never start a sidecar or expose a new listener automatically.
+		// A packaged Linux installation explicitly opts in to a ready-to-use
+		// Xray Reality presets. Other bootstrap paths keep the Xray templates
+		// as safe drafts until an administrator enables one.
 		return seedDefaultXrayRealityTemplates(tx, inbounds)
 	})
 }
@@ -588,11 +589,12 @@ func seedDefaultClient(tx *gorm.DB, inbounds []model.Inbound, seedHost string) e
 	return tx.Create(&client).Error
 }
 
-// seedDefaultXrayRealityTemplates creates discoverable Xray sidecar drafts only
-// during the same first-boot transaction that creates the sing-box templates.
-// They remain disabled because Xray is an optional external binary and opening a
-// port without an explicit administrator decision would be unsafe.
+// seedDefaultXrayRealityTemplates creates Xray sidecar templates during the same
+// first-boot transaction that creates the sing-box templates. The packaged Linux
+// installer explicitly opts in to both Reality presets only after it has verified
+// their ports and target, so a fresh installation starts with usable Xray endpoints.
 func seedDefaultXrayRealityTemplates(tx *gorm.DB, singBoxInbounds []model.Inbound) error {
+	autoEnable := autoEnableDefaultXrayReality()
 	var client model.Client
 	if err := tx.Where("name = ?", defaultTemplateClientName).First(&client).Error; err != nil {
 		// A partially populated legacy database can have no TLS/inbounds yet
@@ -624,7 +626,7 @@ func seedDefaultXrayRealityTemplates(tx *gorm.DB, singBoxInbounds []model.Inboun
 			return err
 		}
 		inbound := model.XrayXHTTPInbound{
-			Enable:      false,
+			Enable:      autoEnable,
 			Tag:         inboundTag("xray-vless-reality-"+template.transport, port),
 			Listen:      "0.0.0.0",
 			Port:        uint16(port),
@@ -651,6 +653,15 @@ func seedDefaultXrayRealityTemplates(tx *gorm.DB, singBoxInbounds []model.Inboun
 		}
 	}
 	return nil
+}
+
+// autoEnableDefaultXrayReality is intentionally opt-in. A raw binary or a
+// Docker/custom deployment may not include Xray-core or may be behind a firewall
+// policy that forbids opening public listeners. install-linux.sh sets this only
+// after it has installed the bundled Xray binary and checked all default ports.
+func autoEnableDefaultXrayReality() bool {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv("SUI_AUTOCONFIGURE_XRAY_REALITY")))
+	return value == "1" || value == "true" || value == "yes"
 }
 
 // availableSeedXrayTCPPort accounts for TCP ports already selected by the

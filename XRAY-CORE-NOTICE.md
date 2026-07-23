@@ -1,6 +1,6 @@
 ﻿# Bundled Xray-core notice
 
-The Linux amd64 release package may include the `xray` executable from
+The Linux amd64 release package includes the `xray` executable from
 [XTLS/Xray-core](https://github.com/XTLS/Xray-core).
 
 - Upstream version: `v26.3.27`

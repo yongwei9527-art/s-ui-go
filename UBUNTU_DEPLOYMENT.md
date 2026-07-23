@@ -305,16 +305,24 @@ curl -fsSI https://sub.example.com/sub/<your-subscription-id>
 - [ ] 有公网分发需求时使用已验证域名和可信 TLS；
 - [ ] 已执行 SQLite `.backup`，并对备份运行 `PRAGMA integrity_check`；
 - [ ] 已保存可用的 SSH 登录路径和离线备份，避免因反代或防火墙改动失去管理能力。
-## 9. 可选：Xray Reality sidecar 模板（默认禁用）
+## 9. 首装自动配置：Xray Reality sidecar
 
-S-UI 的主核心仍是 sing-box。首次创建全新数据库时，系统会额外创建两个 **禁用状态** 的 Xray Reality 模板：
+S-UI 的主核心仍是 sing-box。**使用包含 Xray 的 Linux amd64 安装包进行全新安装**时，安装器会执行以下自动配置：
 
-| 模板 | 传输 | 候选端口 | 首次启用 |
+1. 校验默认 Reality 目标 `go.microsoft.com:443` 的 DNS/TLS 可达性；
+2. 确认 `443/tcp`、`10443/tcp` 与 `2088/tcp` 均未被占用；
+3. 创建并自动启用 `xray-vless-reality-tcp-*`（VLESS + Reality + TCP + XTLS Vision）和 `xray-vless-reality-xhttp-*`（VLESS + Reality + XHTTP）；
+4. systemd 启动后确认 sing-box 与 Xray 分别已监听 `443/tcp`、`10443/tcp`、`2088/tcp`；
+5. 若 UFW 已处于活动状态，仅添加这三个 TCP 端口的放行规则；不会启用 UFW、改变默认策略或修改 SSH 规则。若规则写入失败，安装会以错误结束，避免输出“已可用”的假阳性结果。
+
+| 模板 | 传输 | 候选端口 | 全新核心包首次状态 |
 |---|---|---:|---:|
-| `xray-vless-reality-tcp-*` | VLESS + Reality + TCP + XTLS Vision | `10443/tcp` | 否 |
-| `xray-vless-reality-xhttp-*` | VLESS + Reality + XHTTP | `2088/tcp`（如与默认 TCP 入站冲突则自动顺延） | 否 |
+| `xray-vless-reality-tcp-*` | VLESS + Reality + TCP + XTLS Vision | `10443/tcp` | 自动启用 |
+| `xray-vless-reality-xhttp-*` | VLESS + Reality + XHTTP | `2088/tcp` | 自动启用 |
 
-这两个模板不会自动启动 Xray、不会自动放行 UFW/云防火墙，也不会占用现有 sing-box 的 `443/tcp` VLESS Reality 入站。禁用是有意的：Xray 是可选外部二进制，首次安装时不应因为缺少二进制、端口冲突或未经确认的公网暴露而让服务进入不可用状态。
+这样可直接使用 sing-box 的 `443/tcp` VLESS Reality、Xray 的 `10443/tcp` TCP Vision 与 `2088/tcp` XHTTP。XHTTP 必须使用支持 `type=xhttp` 的近期客户端；不支持时可直接使用同批自动生成的 TCP Vision 节点。如果目标验证失败、任一默认端口已被占用、安装包不含 Xray，或不是全新数据库，安装器不会强行暴露 Xray 端口，而是保留模板供管理员手动处理。
+
+> 云安全组/厂商防火墙不在 VPS 的控制范围内，安装器不能自动修改。部署完成后仍须在云平台放行 `443/tcp`、`10443/tcp` 与 `2088/tcp`；安装输出会明确提示这一项。
 
 > 当前 sidecar 仅实现上述两种 **VLESS + Reality** 组合；它不是通用 Xray 协议管理器。VMess、Trojan、Shadowsocks、gRPC、WS/TLS 等不作为 Xray 首装默认项。它们会引入可信证书/域名、客户端兼容性或重复端口的额外要求。
 
@@ -381,16 +389,19 @@ sudo systemctl status s-ui --no-pager
 
 如使用不包含 `xray` 的包，按上一节的固定版本、下载校验与绝对路径配置流程安装核心。
 
-### 9.2 显式启用、验证与放行
+### 9.2 验证与客户端兼容性
 
-在面板的 Xray 页面中确认 Reality `serverName`、`dest`、私钥/公钥、16 位十六进制 short ID、客户端关联和未冲突的监听端口后，才启用一个模板。TCP Vision 的订阅链接使用 `type=tcp&flow=xtls-rprx-vision`；XHTTP 使用 `type=xhttp` 和 path/mode。两类节点请使用支持对应 Xray 传输的客户端及**标准 URI 订阅**；JSON / Clash / Mihomo 订阅不会伪造输出 XHTTP 节点。
+首装自动配置的 TCP Vision 订阅链接使用 `type=tcp&flow=xtls-rprx-vision`；XHTTP 链接使用 `type=xhttp` 及默认的 `path=/xhttp`、`mode=auto`。两者都应通过**标准 URI 订阅**导入。仅将 XHTTP 节点导入支持 `type=xhttp` 的近期客户端；不兼容的客户端请使用 TCP Vision 节点。JSON / Clash / Mihomo 订阅不会伪造输出 sidecar Xray 节点，应使用标准 URI 订阅。
 
-只有确认要对外服务后，才同步在 UFW 和云安全组放行该模板端口，例如：
+验证三个默认 Reality 入站是否已经可用：
 
 ```bash
-sudo ufw allow 10443/tcp    # 或实际启用的 XHTTP 端口
-sudo ss -ltnp | grep -E ':(10443|2088)\b'
+sudo ss -ltnp | grep -E ':(443|10443|2088)\b'
+sudo /opt/s-ui/xray version
+sudo systemctl status s-ui --no-pager
 sudo journalctl -u s-ui -n 100 --no-pager
 ```
+
+更改 Reality 目标或端口前，在面板的 Xray 页面中确认 `serverName`、`dest`、私钥/公钥、16 位十六进制 short ID、客户端关联和未冲突的监听端口。新增端口时，还应同步在 UFW 和云安全组放行该实际端口。
 
 不要放行管理面板/订阅的 `2095`、`2096`。Reality 私钥会保存在 S-UI 数据库和受限权限的 sidecar 配置中；数据库备份必须按敏感凭据保护。若私钥泄露，应重新生成私钥、公钥与 short ID，并向客户端更新订阅。

@@ -10,6 +10,7 @@ import (
 )
 
 func TestSeedDefaultXrayRealityTemplatesCreatesDisabledDrafts(t *testing.T) {
+	t.Setenv("SUI_AUTOCONFIGURE_XRAY_REALITY", "")
 	testDB, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open in-memory database: %v", err)
@@ -79,6 +80,57 @@ func TestSeedDefaultXrayRealityTemplatesCreatesDisabledDrafts(t *testing.T) {
 		}
 		if !assignment.Enable || assignment.UUID == "" {
 			t.Fatalf("invalid %s client assignment: %#v", transport, assignment)
+		}
+	}
+}
+
+func TestSeedDefaultXrayRealityTemplatesAutoEnablesAll(t *testing.T) {
+	t.Setenv("SUI_AUTOCONFIGURE_XRAY_REALITY", "true")
+	testDB, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open in-memory database: %v", err)
+	}
+	if err := testDB.AutoMigrate(&model.Tls{}, &model.Inbound{}, &model.Client{}, &model.XrayXHTTPInbound{}, &model.XrayXHTTPClient{}); err != nil {
+		t.Fatalf("migrate models: %v", err)
+	}
+	tlsTemplates, err := seedDefaultTlsTemplates(testDB)
+	if err != nil {
+		t.Fatalf("seed TLS templates: %v", err)
+	}
+	singBoxInbounds, err := seedDefaultInbounds(testDB, tlsTemplates, "127.0.0.1")
+	if err != nil {
+		t.Fatalf("seed sing-box inbounds: %v", err)
+	}
+	if err := seedDefaultClient(testDB, singBoxInbounds, "127.0.0.1"); err != nil {
+		t.Fatalf("seed default client: %v", err)
+	}
+	if err := seedDefaultXrayRealityTemplates(testDB, singBoxInbounds); err != nil {
+		t.Fatalf("seed Xray templates: %v", err)
+	}
+
+	var inbounds []model.XrayXHTTPInbound
+	if err := testDB.Order("id").Find(&inbounds).Error; err != nil {
+		t.Fatalf("load Xray templates: %v", err)
+	}
+	if len(inbounds) != 2 {
+		t.Fatalf("Xray template count = %d, want 2", len(inbounds))
+	}
+	for _, inbound := range inbounds {
+		if !inbound.Enable {
+			t.Fatalf("template %q enabled = false, want true", inbound.Tag)
+		}
+	}
+}
+
+func TestAutoEnableDefaultXrayReality(t *testing.T) {
+	t.Setenv("SUI_AUTOCONFIGURE_XRAY_REALITY", "")
+	if autoEnableDefaultXrayReality() {
+		t.Fatal("empty opt-in environment must keep the default Xray template disabled")
+	}
+	for _, value := range []string{"1", "true", "YES"} {
+		t.Setenv("SUI_AUTOCONFIGURE_XRAY_REALITY", value)
+		if !autoEnableDefaultXrayReality() {
+			t.Fatalf("opt-in value %q was not accepted", value)
 		}
 	}
 }

@@ -91,6 +91,13 @@ func (a *APP) Start() error {
 		logger.Error(err)
 	}
 	if err = a.xrayXHTTPService.StartIfEnabled(); err != nil {
+		// install-linux.sh sets this only after a fresh packaged installation
+		// has verified the bundled core, Reality target, and listener ports.
+		// Do not let systemd report a healthy panel while the promised default
+		// Xray endpoints are unavailable.
+		if os.Getenv("SUI_AUTOCONFIGURE_XRAY_REALITY") == "1" {
+			return fmt.Errorf("start auto-configured Xray Reality sidecar: %w", err)
+		}
 		logger.Warning("Xray XHTTP sidecar was not started: ", err)
 	}
 

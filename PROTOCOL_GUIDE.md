@@ -4,7 +4,7 @@
 
 > 快速建议：无域名自建 VPS 可优先评估 `VLESS + Reality + TCP`；CDN 场景可评估 `VLESS/Trojan + TLS + WebSocket`；弱网和 UDP 场景可评估 `Hysteria2/TUIC`；本地代理入口使用 `Mixed`；桌面全局代理使用 `Tun`；软路由或网关透明代理使用 `TProxy`。
 
-> 全新安装提示：S-UI 首次初始化会自动生成 VLESS Reality、Hysteria2、TUIC、Trojan TLS、VMess WS TLS、Shadowsocks 2022、Naive TLS、AnyTLS、Hysteria TLS 默认入站、对应 TLS/Reality 模板和 `default-user` 客户端。导出链接地址会在 VPS 初始化时自动检测，不会写死截图中的 IP。Hysteria/Hysteria2/TUIC 使用 UDP，必须在 VPS 系统防火墙和云安全组放行对应 UDP 端口；默认自签 TLS 模板为了快速可用会在客户端侧启用 `insecure`，正式使用建议替换为真实域名证书或 ACME。Mixed/SOCKS/HTTP 更适合作为本地代理入口，默认不公网创建，避免开放代理风险。
+> 全新安装提示：S-UI 首次初始化会自动生成 VLESS Reality、Hysteria2、TUIC、Trojan TLS、VMess WS TLS、Shadowsocks 2022、Naive TLS、AnyTLS、Hysteria TLS 默认入站、对应 TLS/Reality 模板和 `default-user` 客户端。使用包含 Xray 的 Linux amd64 核心包全新安装时，安装器会校验 Reality 目标、`443/tcp`、`10443/tcp` 与 `2088/tcp`，自动启用 **Xray VLESS Reality TCP Vision** 和 **Xray VLESS Reality XHTTP**；若 UFW 已启用，会仅增加这三个 TCP 端口规则。XHTTP 应通过标准 URI 订阅导入支持 `type=xhttp` 的近期客户端；不支持时请使用自动生成的 TCP Vision 节点。云安全组无法在 VPS 内自动修改，仍需在云平台放行 `443/tcp`、`10443/tcp` 与 `2088/tcp`。Hysteria/Hysteria2/TUIC 使用 UDP，必须在 VPS 系统防火墙和云安全组放行对应 UDP 端口；默认自签 TLS 模板为了快速可用会在客户端侧启用 `insecure`，正式使用建议替换为真实域名证书或 ACME。Mixed/SOCKS/HTTP 更适合作为本地代理入口，默认不公网创建，避免开放代理风险。
 
 ## 0. 按场景配置协议组合
 

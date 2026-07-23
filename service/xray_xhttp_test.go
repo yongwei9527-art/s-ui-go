@@ -6,8 +6,79 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yongwei9527-art/s-ui-go/config"
+	"github.com/yongwei9527-art/s-ui-go/database"
 	"github.com/yongwei9527-art/s-ui-go/database/model"
 )
+
+// TestFreshInstallAutoEnabledXrayRealityTemplates exercises the same database
+// initialization path used by install-linux.sh after it exports
+// SUI_AUTOCONFIGURE_XRAY_REALITY. It protects the ready-to-use package promise:
+// both Xray Reality transports must be enabled, renderable, and subscribable.
+func TestFreshInstallAutoEnabledXrayRealityTemplates(t *testing.T) {
+	t.Setenv("SUI_DB_FOLDER", t.TempDir())
+	t.Setenv("SUI_AUTOCONFIGURE_XRAY_REALITY", "1")
+	t.Setenv("SUI_INITIAL_ADMIN_PASSWORD", "test-only-initial-password")
+	if err := database.InitDB(config.GetDBPath()); err != nil {
+		t.Fatalf("initialize fresh database: %v", err)
+	}
+	t.Cleanup(func() {
+		if sqlDB, err := database.GetDB().DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+
+	var inbounds []model.XrayXHTTPInbound
+	if err := database.GetDB().Order("id").Find(&inbounds).Error; err != nil {
+		t.Fatalf("load seeded Xray inbounds: %v", err)
+	}
+	if len(inbounds) != 2 {
+		t.Fatalf("seeded Xray inbound count = %d, want 2", len(inbounds))
+	}
+	seen := map[string]bool{}
+	for _, inbound := range inbounds {
+		if !inbound.Enable {
+			t.Fatalf("seeded %s inbound %q is disabled", inbound.Transport, inbound.Tag)
+		}
+		seen[inbound.Transport] = true
+	}
+	if !seen["tcp"] || !seen["xhttp"] {
+		t.Fatalf("seeded transports = %#v, want tcp and xhttp", seen)
+	}
+
+	sidecar := XrayXHTTPService{}
+	generated, enabled, err := sidecar.BuildConfig()
+	if err != nil {
+		t.Fatalf("build seeded Xray config: %v", err)
+	}
+	if !enabled {
+		t.Fatal("seeded Xray config is not enabled")
+	}
+	text := string(generated)
+	for _, want := range []string{`"network": "tcp"`, `"network": "xhttp"`, `"flow": "xtls-rprx-vision"`, `"path": "/xhttp"`, `"mode": "auto"`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("seeded Xray config is missing %s: %s", want, text)
+		}
+	}
+
+	var client model.Client
+	if err := database.GetDB().Where("name = ?", "default-user").First(&client).Error; err != nil {
+		t.Fatalf("load default client: %v", err)
+	}
+	links, err := sidecar.LinksForClient(client.Id, "203.0.113.10")
+	if err != nil {
+		t.Fatalf("create default client links: %v", err)
+	}
+	if len(links) != 2 {
+		t.Fatalf("default client Xray link count = %d, want 2", len(links))
+	}
+	joined := strings.Join(links, "\n")
+	for _, want := range []string{"type=tcp", "flow=xtls-rprx-vision", "type=xhttp", "path=%2Fxhttp", "mode=auto"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("default client links are missing %q: %s", want, joined)
+		}
+	}
+}
 
 func TestXrayXHTTPConfigShape(t *testing.T) {
 	inbound := model.XrayXHTTPInbound{

@@ -8,6 +8,10 @@ PANEL_PORT="2095"
 PANEL_PATH="/app/"
 SUB_PORT="2096"
 SUB_PATH="/sub/"
+DEFAULT_SING_REALITY_PORT="443"
+DEFAULT_XRAY_REALITY_PORT="10443"
+DEFAULT_XRAY_XHTTP_PORT="2088"
+DEFAULT_REALITY_TARGET_HOST="go.microsoft.com"
 
 script_args=()
 while [[ $# -gt 0 ]]; do
@@ -163,6 +167,57 @@ run_sui_optional() {
   if [[ -n "$output" ]]; then printf '%s\n' "$output"; fi
 }
 
+# A fresh packaged installation can be made immediately usable without
+# enabling a firewall globally or changing an existing firewall policy.
+# Cloud security groups cannot be inspected or changed from inside the VPS.
+port_is_available() {
+  local port="$1"
+  if command -v ss >/dev/null 2>&1; then
+    ! ss -H -ltn "sport = :$port" 2>/dev/null | grep -q .
+    return
+  fi
+  # ss is part of iproute2 on supported distributions. Without it, leave the
+  # authoritative listener check to the core at startup instead of guessing.
+  return 0
+}
+
+reality_target_is_usable() {
+  local host="$1"
+  if ! command -v openssl >/dev/null 2>&1; then
+    say '未找到 openssl，无法自动验证 Reality 目标；Xray 模板将保持手动启用。\n' 'openssl was not found, so the Reality target cannot be verified automatically. The Xray templates will remain manual.\n'
+    return 1
+  fi
+  timeout 12 openssl s_client -connect "$host:443" -servername "$host" -verify_return_error </dev/null 2>/dev/null | grep -q 'Verify return code: 0 (ok)'
+}
+
+configure_active_ufw() {
+  local port
+  if ! command -v ufw >/dev/null 2>&1; then
+    return 0
+  fi
+  if ! ufw status 2>/dev/null | grep -q '^Status: active'; then
+    return 0
+  fi
+  for port in "$DEFAULT_SING_REALITY_PORT" "$DEFAULT_XRAY_REALITY_PORT" "$DEFAULT_XRAY_XHTTP_PORT"; do
+    if ! ufw allow "$port/tcp" comment 'S-UI Reality' >/dev/null; then
+      say '警告：无法在 UFW 中添加 TCP %s 放行规则。\n' 'Warning: could not add the UFW allow rule for TCP %s.\n' "$port"
+      return 1
+    fi
+  done
+  say '已在活动 UFW 中放行 sing-box Reality TCP %s 及 Xray Reality TCP/XHTTP %s/%s。\n' 'Allowed sing-box Reality TCP %s and Xray Reality TCP/XHTTP %s/%s in active UFW.\n' "$DEFAULT_SING_REALITY_PORT" "$DEFAULT_XRAY_REALITY_PORT" "$DEFAULT_XRAY_XHTTP_PORT"
+}
+
+wait_for_tcp_listener() {
+  local port="$1" attempt
+  for attempt in 1 2 3 4 5; do
+    if command -v ss >/dev/null 2>&1 && ss -H -ltn "sport = :$port" 2>/dev/null | grep -q .; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
 select_install_language
 
 printf '========================================\n'
@@ -187,6 +242,10 @@ say '安装目录，默认 %s：' 'Installation directory, default %s: ' "$INSTA
 read -r input_install_dir
 if [ -n "$input_install_dir" ]; then INSTALL_DIR="$input_install_dir"; fi
 CONFIG_FILE="$INSTALL_DIR/s-ui.env"
+FRESH_INSTALL=0
+if [ ! -f "$INSTALL_DIR/db/s-ui.db" ]; then
+  FRESH_INSTALL=1
+fi
 
 say '面板端口，默认 %s：' 'Panel port, default %s: ' "$PANEL_PORT"
 read -r input_panel_port
@@ -246,6 +305,23 @@ if [ -f "xray" ]; then
   say 'Xray-core 已安装：%s\n' 'Xray-core installed: %s\n' "$XRAY_BINARY"
 fi
 
+XRAY_AUTOCONFIGURED=0
+if [ "$FRESH_INSTALL" -eq 1 ] && [ -n "$XRAY_BINARY" ]; then
+  if ! port_is_available "$DEFAULT_SING_REALITY_PORT"; then
+    say '警告：TCP %s 已被占用，无法创建可直接使用的双核心 Reality 默认配置；Xray 模板将保持手动启用。\n' 'Warning: TCP %s is already occupied, so the ready-to-use dual-core Reality defaults cannot be created; the Xray templates will remain manual.\n' "$DEFAULT_SING_REALITY_PORT"
+  elif ! port_is_available "$DEFAULT_XRAY_REALITY_PORT"; then
+    say '警告：TCP %s 已被占用，无法创建可直接使用的 Xray Reality 默认入站；模板将保持手动启用。\n' 'Warning: TCP %s is already occupied, so the ready-to-use Xray Reality inbounds cannot be created; the templates will remain manual.\n' "$DEFAULT_XRAY_REALITY_PORT"
+  elif ! port_is_available "$DEFAULT_XRAY_XHTTP_PORT"; then
+    say '警告：TCP %s 已被占用，无法创建可直接使用的 Xray Reality XHTTP 入站；模板将保持手动启用。\n' 'Warning: TCP %s is already occupied, so the ready-to-use Xray Reality XHTTP inbound cannot be created; the templates will remain manual.\n' "$DEFAULT_XRAY_XHTTP_PORT"
+  elif ! reality_target_is_usable "$DEFAULT_REALITY_TARGET_HOST"; then
+    say '警告：Reality 目标 %s:443 验证失败；模板将保持手动启用。\n' 'Warning: Reality target %s:443 verification failed; the templates will remain manual.\n' "$DEFAULT_REALITY_TARGET_HOST"
+  else
+    XRAY_AUTOCONFIGURED=1
+    export SUI_AUTOCONFIGURE_XRAY_REALITY=1
+    say 'Reality 目标 %s:443 已验证；Xray VLESS Reality TCP Vision 与 XHTTP 将自动启用。\n' 'Reality target %s:443 verified; Xray VLESS Reality TCP Vision and XHTTP will be enabled automatically.\n' "$DEFAULT_REALITY_TARGET_HOST"
+  fi
+fi
+
 if [ -f "README.md" ]; then cp -f "README.md" "$INSTALL_DIR/README.md"; fi
 if [ -f "PROTOCOL_GUIDE.md" ]; then cp -f "PROTOCOL_GUIDE.md" "$INSTALL_DIR/PROTOCOL_GUIDE.md"; fi
 
@@ -278,6 +354,11 @@ if [ -n "$XRAY_BINARY" ]; then
   XRAY_SYSTEMD_ENV="Environment=SUI_XRAY_BINARY=$XRAY_BINARY"
 fi
 
+AUTO_XRAY_SYSTEMD_ENV=""
+if [ "$XRAY_AUTOCONFIGURED" -eq 1 ]; then
+  AUTO_XRAY_SYSTEMD_ENV="Environment=SUI_AUTOCONFIGURE_XRAY_REALITY=1"
+fi
+
 if command -v systemctl >/dev/null 2>&1; then
   say '正在安装 systemd 服务...\n' 'Installing systemd service...\n'
   cat > "/etc/systemd/system/$SERVICE_NAME.service" <<EOF
@@ -295,6 +376,7 @@ RestartSec=10
 Environment=SUI_DB_FOLDER=db
 Environment=SUI_DEBUG=false
 $XRAY_SYSTEMD_ENV
+$AUTO_XRAY_SYSTEMD_ENV
 
 [Install]
 WantedBy=multi-user.target
@@ -310,6 +392,25 @@ EOF
   if ! systemctl is-active --quiet "$SERVICE_NAME"; then
     say '错误：服务未处于运行状态，请查看 systemd 状态。\n' 'Error: service is not running. Please check systemd status.\n'
     systemctl status "$SERVICE_NAME" -l --no-pager || true
+    exit 1
+  fi
+  if [ "$XRAY_AUTOCONFIGURED" -eq 1 ] && ! wait_for_tcp_listener "$DEFAULT_SING_REALITY_PORT"; then
+    say '错误：sing-box Reality TCP %s 未监听；请检查服务日志。\n' 'Error: sing-box Reality TCP %s is not listening; please check the service log.\n' "$DEFAULT_SING_REALITY_PORT"
+    journalctl -u "$SERVICE_NAME" -n 80 --no-pager || true
+    exit 1
+  fi
+  if [ "$XRAY_AUTOCONFIGURED" -eq 1 ] && ! wait_for_tcp_listener "$DEFAULT_XRAY_REALITY_PORT"; then
+    say '错误：Xray Reality TCP %s 未监听；请检查服务日志。\n' 'Error: Xray Reality TCP %s is not listening; please check the service log.\n' "$DEFAULT_XRAY_REALITY_PORT"
+    journalctl -u "$SERVICE_NAME" -n 80 --no-pager || true
+    exit 1
+  fi
+  if [ "$XRAY_AUTOCONFIGURED" -eq 1 ] && ! wait_for_tcp_listener "$DEFAULT_XRAY_XHTTP_PORT"; then
+    say '错误：Xray Reality XHTTP %s 未监听；请检查服务日志。\n' 'Error: Xray Reality XHTTP %s is not listening; please check the service log.\n' "$DEFAULT_XRAY_XHTTP_PORT"
+    journalctl -u "$SERVICE_NAME" -n 80 --no-pager || true
+    exit 1
+  fi
+  if [ "$XRAY_AUTOCONFIGURED" -eq 1 ] && ! configure_active_ufw; then
+    say '错误：Reality 监听已启动，但无法更新活动 UFW。使用生成节点前请放行 TCP %s、%s、%s。\n' 'Error: Reality listeners are running, but the active UFW rules could not be updated. Check TCP %s, %s, and %s before using the generated nodes.\n' "$DEFAULT_SING_REALITY_PORT" "$DEFAULT_XRAY_REALITY_PORT" "$DEFAULT_XRAY_XHTTP_PORT"
     exit 1
   fi
 else
@@ -331,3 +432,7 @@ fi
 say '本机面板地址：http://localhost:%s%s\n' 'Local panel URL: http://localhost:%s%s\n' "$PANEL_PORT" "$PANEL_PATH"
 say '本机订阅地址：http://localhost:%s%s\n' 'Local subscription URL: http://localhost:%s%s\n' "$SUB_PORT" "$SUB_PATH"
 say '服务名称：%s\n' 'Service name: %s\n' "$SERVICE_NAME"
+if [ "$XRAY_AUTOCONFIGURED" -eq 1 ]; then
+  say '已自动启用：sing-box VLESS Reality TCP（%s）、Xray VLESS Reality TCP Vision（%s）及 Xray VLESS Reality XHTTP（%s）。仅在客户端支持 type=xhttp 时使用 XHTTP。\n' 'Enabled automatically: sing-box VLESS Reality TCP (%s), Xray VLESS Reality TCP Vision (%s), and Xray VLESS Reality XHTTP (%s). Use XHTTP only with a client that supports type=xhttp.\n' "$DEFAULT_SING_REALITY_PORT" "$DEFAULT_XRAY_REALITY_PORT" "$DEFAULT_XRAY_XHTTP_PORT"
+  say '请确认云安全组已放行 TCP %s、TCP %s、TCP %s；VPS 安装器无法自动修改云安全组。\n' 'Confirm that your cloud security group allows TCP %s, TCP %s, and TCP %s; a VPS installer cannot change cloud security groups automatically.\n' "$DEFAULT_SING_REALITY_PORT" "$DEFAULT_XRAY_REALITY_PORT" "$DEFAULT_XRAY_XHTTP_PORT"
+fi
