@@ -237,6 +237,15 @@ else
 fi
 chmod +x "$INSTALL_DIR/sui"
 
+XRAY_BINARY=""
+if [ -f "xray" ]; then
+  say '正在安装随包附带的 Xray-core...\n' 'Installing bundled Xray-core...\n'
+  cp -f "xray" "$INSTALL_DIR/xray"
+  chmod 0755 "$INSTALL_DIR/xray"
+  XRAY_BINARY="$INSTALL_DIR/xray"
+  say 'Xray-core 已安装：%s\n' 'Xray-core installed: %s\n' "$XRAY_BINARY"
+fi
+
 if [ -f "README.md" ]; then cp -f "README.md" "$INSTALL_DIR/README.md"; fi
 if [ -f "PROTOCOL_GUIDE.md" ]; then cp -f "PROTOCOL_GUIDE.md" "$INSTALL_DIR/PROTOCOL_GUIDE.md"; fi
 
@@ -260,6 +269,15 @@ SUB_PORT=$SUB_PORT
 SUB_PATH=$SUB_PATH
 EOF
 
+if [ -n "$XRAY_BINARY" ]; then
+  printf 'SUI_XRAY_BINARY=%s\n' "$XRAY_BINARY" >> "$CONFIG_FILE"
+fi
+
+XRAY_SYSTEMD_ENV=""
+if [ -n "$XRAY_BINARY" ]; then
+  XRAY_SYSTEMD_ENV="Environment=SUI_XRAY_BINARY=$XRAY_BINARY"
+fi
+
 if command -v systemctl >/dev/null 2>&1; then
   say '正在安装 systemd 服务...\n' 'Installing systemd service...\n'
   cat > "/etc/systemd/system/$SERVICE_NAME.service" <<EOF
@@ -276,6 +294,7 @@ Restart=on-failure
 RestartSec=10
 Environment=SUI_DB_FOLDER=db
 Environment=SUI_DEBUG=false
+$XRAY_SYSTEMD_ENV
 
 [Install]
 WantedBy=multi-user.target

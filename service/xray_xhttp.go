@@ -412,6 +412,10 @@ func (s *XrayXHTTPService) BuildConfig() ([]byte, bool, error) {
 
 	xrayInbounds := make([]map[string]interface{}, 0, len(inbounds))
 	for _, inb := range inbounds {
+		// Existing XHTTP-only records predate the transport field. Normalize them
+		// while rendering so an upgrade never turns a valid saved configuration
+		// into an invalid sidecar configuration.
+		normalizeXrayXHTTPInbound(&inb)
 		if err := validateXrayXHTTPInbound(inb); err != nil {
 			return nil, false, err
 		}
@@ -425,7 +429,7 @@ func (s *XrayXHTTPService) BuildConfig() ([]byte, bool, error) {
 		}
 		clients := make([]map[string]string, 0, len(rows))
 		for _, row := range rows {
-			clients = append(clients, map[string]string{"id": row.UUID, "email": row.Name})
+			clients = append(clients, xrayClientConfig(inb.Transport, row.UUID, row.Name))
 		}
 		// A client can be disabled, expired, or deleted after this inbound was
 		// created. Omit an empty inbound so a subsequent reload revokes access
@@ -448,17 +452,33 @@ func (s *XrayXHTTPService) BuildConfig() ([]byte, bool, error) {
 }
 
 func xrayInboundConfig(inb model.XrayXHTTPInbound, clients []map[string]string) map[string]interface{} {
+	transport := strings.ToLower(strings.TrimSpace(inb.Transport))
+	if transport == "" {
+		transport = "xhttp"
+	}
+	streamSettings := map[string]interface{}{
+		"network": transport, "security": "reality",
+		"realitySettings": map[string]interface{}{"show": false, "dest": inb.Dest, "xver": 0, "serverNames": []string{inb.ServerName}, "privateKey": inb.PrivateKey, "shortIds": []string{inb.ShortID}},
+	}
+	if transport == "xhttp" {
+		streamSettings["xhttpSettings"] = map[string]string{"path": inb.Path, "mode": inb.Mode}
+	}
 	return map[string]interface{}{
 		"tag": inb.Tag, "listen": inb.Listen, "port": inb.Port, "protocol": "vless",
-		"settings": map[string]interface{}{"decryption": "none", "clients": clients},
-		"streamSettings": map[string]interface{}{
-			"network": "xhttp", "security": "reality",
-			"realitySettings": map[string]interface{}{"show": false, "dest": inb.Dest, "xver": 0, "serverNames": []string{inb.ServerName}, "privateKey": inb.PrivateKey, "shortIds": []string{inb.ShortID}},
-			"xhttpSettings":   map[string]string{"path": inb.Path, "mode": inb.Mode},
-		},
+		"settings":       map[string]interface{}{"decryption": "none", "clients": clients},
+		"streamSettings": streamSettings,
 	}
 }
 
+// xrayClientConfig applies VLESS flow settings required by the selected
+// transport. XTLS Vision is valid only for the direct TCP Reality template.
+func xrayClientConfig(transport, id, email string) map[string]string {
+	client := map[string]string{"id": id, "email": email}
+	if strings.EqualFold(strings.TrimSpace(transport), "tcp") {
+		client["flow"] = "xtls-rprx-vision"
+	}
+	return client
+}
 func (s *XrayXHTTPService) LinksForClient(clientID uint, hostname string) ([]string, error) {
 	var rows []struct {
 		model.XrayXHTTPInbound
@@ -470,26 +490,37 @@ func (s *XrayXHTTPService) LinksForClient(clientID uint, hostname string) ([]str
 	}
 	links := make([]string, 0, len(rows))
 	for _, row := range rows {
-		host := strings.TrimSpace(hostname)
-		if host == "" {
-			host = row.ServerName
-		}
-		host = strings.Trim(host, "[]")
-		q := url.Values{}
-		q.Set("encryption", "none")
-		q.Set("security", "reality")
-		q.Set("sni", row.ServerName)
-		q.Set("fp", row.Fingerprint)
-		q.Set("pbk", row.PublicKey)
-		q.Set("sid", row.ShortID)
-		q.Set("type", "xhttp")
-		q.Set("path", row.Path)
-		q.Set("mode", row.Mode)
-		links = append(links, fmt.Sprintf("vless://%s@%s:%d?%s#%s", row.UUID, formatLinkHost(host), row.Port, q.Encode(), url.QueryEscape(row.Tag)))
+		links = append(links, xrayVLESSLink(row.XrayXHTTPInbound, row.UUID, hostname))
 	}
 	return links, nil
 }
 
+func xrayVLESSLink(inb model.XrayXHTTPInbound, uuid, hostname string) string {
+	host := strings.TrimSpace(hostname)
+	if host == "" {
+		host = inb.ServerName
+	}
+	host = strings.Trim(host, "[]")
+	q := url.Values{}
+	q.Set("encryption", "none")
+	q.Set("security", "reality")
+	q.Set("sni", inb.ServerName)
+	q.Set("fp", inb.Fingerprint)
+	q.Set("pbk", inb.PublicKey)
+	q.Set("sid", inb.ShortID)
+	transport := strings.ToLower(strings.TrimSpace(inb.Transport))
+	if transport == "" {
+		transport = "xhttp"
+	}
+	q.Set("type", transport)
+	if transport == "tcp" {
+		q.Set("flow", "xtls-rprx-vision")
+	} else {
+		q.Set("path", inb.Path)
+		q.Set("mode", inb.Mode)
+	}
+	return fmt.Sprintf("vless://%s@%s:%d?%s#%s", uuid, formatLinkHost(host), inb.Port, q.Encode(), url.QueryEscape(inb.Tag))
+}
 func formatLinkHost(host string) string {
 	if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
 		return "[" + host + "]"
@@ -586,6 +617,7 @@ func normalizeXrayXHTTPInbound(inb *model.XrayXHTTPInbound) {
 	inb.PublicKey = strings.TrimSpace(inb.PublicKey)
 	inb.ShortID = strings.TrimSpace(inb.ShortID)
 	inb.Fingerprint = strings.TrimSpace(inb.Fingerprint)
+	inb.Transport = strings.ToLower(strings.TrimSpace(inb.Transport))
 	inb.Path = strings.TrimSpace(inb.Path)
 	inb.Mode = strings.TrimSpace(inb.Mode)
 	if inb.Listen == "" {
@@ -597,26 +629,35 @@ func normalizeXrayXHTTPInbound(inb *model.XrayXHTTPInbound) {
 	if inb.Fingerprint == "" {
 		inb.Fingerprint = "chrome"
 	}
-	if inb.Path == "" {
-		inb.Path = "/xhttp"
+	if inb.Transport == "" {
+		// Rows created before the TCP Reality preset existed were XHTTP-only.
+		inb.Transport = "xhttp"
 	}
-	if inb.Mode == "" {
-		inb.Mode = "auto"
+	if inb.Transport == "xhttp" {
+		if inb.Path == "" {
+			inb.Path = "/xhttp"
+		}
+		if inb.Mode == "" {
+			inb.Mode = "auto"
+		}
 	}
 }
 
 func validateXrayXHTTPInbound(inb model.XrayXHTTPInbound) error {
+	// Validation is also called by tests and by config rendering, so keep old
+	// persisted XHTTP-only rows compatible even before a save migrates them.
+	normalizeXrayXHTTPInbound(&inb)
 	if inb.Tag == "" {
-		return common.NewError("XHTTP tag is required")
+		return common.NewError("Xray Reality tag is required")
 	}
 	if inb.Port == 0 {
-		return common.NewError("XHTTP port is required")
+		return common.NewError("Xray Reality port is required")
 	}
 	if inb.ServerName == "" || inb.Dest == "" || inb.PrivateKey == "" || inb.PublicKey == "" || inb.ShortID == "" {
 		return common.NewError("Reality server name, destination, private/public key and short ID are required")
 	}
 	if net.ParseIP(inb.Listen) == nil {
-		return common.NewError("XHTTP listen address must be an IP address")
+		return common.NewError("Xray Reality listen address must be an IP address")
 	}
 	if len(inb.ShortID) > 16 || len(inb.ShortID)%2 != 0 {
 		return common.NewError("Reality short ID must contain an even number of hexadecimal characters (up to 16)")
@@ -626,11 +667,16 @@ func validateXrayXHTTPInbound(inb model.XrayXHTTPInbound) error {
 			return common.NewError("Reality short ID must be hexadecimal")
 		}
 	}
-	if !strings.HasPrefix(inb.Path, "/") {
-		return common.NewError("XHTTP path must start with /")
+	if inb.Transport != "tcp" && inb.Transport != "xhttp" {
+		return common.NewError("Xray Reality transport must be tcp or xhttp")
 	}
-	if inb.Mode != "auto" && inb.Mode != "packet-up" && inb.Mode != "stream-up" && inb.Mode != "stream-one" {
-		return common.NewError("unsupported XHTTP mode")
+	if inb.Transport == "xhttp" {
+		if !strings.HasPrefix(inb.Path, "/") {
+			return common.NewError("XHTTP path must start with /")
+		}
+		if inb.Mode != "auto" && inb.Mode != "packet-up" && inb.Mode != "stream-up" && inb.Mode != "stream-one" {
+			return common.NewError("unsupported XHTTP mode")
+		}
 	}
 	host, port, err := net.SplitHostPort(inb.Dest)
 	if err != nil || strings.TrimSpace(host) == "" {

@@ -9,6 +9,7 @@ param(
     [switch]$NoCGO,
     [switch]$SkipFrontend,
     [switch]$Package,
+    [switch]$BundleXrayCore,
     [switch]$NonInteractive,
     [switch]$ListCleanCandidates,
     [switch]$Help
@@ -16,7 +17,7 @@ param(
 
 if ($Help) {
     Write-Host "用法："
-    Write-Host "  .\build-windows.ps1 [-System <系统>] [-Architecture <架构>] [-NoCGO] [-SkipFrontend] [-Package] [-NonInteractive]"
+    Write-Host "  .\build-windows.ps1 [-System <系统>] [-Architecture <架构>] [-NoCGO] [-SkipFrontend] [-Package] [-BundleXrayCore] [-NonInteractive]"
     Write-Host "  .\build-windows.ps1 -ListCleanCandidates"
     Write-Host ""
     Write-Host "说明："
@@ -37,13 +38,14 @@ if ($Help) {
     Write-Host "  -NoCGO                关闭 CGO，适合从 Windows 交叉构建 Linux/macOS 包"
     Write-Host "  -SkipFrontend         跳过前端构建；需要已有 frontend/dist 嵌入资源"
     Write-Host "  -Package              生成 dist/*.zip 发布压缩包"
+    Write-Host "  -BundleXrayCore       将已校验的 Xray-core v26.3.27 打入 Linux amd64 包"
     Write-Host "  -NonInteractive       构建完成后不等待输入"
     Write-Host "  -ListCleanCandidates  只列出本地可清理候选，不删除任何文件"
     Write-Host ""
     Write-Host "示例："
     Write-Host "  .\build-windows.ps1"
     Write-Host "  .\build-windows.ps1 -System windows -Architecture arm64 -Package"
-    Write-Host "  .\build-windows.ps1 -System linux -Architecture amd64 -NoCGO -SkipFrontend -Package"
+    Write-Host "  .\build-windows.ps1 -System linux -Architecture amd64 -NoCGO -SkipFrontend -Package -BundleXrayCore"
     Write-Host "  .\build-windows.ps1 -System darwin -Architecture arm64 -NoCGO -SkipFrontend -Package"
     Write-Host "  .\build-windows.ps1 -ListCleanCandidates"
     exit 0
@@ -55,6 +57,10 @@ function Stop-WithMessage($Message) {
         Read-Host "按 Enter 退出 / Press Enter to exit"
     }
     exit 1
+}
+
+if ($BundleXrayCore -and ($System -ne "linux" -or $Architecture -ne "amd64" -or -not $Package)) {
+    Stop-WithMessage "-BundleXrayCore 只能与 -System linux -Architecture amd64 -Package 一起使用"
 }
 
 function Write-CleanCandidate($Path, $Description, [switch]$Cautious) {
@@ -236,6 +242,15 @@ if ($Package) {
         Copy-Item "uninstall-linux.sh" $packageDir -Force -ErrorAction SilentlyContinue
         Copy-Item "s-ui.sh" $packageDir -Force -ErrorAction SilentlyContinue
         Copy-Item "s-ui.service" $packageDir -Force -ErrorAction SilentlyContinue
+        if ($BundleXrayCore) {
+            $xrayBinary = Join-Path $PSScriptRoot "release-assets\xray-core-v26.3.27-linux-amd64\xray"
+            if (-not (Test-Path -LiteralPath $xrayBinary -PathType Leaf)) {
+                Stop-WithMessage "未找到已校验的 Xray-core：$xrayBinary。请先运行 .\fetch-xray-core.ps1"
+            }
+            Copy-Item -LiteralPath $xrayBinary -Destination "$packageDir\xray" -Force
+            Copy-Item "XRAY-CORE-NOTICE.md" $packageDir -Force
+            Write-Host "已包含 Xray-core v26.3.27（Linux amd64）" -ForegroundColor Green
+        }
         Compress-Archive -Path "$packageDir\*" -DestinationPath "dist\s-ui-$packageSystem-$Architecture.zip" -Force
         Write-Host "已生成压缩包 / Package generated: dist\s-ui-$packageSystem-$Architecture.zip" -ForegroundColor Green
     } else {

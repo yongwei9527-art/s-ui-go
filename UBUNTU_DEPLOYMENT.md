@@ -305,3 +305,92 @@ curl -fsSI https://sub.example.com/sub/<your-subscription-id>
 - [ ] 有公网分发需求时使用已验证域名和可信 TLS；
 - [ ] 已执行 SQLite `.backup`，并对备份运行 `PRAGMA integrity_check`；
 - [ ] 已保存可用的 SSH 登录路径和离线备份，避免因反代或防火墙改动失去管理能力。
+## 9. 可选：Xray Reality sidecar 模板（默认禁用）
+
+S-UI 的主核心仍是 sing-box。首次创建全新数据库时，系统会额外创建两个 **禁用状态** 的 Xray Reality 模板：
+
+| 模板 | 传输 | 候选端口 | 首次启用 |
+|---|---|---:|---:|
+| `xray-vless-reality-tcp-*` | VLESS + Reality + TCP + XTLS Vision | `10443/tcp` | 否 |
+| `xray-vless-reality-xhttp-*` | VLESS + Reality + XHTTP | `2088/tcp`（如与默认 TCP 入站冲突则自动顺延） | 否 |
+
+这两个模板不会自动启动 Xray、不会自动放行 UFW/云防火墙，也不会占用现有 sing-box 的 `443/tcp` VLESS Reality 入站。禁用是有意的：Xray 是可选外部二进制，首次安装时不应因为缺少二进制、端口冲突或未经确认的公网暴露而让服务进入不可用状态。
+
+> 当前 sidecar 仅实现上述两种 **VLESS + Reality** 组合；它不是通用 Xray 协议管理器。VMess、Trojan、Shadowsocks、gRPC、WS/TLS 等不作为 Xray 首装默认项。它们会引入可信证书/域名、客户端兼容性或重复端口的额外要求。
+
+### 9.1 安装经校验的 Xray-core（仅准备启用 sidecar 时）
+
+不要使用 `curl | bash`、`latest` 浮动下载、`--no-check-certificate` 或未经审核的第三方脚本。应从 Xray-core 官方固定发布版本取得**预先独立核验的 SHA-256**，再以 root 安装为只读可执行文件：
+
+```bash
+# 在受控变更记录中填写固定版本、对应架构文件名和已独立核验的哈希。
+XRAY_VERSION='vX.Y.Z'
+XRAY_ASSET='Xray-linux-64.zip'       # x86_64 示例；先以 uname -m 确认架构
+XRAY_SHA256='replace-with-verified-sha256'
+
+cd /tmp
+curl --fail --location --proto '=https' --tlsv1.2 \
+  --output "$XRAY_ASSET" \
+  "https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/${XRAY_ASSET}"
+printf '%s  %s\n' "$XRAY_SHA256" "$XRAY_ASSET" | sha256sum --check --strict -
+
+sudo apt update
+sudo apt install -y unzip
+tmpdir="$(mktemp -d)"
+umask 077
+unzip -qq "/tmp/${XRAY_ASSET}" xray -d "$tmpdir"
+sudo install -d -o root -g root -m 0755 /opt/s-ui/bin
+sudo install -o root -g root -m 0755 "$tmpdir/xray" /opt/s-ui/bin/xray
+rm -rf -- "$tmpdir"
+sudo rm -f "/tmp/${XRAY_ASSET}"
+sudo -u s-ui /opt/s-ui/bin/xray version
+```
+
+只有 `sha256sum` 明确返回 `OK` 才继续。校验值应来自独立、受控的发布核验记录；不要仅把同一个未验证下载页面的哈希当作来源真实性保证。
+
+在 `/etc/s-ui/s-ui.env` 加入绝对路径（不要依赖 systemd 的 `PATH`）：
+
+```ini
+SUI_XRAY_BINARY=/opt/s-ui/bin/xray
+```
+
+然后执行：
+
+```bash
+sudo systemctl restart s-ui
+sudo systemctl status s-ui --no-pager
+```
+
+### 9.1.1 Linux amd64 核心包含包
+
+Linux amd64 核心包含包固定使用官方 `XTLS/Xray-core v26.3.27` 的 `Xray-linux-64.zip`。归档的 SHA-256 为：
+
+```text
+23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae
+```
+
+先在 VPS 上运行 `uname -m`。只有输出为 `x86_64` 时才可使用这个包；ARM64 必须使用同一版本的 `Xray-linux-arm64-v8a.zip` 及其自身官方 `.dgst` 校验值，不能复用 amd64 哈希。
+
+安装核心包含包时，`install-linux.sh` 会将包内的 `xray` 放入 `/opt/s-ui/xray`，并在生成的 `s-ui.service` 中设置 `SUI_XRAY_BINARY=/opt/s-ui/xray`。安装后执行：
+
+```bash
+sudo /opt/s-ui/xray version
+sudo systemctl cat s-ui
+sudo systemctl status s-ui --no-pager
+```
+
+如使用不包含 `xray` 的包，按上一节的固定版本、下载校验与绝对路径配置流程安装核心。
+
+### 9.2 显式启用、验证与放行
+
+在面板的 Xray 页面中确认 Reality `serverName`、`dest`、私钥/公钥、16 位十六进制 short ID、客户端关联和未冲突的监听端口后，才启用一个模板。TCP Vision 的订阅链接使用 `type=tcp&flow=xtls-rprx-vision`；XHTTP 使用 `type=xhttp` 和 path/mode。两类节点请使用支持对应 Xray 传输的客户端及**标准 URI 订阅**；JSON / Clash / Mihomo 订阅不会伪造输出 XHTTP 节点。
+
+只有确认要对外服务后，才同步在 UFW 和云安全组放行该模板端口，例如：
+
+```bash
+sudo ufw allow 10443/tcp    # 或实际启用的 XHTTP 端口
+sudo ss -ltnp | grep -E ':(10443|2088)\b'
+sudo journalctl -u s-ui -n 100 --no-pager
+```
+
+不要放行管理面板/订阅的 `2095`、`2096`。Reality 私钥会保存在 S-UI 数据库和受限权限的 sidecar 配置中；数据库备份必须按敏感凭据保护。若私钥泄露，应重新生成私钥、公钥与 short ID，并向客户端更新订阅。

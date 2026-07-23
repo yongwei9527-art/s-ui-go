@@ -1,0 +1,89 @@
+﻿name: Release Linux amd64 with bundled Xray-core
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: New release tag (must not already exist)
+        required: true
+        default: v1.4.2.3-r2
+
+permissions:
+  contents: write
+
+jobs:
+  package-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out selected revision
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Fetch and verify pinned Xray-core
+        shell: bash
+        run: |
+          set -euo pipefail
+          readonly XRAY_VERSION='v26.3.27'
+          readonly XRAY_ASSET='Xray-linux-64.zip'
+          readonly XRAY_SHA256='23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae'
+          readonly XRAY_DIR='release-assets/xray-core-v26.3.27-linux-amd64'
+          mkdir -p "$XRAY_DIR"
+          curl --fail --location --proto '=https' --tlsv1.2 --retry 3 \
+            --output "$XRAY_DIR/$XRAY_ASSET" \
+            "https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/${XRAY_ASSET}"
+          printf '%s  %s\n' "$XRAY_SHA256" "$XRAY_DIR/$XRAY_ASSET" | sha256sum --check --strict -
+          unzip -qq "$XRAY_DIR/$XRAY_ASSET" xray -d "$XRAY_DIR"
+          chmod 0755 "$XRAY_DIR/xray"
+
+      - name: Build Linux amd64 package
+        shell: pwsh
+        run: |
+          ./build-windows.ps1 -System linux -Architecture amd64 -NoCGO -SkipFrontend -Package -BundleXrayCore -NonInteractive
+
+      - name: Verify release archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          unzip -t dist/s-ui-linux-amd64.zip
+          unzip -l dist/s-ui-linux-amd64.zip | grep -E '(^|[[:space:]])xray$'
+          unzip -l dist/s-ui-linux-amd64.zip | grep -F 'XRAY-CORE-NOTICE.md'
+          sha256sum dist/s-ui-linux-amd64.zip
+
+      - name: Publish new prerelease without overwriting prior releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<'EOF'
+          ## Linux amd64 Xray-core 包含版
+
+          - S-UI 的 XHTTP / Reality sidecar 随包提供已校验的官方 Xray-core `v26.3.27`。
+          - 上游资产：`Xray-linux-64.zip`；SHA-256：`23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae`。
+          - 安装后核心位于 `/opt/s-ui/xray`，并由 systemd 的 `SUI_XRAY_BINARY` 使用。
+          - 仅支持 Linux `x86_64` VPS；ARM64 需使用对应核心资产重新构建。
+          - 手机端请使用支持 VLESS + Reality + XHTTP 的 Xray 客户端和标准 URI 订阅；JSON、Clash/Mihomo 订阅会省略 XHTTP 节点。
+          EOF
+          gh release create "$TAG" dist/s-ui-linux-amd64.zip \
+            --target "$GITHUB_SHA" \
+            --title "$TAG" \
+            --prerelease \
+            --notes-file release-notes.md

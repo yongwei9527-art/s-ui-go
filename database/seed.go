@@ -66,7 +66,13 @@ func seedDefaultTlsAndInbounds() error {
 			return err
 		}
 
-		return seedDefaultClient(tx, inbounds, seedHost)
+		if err := seedDefaultClient(tx, inbounds, seedHost); err != nil {
+			return err
+		}
+		// The Xray sidecar is optional and no binary is bundled by the installer.
+		// Create safe, disabled Reality templates for a genuinely new database,
+		// but never start a sidecar or expose a new listener automatically.
+		return seedDefaultXrayRealityTemplates(tx, inbounds)
 	})
 }
 
@@ -582,6 +588,103 @@ func seedDefaultClient(tx *gorm.DB, inbounds []model.Inbound, seedHost string) e
 	return tx.Create(&client).Error
 }
 
+// seedDefaultXrayRealityTemplates creates discoverable Xray sidecar drafts only
+// during the same first-boot transaction that creates the sing-box templates.
+// They remain disabled because Xray is an optional external binary and opening a
+// port without an explicit administrator decision would be unsafe.
+func seedDefaultXrayRealityTemplates(tx *gorm.DB, singBoxInbounds []model.Inbound) error {
+	var client model.Client
+	if err := tx.Where("name = ?", defaultTemplateClientName).First(&client).Error; err != nil {
+		// A partially populated legacy database can have no TLS/inbounds yet
+		// already contain users. Do not manufacture a new sidecar assignment in
+		// that upgrade-shaped state; these drafts are first-boot defaults only.
+		if err == gorm.ErrRecordNotFound {
+			return nil
+		}
+		return err
+	}
+
+	for _, template := range []struct {
+		transport string
+		preferred int
+		path      string
+		mode      string
+	}{
+		{transport: "tcp", preferred: 10443},
+		{transport: "xhttp", preferred: 2088, path: "/xhttp", mode: "auto"},
+	} {
+		port := availableSeedXrayTCPPort(singBoxInbounds, template.preferred)
+		privateKey, err := wgtypes.GeneratePrivateKey()
+		if err != nil {
+			return err
+		}
+		publicKey := privateKey.PublicKey()
+		xrayUUID, err := uuid.NewV4()
+		if err != nil {
+			return err
+		}
+		inbound := model.XrayXHTTPInbound{
+			Enable:      false,
+			Tag:         inboundTag("xray-vless-reality-"+template.transport, port),
+			Listen:      "0.0.0.0",
+			Port:        uint16(port),
+			ServerName:  "go.microsoft.com",
+			Dest:        "go.microsoft.com:443",
+			PrivateKey:  base64.RawURLEncoding.EncodeToString(privateKey[:]),
+			PublicKey:   base64.RawURLEncoding.EncodeToString(publicKey[:]),
+			ShortID:     randomHex(8),
+			Fingerprint: "chrome",
+			Transport:   template.transport,
+			Path:        template.path,
+			Mode:        template.mode,
+		}
+		if err := tx.Create(&inbound).Error; err != nil {
+			return err
+		}
+		if err := tx.Create(&model.XrayXHTTPClient{
+			InboundID: inbound.Id,
+			ClientID:  client.Id,
+			Enable:    true,
+			UUID:      xrayUUID.String(),
+		}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// availableSeedXrayTCPPort accounts for TCP ports already selected by the
+// sing-box first-boot templates. Those templates are not listening yet while
+// this transaction runs, so an OS bind probe alone cannot see their claims.
+func availableSeedXrayTCPPort(singBoxInbounds []model.Inbound, preferred int) int {
+	for port := preferred; port < preferred+100; port++ {
+		if seedSingBoxTCPPortReserved(singBoxInbounds, port) {
+			continue
+		}
+		if canListen("tcp", port) {
+			return port
+		}
+	}
+	// The template is disabled, and enabling it later performs the authoritative
+	// cross-core listener conflict check. Keep a stable candidate even when the
+	// host has no free port in the small first-boot probe range.
+	return preferred
+}
+
+func seedSingBoxTCPPortReserved(inbounds []model.Inbound, port int) bool {
+	for _, inbound := range inbounds {
+		if inbound.Type == "hysteria" || inbound.Type == "hysteria2" || inbound.Type == "tuic" {
+			continue
+		}
+		var options struct {
+			ListenPort int `json:"listen_port"`
+		}
+		if err := json.Unmarshal(inbound.Options, &options); err == nil && options.ListenPort == port {
+			return true
+		}
+	}
+	return false
+}
 func detectDefaultSeedHost() string {
 	if ip := detectPublicIP(); ip != "" {
 		return ip

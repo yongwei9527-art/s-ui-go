@@ -310,7 +310,8 @@ login.microsoftonline.com
 ```powershell
 .\build-windows.ps1 -System windows -Architecture amd64 -Package -NonInteractive
 # Linux/macOS 包可以在 Windows 上使用纯 Go SQLite 驱动关闭 CGO 交叉构建。
-.\build-windows.ps1 -System linux -Architecture amd64 -NoCGO -SkipFrontend -Package -NonInteractive
+.\fetch-xray-core.ps1
+.\build-windows.ps1 -System linux -Architecture amd64 -NoCGO -SkipFrontend -Package -BundleXrayCore -NonInteractive
 .\build-windows.ps1 -System darwin -Architecture amd64 -NoCGO -SkipFrontend -Package -NonInteractive
 ```
 
@@ -331,8 +332,20 @@ login.microsoftonline.com
 | `-NoCGO` | 关闭 CGO，适合从 Windows 交叉构建 Linux/macOS 包 |
 | `-SkipFrontend` | 跳过前端构建，需要已有 `frontend/dist/` |
 | `-Package` | 生成 `dist/*.zip` 发布压缩包 |
+| `-BundleXrayCore` | 仅 Linux amd64：打入已校验的 Xray-core `v26.3.27`，供 XHTTP/Reality sidecar 使用 |
 | `-NonInteractive` | 构建完成后不等待输入 |
 | `-ListCleanCandidates` | 只列出可清理候选，不删除文件 |
+
+### Linux XHTTP / Reality 随包核心
+
+`VLESS + Reality + XHTTP` 由独立的 Xray-core sidecar 提供，不能只依赖 S-UI 主程序。Linux amd64 发布包可包含已校验的 `xray` 可执行文件；安装脚本检测到该文件后会安装到 `/opt/s-ui/xray`，并通过 systemd 的 `SUI_XRAY_BINARY` 环境变量启用。
+
+- 固定上游：`XTLS/Xray-core v26.3.27` / `Xray-linux-64.zip`
+- SHA-256：`23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae`
+- 手机端请使用真正支持 **VLESS + Reality + XHTTP** 的 Xray 客户端，并添加**标准 URI 订阅**；JSON、Clash/Mihomo 订阅会省略 XHTTP 节点。
+- 使用前在 VPS 执行 `uname -m`；本包仅适用于 `x86_64`。ARM64 需要使用 `Xray-linux-arm64-v8a.zip` 构建对应包。
+
+完整部署与防火墙步骤见 [Ubuntu 部署说明](UBUNTU_DEPLOYMENT.md#9-可选xray-reality-sidecar-模板默认禁用)。
 
 ### Linux / macOS 手动构建
 

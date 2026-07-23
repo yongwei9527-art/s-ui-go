@@ -31,6 +31,63 @@ func TestXrayXHTTPConfigShape(t *testing.T) {
 	}
 }
 
+func TestXrayTCPVisionConfigShape(t *testing.T) {
+	inbound := model.XrayXHTTPInbound{
+		Enable: true, Tag: "vless-reality-tcp-10443", Listen: "0.0.0.0", Port: 10443,
+		ServerName: "www.example.com", Dest: "www.example.com:443", PrivateKey: "private-key",
+		PublicKey: "public-key", ShortID: "0123456789abcdef", Fingerprint: "chrome", Transport: "tcp",
+	}
+	if err := validateXrayXHTTPInbound(inbound); err != nil {
+		t.Fatalf("valid TCP Vision inbound rejected: %v", err)
+	}
+	config := xrayInboundConfig(inbound, []map[string]string{xrayClientConfig(inbound.Transport, "test-uuid", "default-user")})
+	raw, err := json.Marshal(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, want := range []string{`"network":"tcp"`, `"flow":"xtls-rprx-vision"`, `"security":"reality"`} {
+		if !strings.Contains(text, want) {
+			t.Errorf("generated TCP Vision config missing %s: %s", want, text)
+		}
+	}
+	if strings.Contains(text, `"xhttpSettings"`) || strings.Contains(text, `"path"`) || strings.Contains(text, `"mode"`) {
+		t.Errorf("TCP Vision config unexpectedly contains XHTTP fields: %s", text)
+	}
+}
+func TestXrayTCPVisionLinkShape(t *testing.T) {
+	inbound := model.XrayXHTTPInbound{
+		Tag: "tcp-vision", Port: 10443, ServerName: "www.example.com", PublicKey: "public-key",
+		ShortID: "0123456789abcdef", Fingerprint: "chrome", Transport: "tcp", Path: "/must-not-appear", Mode: "auto",
+	}
+	link := xrayVLESSLink(inbound, "test-uuid", "203.0.113.10")
+	for _, want := range []string{"type=tcp", "flow=xtls-rprx-vision", "vless://test-uuid@203.0.113.10:10443"} {
+		if !strings.Contains(link, want) {
+			t.Errorf("TCP Vision link missing %q: %s", want, link)
+		}
+	}
+	for _, unwanted := range []string{"path=", "mode="} {
+		if strings.Contains(link, unwanted) {
+			t.Errorf("TCP Vision link unexpectedly contains %q: %s", unwanted, link)
+		}
+	}
+}
+
+func TestXrayXHTTPLinkShape(t *testing.T) {
+	inbound := model.XrayXHTTPInbound{
+		Tag: "xhttp", Port: 2088, ServerName: "www.example.com", PublicKey: "public-key",
+		ShortID: "0123456789abcdef", Fingerprint: "chrome", Transport: "xhttp", Path: "/xhttp", Mode: "auto",
+	}
+	link := xrayVLESSLink(inbound, "test-uuid", "")
+	for _, want := range []string{"type=xhttp", "path=%2Fxhttp", "mode=auto", "vless://test-uuid@www.example.com:2088"} {
+		if !strings.Contains(link, want) {
+			t.Errorf("XHTTP link missing %q: %s", want, link)
+		}
+	}
+	if strings.Contains(link, "flow=xtls-rprx-vision") {
+		t.Errorf("XHTTP link unexpectedly contains Vision flow: %s", link)
+	}
+}
 func TestValidateXrayXHTTPInboundRejectsUnsafeValues(t *testing.T) {
 	base := model.XrayXHTTPInbound{Tag: "xhttp", Listen: "0.0.0.0", Port: 2088, ServerName: "example.com", Dest: "example.com:443", PrivateKey: "private", PublicKey: "public", ShortID: "abcd", Fingerprint: "chrome", Path: "/xhttp", Mode: "auto"}
 	badPath := base
@@ -62,6 +119,11 @@ func TestValidateXrayXHTTPInboundRejectsUnsafeValues(t *testing.T) {
 	badPort.Dest = "example.com:0"
 	if err := validateXrayXHTTPInbound(badPort); err == nil {
 		t.Fatal("zero Reality destination port was accepted")
+	}
+	badTransport := base
+	badTransport.Transport = "grpc"
+	if err := validateXrayXHTTPInbound(badTransport); err == nil {
+		t.Fatal("unsupported Xray Reality transport was accepted")
 	}
 }
 

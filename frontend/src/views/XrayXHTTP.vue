@@ -3,7 +3,7 @@
     <v-card rounded="xl" class="mb-5" elevation="0">
       <v-card-title class="d-flex align-center ga-3 flex-wrap">
         <v-icon color="primary">mdi-lan-connect</v-icon>
-        <span>Xray · VLESS + Reality + XHTTP</span>
+        <span>Xray Reality · TCP Vision / XHTTP</span>
         <v-chip :color="status.running ? 'success' : 'warning'" size="small" variant="tonal">
           {{ status.running ? '侧车运行中' : '侧车未运行' }}
         </v-chip>
@@ -39,8 +39,9 @@
               <v-col cols="12" sm="6"><v-text-field v-model.number="form.port" type="number" min="1" max="65535" label="TCP 端口" /></v-col>
               <v-col cols="12" sm="6"><v-text-field v-model="form.serverName" label="Reality Server Name / SNI" /></v-col>
               <v-col cols="12" sm="6"><v-text-field v-model="form.dest" label="Reality destination (host:port)" /></v-col>
-              <v-col cols="12" sm="6"><v-text-field v-model="form.path" label="XHTTP path" /></v-col>
-              <v-col cols="12" sm="6"><v-select v-model="form.mode" :items="modes" label="XHTTP mode" /></v-col>
+              <v-col cols="12" sm="6"><v-select v-model="form.transport" :items="transports" label="Transport" /></v-col>
+              <v-col v-if="form.transport === 'xhttp'" cols="12" sm="6"><v-text-field v-model="form.path" label="XHTTP path" /></v-col>
+              <v-col v-if="form.transport === 'xhttp'" cols="12" sm="6"><v-select v-model="form.mode" :items="modes" label="XHTTP mode" /></v-col>
               <v-col cols="12" sm="6"><v-text-field v-model="form.shortId" label="Reality short ID（十六进制）" /></v-col>
               <v-col cols="12" sm="6"><v-text-field v-model="form.fingerprint" label="客户端指纹" /></v-col>
               <v-col cols="12"><v-text-field v-model="form.privateKey" type="password" label="Reality private key（仅服务器）" hint="编辑已有入站时留空即可保留现有私钥；私钥不会由接口回显。" persistent-hint /></v-col>
@@ -93,11 +94,12 @@ interface XHTTPInbound {
   publicKey: string
   shortId: string
   fingerprint: string
+  transport: 'tcp' | 'xhttp'
   path: string
   mode: string
 }
 
-const blank = (): XHTTPInbound => ({ enable: false, tag: 'vless-reality-xhttp-2088', listen: '0.0.0.0', port: 2088, serverName: '', dest: '', privateKey: '', publicKey: '', shortId: '', fingerprint: 'chrome', path: '/xhttp', mode: 'auto' })
+const blank = (): XHTTPInbound => ({ enable: false, tag: 'vless-reality-xhttp-2088', listen: '0.0.0.0', port: 2088, serverName: '', dest: '', privateKey: '', publicKey: '', shortId: '', fingerprint: 'chrome', transport: 'xhttp', path: '/xhttp', mode: 'auto' })
 const form = reactive<XHTTPInbound>(blank())
 const inbounds = ref<XHTTPInbound[]>([])
 const assignments = ref<Record<string, number[]>>({})
@@ -106,6 +108,7 @@ const clientIds = ref<number[]>([])
 const loading = ref(false)
 const editing = computed(() => !!form.id)
 const modes = ['auto', 'packet-up', 'stream-up', 'stream-one']
+const transports = [ { title: 'VLESS Reality TCP + XTLS Vision', value: 'tcp' }, { title: 'VLESS Reality XHTTP', value: 'xhttp' } ]
 const clientOptions = computed(() => Data().clients.map((client: any) => ({ title: `${client.name}${client.enable ? '' : '（已禁用）'}`, value: client.id })))
 
 const applyData = (obj: any) => {
@@ -129,6 +132,8 @@ const newInbound = () => {
 
 const edit = (inbound: XHTTPInbound) => {
   Object.assign(form, JSON.parse(JSON.stringify(inbound)))
+  // XHTTP was the only transport before this field existed.
+  if (!form.transport) form.transport = 'xhttp'
   clientIds.value = [...(assignments.value[String(inbound.id)] ?? [])]
 }
 
