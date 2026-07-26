@@ -199,7 +199,7 @@ function Test-PackageArchive([string]$ArchivePath, [string]$System, [string]$Arc
         foreach ($entry in $zip.Entries) {
             $name = $entry.FullName
             if ([string]::IsNullOrWhiteSpace($name) -or $name.EndsWith('/') -or $name.EndsWith('\') -or $name.IndexOf([char]0) -ge 0 -or $name.StartsWith('/') -or $name.StartsWith('\') -or $name.Contains('\') -or $name -match '^[A-Za-z]:' -or $name -match '(^|/)\.\.(/|$)') { throw "Unsafe or directory ZIP entry: $name" }
-            $type = (([uint32]$entry.ExternalAttributes -shr 16) -band 0xF000); if ($type -eq 0xA000 -or ($type -ne 0 -and $type -ne 0x8000)) { throw "Unsupported ZIP entry type: $name" }
+            $externalAttributes = [BitConverter]::ToUInt32([BitConverter]::GetBytes([int]$entry.ExternalAttributes), 0); $type = (($externalAttributes -shr 16) -band 0xF000); if ($type -eq 0xA000 -or ($type -ne 0 -and $type -ne 0x8000)) { throw "Unsupported ZIP entry type: $name" }
             [void]$names.Add($name)
         }
         $duplicates = @($names | Group-Object | Where-Object { $_.Count -ne 1 }); if ($duplicates.Count -gt 0) { throw "Duplicate ZIP entries: $($duplicates.Name -join ', ')" }
