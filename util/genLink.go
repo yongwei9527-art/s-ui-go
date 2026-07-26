@@ -210,7 +210,13 @@ func prepareTls(t *model.Tls) map[string]interface{} {
 			}
 			clientReality["enabled"] = reality["enabled"]
 			if shortIDs, hasSIds := reality["short_id"].([]interface{}); hasSIds && len(shortIDs) > 0 {
-				clientReality["short_id"] = shortIDs[common.RandomInt(len(shortIDs))]
+				index, err := common.RandomIntWithError(len(shortIDs))
+				if err != nil {
+					// This only selects an existing public short ID; choose a stable value
+					// rather than replacing secure randomness with a weak generator.
+					index = 0
+				}
+				clientReality["short_id"] = shortIDs[index]
 			}
 			oTls["reality"] = clientReality
 		}

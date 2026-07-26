@@ -143,6 +143,7 @@ func (s *XrayXHTTPService) Save(req XrayXHTTPSaveRequest) error {
 	}
 
 	db := database.GetDB()
+	var change model.Changes
 	err := db.Transaction(func(tx *gorm.DB) error {
 		if inb.Id == 0 {
 			if err := tx.Create(&inb).Error; err != nil {
@@ -178,11 +179,13 @@ func (s *XrayXHTTPService) Save(req XrayXHTTPSaveRequest) error {
 				return err
 			}
 		}
-		return tx.Create(&model.Changes{DateTime: time.Now().Unix(), Actor: "system", Key: "xray-xhttp", Action: "save", Obj: json.RawMessage(fmt.Sprintf(`{"tag":%q}`, inb.Tag))}).Error
+		change = model.Changes{DateTime: time.Now().Unix(), Actor: "system", Key: "xray-xhttp", Action: "save", Obj: json.RawMessage(fmt.Sprintf(`{"tag":%q}`, inb.Tag))}
+		return tx.Create(&change).Error
 	})
 	if err != nil {
 		return err
 	}
+	publishLastUpdate(change.Id)
 	if err := s.restartLocked(); err != nil {
 		restoreErr := restoreXrayInboundDatabase(inb.Id, previousInbound, previousClients, "save")
 		if restoreErr != nil {
@@ -208,6 +211,7 @@ func (s *XrayXHTTPService) Delete(id uint) error {
 	if err := database.GetDB().Where("inbound_id = ?", id).Order("id").Find(&previousClients).Error; err != nil {
 		return err
 	}
+	var change model.Changes
 	err := database.GetDB().Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("inbound_id = ?", id).Delete(&model.XrayXHTTPClient{}).Error; err != nil {
 			return err
@@ -219,11 +223,13 @@ func (s *XrayXHTTPService) Delete(id uint) error {
 		if result.RowsAffected == 0 {
 			return common.NewError("XHTTP inbound not found")
 		}
-		return tx.Create(&model.Changes{DateTime: time.Now().Unix(), Actor: "system", Key: "xray-xhttp", Action: "delete", Obj: json.RawMessage(fmt.Sprintf(`{"id":%d}`, id))}).Error
+		change = model.Changes{DateTime: time.Now().Unix(), Actor: "system", Key: "xray-xhttp", Action: "delete", Obj: json.RawMessage(fmt.Sprintf(`{"id":%d}`, id))}
+		return tx.Create(&change).Error
 	})
 	if err != nil {
 		return err
 	}
+	publishLastUpdate(change.Id)
 	if err := s.restartLocked(); err != nil {
 		restoreErr := restoreXrayInboundDatabase(id, &previousInbound, previousClients, "delete")
 		if restoreErr != nil {
@@ -235,7 +241,8 @@ func (s *XrayXHTTPService) Delete(id uint) error {
 }
 
 func restoreXrayInboundDatabase(id uint, inbound *model.XrayXHTTPInbound, clients []model.XrayXHTTPClient, failedAction string) error {
-	return database.GetDB().Transaction(func(tx *gorm.DB) error {
+	var change model.Changes
+	err := database.GetDB().Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("inbound_id = ?", id).Delete(&model.XrayXHTTPClient{}).Error; err != nil {
 			return err
 		}
@@ -254,8 +261,13 @@ func restoreXrayInboundDatabase(id uint, inbound *model.XrayXHTTPInbound, client
 			}
 		}
 		obj := json.RawMessage(fmt.Sprintf(`{"id":%d,"failedAction":%q}`, id, failedAction))
-		return tx.Create(&model.Changes{DateTime: time.Now().Unix(), Actor: "system", Key: "xray-xhttp", Action: "rollback", Obj: obj}).Error
+		change = model.Changes{DateTime: time.Now().Unix(), Actor: "system", Key: "xray-xhttp", Action: "rollback", Obj: obj}
+		return tx.Create(&change).Error
 	})
+	if err == nil {
+		publishLastUpdate(change.Id)
+	}
+	return err
 }
 
 func (s *XrayXHTTPService) Restart() error {

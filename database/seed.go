@@ -1,7 +1,6 @@
 package database
 
 import (
-	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -134,7 +133,10 @@ func buildRealityTLS(name string, serverName string) (model.Tls, error) {
 		return model.Tls{}, err
 	}
 	publicKey := privateKey.PublicKey()
-	shortID := randomHex(8)
+	shortID, err := randomHex(8)
+	if err != nil {
+		return model.Tls{}, err
+	}
 
 	server := map[string]interface{}{
 		"enabled":       true,
@@ -332,7 +334,10 @@ func seedDefaultInbounds(tx *gorm.DB, tlsTemplates map[string]seededTLS, seedHos
 	naivePort := availableListenPort("tcp", 2087)
 	anyTLSPort := availableListenPort("tcp", 2097)
 	hysteriaPort := availableListenPort("udp", 2083)
-	shadowsocksServerPassword := randomBase64(16)
+	shadowsocksServerPassword, err := randomBase64(16)
+	if err != nil {
+		return nil, err
+	}
 
 	inbounds := []json.RawMessage{
 		inboundJSON("vless", inboundTag("vless-reality", vlessPort), tlsTemplates["reality-vless"].id, map[string]interface{}{
@@ -499,9 +504,18 @@ func seedDefaultClient(tx *gorm.DB, inbounds []model.Inbound, seedHost string) e
 	if err != nil {
 		return err
 	}
-	password := common.Random(10)
-	shadowsocksPassword := randomBase64(32)
-	shadowsocks16Password := randomBase64(16)
+	password, err := common.RandomWithError(10)
+	if err != nil {
+		return err
+	}
+	shadowsocksPassword, err := randomBase64(32)
+	if err != nil {
+		return err
+	}
+	shadowsocks16Password, err := randomBase64(16)
+	if err != nil {
+		return err
+	}
 	config := map[string]interface{}{
 		"vless": map[string]interface{}{
 			"name": defaultTemplateClientName,
@@ -625,6 +639,10 @@ func seedDefaultXrayRealityTemplates(tx *gorm.DB, singBoxInbounds []model.Inboun
 		if err != nil {
 			return err
 		}
+		shortID, err := randomHex(8)
+		if err != nil {
+			return err
+		}
 		inbound := model.XrayXHTTPInbound{
 			Enable:      autoEnable,
 			Tag:         inboundTag("xray-vless-reality-"+template.transport, port),
@@ -634,7 +652,7 @@ func seedDefaultXrayRealityTemplates(tx *gorm.DB, singBoxInbounds []model.Inboun
 			Dest:        "go.microsoft.com:443",
 			PrivateKey:  base64.RawURLEncoding.EncodeToString(privateKey[:]),
 			PublicKey:   base64.RawURLEncoding.EncodeToString(publicKey[:]),
-			ShortID:     randomHex(8),
+			ShortID:     shortID,
 			Fingerprint: "chrome",
 			Transport:   template.transport,
 			Path:        template.path,
@@ -766,20 +784,20 @@ func detectLocalIPv4() string {
 	return ""
 }
 
-func randomHex(byteLen int) string {
-	buf := make([]byte, byteLen)
-	if _, err := rand.Read(buf); err != nil {
-		return common.Random(byteLen * 2)
+func randomHex(byteLen int) (string, error) {
+	buf, err := common.RandomBytes(byteLen)
+	if err != nil {
+		return "", err
 	}
-	return hex.EncodeToString(buf)
+	return hex.EncodeToString(buf), nil
 }
 
-func randomBase64(byteLen int) string {
-	buf := make([]byte, byteLen)
-	if _, err := rand.Read(buf); err != nil {
-		return common.Random(byteLen)
+func randomBase64(byteLen int) (string, error) {
+	buf, err := common.RandomBytes(byteLen)
+	if err != nil {
+		return "", err
 	}
-	return base64.StdEncoding.EncodeToString(buf)
+	return base64.StdEncoding.EncodeToString(buf), nil
 }
 
 func pemLines(pem []byte) []string {

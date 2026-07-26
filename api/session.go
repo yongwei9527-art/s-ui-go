@@ -24,7 +24,10 @@ func sessionOptions(c *gin.Context, maxAge int) sessions.Options {
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		Secure:   c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https"),
+		// X-Forwarded-Proto is accepted only from a reverse proxy explicitly
+		// configured by the web server. A direct client cannot make its own
+		// session cookie look like an HTTPS-proxied request.
+		Secure: c.Request.TLS != nil || (isTrustedProxy(c) && strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")),
 	}
 	if maxAge > 0 {
 		options.MaxAge = maxAge * 60

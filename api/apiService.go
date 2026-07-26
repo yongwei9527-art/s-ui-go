@@ -39,8 +39,21 @@ func (a *ApiService) LoadData(c *gin.Context) {
 	jsonObj(c, data, nil)
 }
 
+func setLoadDataRevision(data map[string]interface{}, revision uint64) {
+	// JSON numbers cannot represent every uint64 value exactly in JavaScript.
+	// Keep the revision as an opaque decimal token for lossless lu round-trips.
+	data["lastUpdate"] = strconv.FormatUint(revision, 10)
+}
+
 func (a *ApiService) getData(c *gin.Context) (interface{}, error) {
 	data := make(map[string]interface{}, 0)
+
+	// Capture the revision before deciding whether a full payload is needed. If a
+	// commit races this request, returning the earlier revision is conservative:
+	// the browser will request it again instead of incorrectly advancing past data
+	// that was not included in this response.
+	setLoadDataRevision(data, a.ConfigService.CurrentChangeRevision())
+
 	lu := c.Query("lu")
 	isUpdated, err := a.ConfigService.CheckChanges(lu)
 	if err != nil {

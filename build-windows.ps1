@@ -172,6 +172,58 @@ function Test-LinuxPackageArchive([string]$ArchivePath, [string]$Architecture) {
     }
     Write-Host 'Linux 发布 ZIP 文件集、结构和路径安全检查通过。' -ForegroundColor Green
 }
+function Test-Sha256Sidecar([string]$ArchivePath) {
+    $archive = Get-Item -LiteralPath $ArchivePath -ErrorAction Stop
+    $sidecarPath = "$($archive.FullName).sha256"
+    if ($archive.PSIsContainer -or -not (Test-Path -LiteralPath $sidecarPath -PathType Leaf)) { throw "Missing SHA-256 sidecar: $sidecarPath" }
+    $sidecar = [IO.File]::ReadAllText($sidecarPath, [Text.Encoding]::ASCII)
+    $match = [regex]::Match($sidecar, "^([0-9a-fA-F]{64})  $([regex]::Escape($archive.Name))\r?\n$")
+    if (-not $match.Success) { throw "Invalid SHA-256 sidecar format: $sidecarPath" }
+    $actual = (Get-FileHash -LiteralPath $archive.FullName -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+    if ($match.Groups[1].Value.ToLowerInvariant() -cne $actual) { throw "SHA-256 validation failed: $($archive.Name)" }
+}
+
+function Test-PackageArchive([string]$ArchivePath, [string]$System, [string]$Architecture) {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $allDocs = @('README.md','RELEASE_NOTES.md','PROTOCOL_GUIDE.md','XRAY-CORE-NOTICE.md')
+    $definitions = @{
+        windows = [pscustomobject]@{ Required = @('sui.exe','s-ui-windows.xml','install-windows.bat','uninstall-windows.bat','s-ui-windows.bat') + $allDocs; Optional = @('libcronet.dll'); Binary = 'sui.exe' }
+        linux = [pscustomobject]@{ Required = @('sui','install.sh','install-linux.sh','uninstall-linux.sh','s-ui.sh') + $allDocs; Optional = @(); Binary = 'sui' }
+        darwin = [pscustomobject]@{ Required = @('sui','install-macos.sh','uninstall-macos.sh','com.s-ui.plist') + $allDocs; Optional = @(); Binary = 'sui' }
+    }
+    $definition = $definitions[$System]; if ($null -eq $definition) { throw "Unsupported package system: $System" }
+    $archive = Get-Item -LiteralPath $ArchivePath -ErrorAction Stop; if ($archive.PSIsContainer -or $archive.Length -le 0) { throw "Invalid ZIP archive: $ArchivePath" }
+    $zip = [IO.Compression.ZipFile]::OpenRead($archive.FullName)
+    try {
+        $names = New-Object 'System.Collections.Generic.List[string]'
+        foreach ($entry in $zip.Entries) {
+            $name = $entry.FullName
+            if ([string]::IsNullOrWhiteSpace($name) -or $name.EndsWith('/') -or $name.EndsWith('\') -or $name.IndexOf([char]0) -ge 0 -or $name.StartsWith('/') -or $name.StartsWith('\') -or $name.Contains('\') -or $name -match '^[A-Za-z]:' -or $name -match '(^|/)\.\.(/|$)') { throw "Unsafe or directory ZIP entry: $name" }
+            $type = (([uint32]$entry.ExternalAttributes -shr 16) -band 0xF000); if ($type -eq 0xA000 -or ($type -ne 0 -and $type -ne 0x8000)) { throw "Unsupported ZIP entry type: $name" }
+            [void]$names.Add($name)
+        }
+        $duplicates = @($names | Group-Object | Where-Object { $_.Count -ne 1 }); if ($duplicates.Count -gt 0) { throw "Duplicate ZIP entries: $($duplicates.Name -join ', ')" }
+        foreach ($required in $definition.Required) { if (@($names | Where-Object { $_ -ceq $required }).Count -ne 1) { throw "Missing required ZIP entry: $required" } }
+        $extra = @($names | Where-Object { (@($definition.Required) + @($definition.Optional)) -cnotcontains $_ }); if ($extra.Count -gt 0) { throw "Unexpected ZIP entries: $($extra -join ', ')" }
+        if (@($names | Where-Object { @('xray','xray.exe') -contains (($_ -split '/')[-1]).ToLowerInvariant() }).Count -gt 0) { throw 'Standalone Xray binary is not allowed in a release ZIP.' }
+        foreach ($doc in $allDocs) {
+            $entry = $zip.GetEntry($doc); if ($null -eq $entry) { throw "Missing embedded document: $doc" }
+            $memory = New-Object IO.MemoryStream; $stream = $entry.Open(); try { $stream.CopyTo($memory) } finally { $stream.Dispose() }
+            $embeddedHash = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($memory.ToArray())).Replace('-',''); $memory.Dispose()
+            if ($embeddedHash -cne (Get-FileHash -LiteralPath $doc -Algorithm SHA256 -ErrorAction Stop).Hash) { throw "Embedded document differs from source: $doc" }
+        }
+        if ($Architecture -eq 'amd64') {
+            $entry = $zip.GetEntry($definition.Binary); if ($null -eq $entry) { throw "Missing release binary: $($definition.Binary)" }
+            [byte[]]$bytes = New-Object byte[] 512; $stream = $entry.Open(); try { $count = $stream.Read($bytes,0,$bytes.Length) } finally { $stream.Dispose() }; if ($count -lt 32) { throw "Release binary is too short: $($definition.Binary)" }
+            switch ($System) {
+                windows { $offset=[BitConverter]::ToInt32($bytes,0x3c); if ($bytes[0] -ne 0x4d -or $bytes[1] -ne 0x5a -or $offset -lt 0 -or ($offset+6) -gt $count -or $bytes[$offset] -ne 0x50 -or $bytes[$offset+1] -ne 0x45 -or [BitConverter]::ToUInt16($bytes,$offset+4) -ne 0x8664) { throw 'Windows binary is not amd64 PE.' } }
+                linux { if ($bytes[0] -ne 0x7f -or $bytes[1] -ne 0x45 -or $bytes[2] -ne 0x4c -or $bytes[3] -ne 0x46 -or [BitConverter]::ToUInt16($bytes,18) -ne 0x003e) { throw 'Linux binary is not amd64 ELF.' } }
+                darwin { if ($bytes[0] -ne 0xcf -or $bytes[1] -ne 0xfa -or $bytes[2] -ne 0xed -or $bytes[3] -ne 0xfe -or [BitConverter]::ToUInt32($bytes,4) -ne 0x01000007) { throw 'macOS binary is not amd64 Mach-O.' } }
+            }
+        }
+    } finally { $zip.Dispose() }
+    Write-Host "$System/$Architecture ZIP structure, documents, and binary format validated." -ForegroundColor Green
+}
 function Test-BuildModuleMetadata([string]$BinaryPath) {
     $metadata = @(& go version -m $BinaryPath)
     if ($LASTEXITCODE -ne 0) {
@@ -386,6 +438,8 @@ if ($Package) {
         Copy-RequiredPackageFile $output $packageDir 'sui.exe'
         Compress-Archive -Path "$packageDir\*" -DestinationPath $archivePath -Force -ErrorAction Stop
         Write-Sha256Sidecar $archivePath
+        Test-PackageArchive $archivePath $System $Architecture
+        Test-Sha256Sidecar $archivePath
         Write-Host "已生成压缩包 / Package generated: $archivePath" -ForegroundColor Green
     } elseif ($System -eq "linux") {
         Copy-RequiredPackageFile $output $packageDir 'sui'
@@ -405,8 +459,9 @@ if ($Package) {
         # repository's static s-ui.service, which could make a package's service path misleading.
         Write-Host "Xray-core Go 源码依赖已编译进 sui；未附带独立 xray 文件。" -ForegroundColor Green
         Compress-Archive -Path "$packageDir\*" -DestinationPath $archivePath -Force -ErrorAction Stop
-        Test-LinuxPackageArchive $archivePath $Architecture
         Write-Sha256Sidecar $archivePath
+        Test-PackageArchive $archivePath $System $Architecture
+        Test-Sha256Sidecar $archivePath
         Write-Host "已生成压缩包 / Package generated: $archivePath" -ForegroundColor Green
     } else {
         foreach ($document in @('RELEASE_NOTES.md', 'PROTOCOL_GUIDE.md', 'XRAY-CORE-NOTICE.md', 'README.md')) {
@@ -418,6 +473,8 @@ if ($Package) {
         Copy-RequiredPackageFile $output $packageDir 'sui'
         Compress-Archive -Path "$packageDir\*" -DestinationPath $archivePath -Force -ErrorAction Stop
         Write-Sha256Sidecar $archivePath
+        Test-PackageArchive $archivePath $System $Architecture
+        Test-Sha256Sidecar $archivePath
         Write-Host "已生成压缩包 / Package generated: $archivePath" -ForegroundColor Green
     }
 }

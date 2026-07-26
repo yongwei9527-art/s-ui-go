@@ -52,6 +52,17 @@ import {
 } from 'chart.js'
 import { ref } from 'vue'
 import { Line } from 'vue-chartjs'
+
+import {
+  beginStatsRequest,
+  failStatsRequest,
+  finishStatsRequest,
+  getStatsRecords,
+  invalidateStatsRequests,
+  stopStatsPolling,
+} from './Stats.request'
+import { aggregateTrafficByBucket } from './Stats.traffic'
+
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -74,6 +85,7 @@ export default {
       loaded: false,
       alert: false,
       intervalId: <any>0,
+      requestId: 0,
       limit: 1,
       periods: [
         { value: 1, title: i18n.global.n(1) + i18n.global.t('date.h')},
@@ -130,10 +142,14 @@ export default {
   },
   methods: {
     async loadData() {
-      this.loading = true
-      const data = await HttpUtils.get('api/stats', { resource: this.resource, tag: this.tag, limit: this.limit })
-      if (data.success && data.obj) {
-        const obj = <any[]>data.obj
+      const requestId = beginStatsRequest(this)
+
+      try {
+        const data = await HttpUtils.get('api/stats', { resource: this.resource, tag: this.tag, limit: this.limit })
+        const obj = getStatsRecords(this, requestId, data)
+        if (obj === null) {
+          return
+        }
         const l = String(i18n.global.locale) == 'fa' ? "fa-IR" : "en-US"
         const oneStep = this.limit * 3600 * 1000 / 360 // Each 10 sec
         const now = new Date().getTime()
@@ -142,19 +158,10 @@ export default {
           steps.push(now - (oneStep * i))
         }
         const labels = <string[]>[]
-        const uplinkData = <number[]>[]
-        const downlinkData = <number[]>[]
-        for (let i = 1; i<360; i++) {
-          labels.push(this.genLable(steps[i],l))
-          let upSum:number
-          let downSum:number
-          const upTraffics = obj.filter(o => o.direction && o.dateTime*1000 < steps[i] && o.dateTime*1000 > steps[i-1]).map((o:any) => o.traffic)
-          upSum = upTraffics.length>0 ? upTraffics.reduce(u => u) : null
-          const downTraffics = obj.filter(o => !o.direction && o.dateTime*1000 < steps[i] && o.dateTime*1000 > steps[i-1]).map((o:any) => o.traffic)
-          downSum = downTraffics.length>0 ? downTraffics.reduce(d => d) : null
-          uplinkData.push(upSum)
-          downlinkData.push(downSum)
+        for (let i = 1; i < 360; i++) {
+          labels.push(this.genLable(steps[i], l))
         }
+        const { uplink: uplinkData, downlink: downlinkData } = aggregateTrafficByBucket(obj, steps.slice(0, 360))
         this.usage = {
           labels: labels,
           datasets: [
@@ -176,11 +183,20 @@ export default {
         }
         this.loaded = true
         this.alert = false
-      } else {
-        this.alert = true
-        this.loaded = false
+      } catch {
+        failStatsRequest(this, requestId)
+      } finally {
+        finishStatsRequest(this, requestId)
       }
-      this.loading = false
+    },
+    stopPolling() {
+      this.intervalId = stopStatsPolling(this.intervalId)
+    },
+    resetStats() {
+      invalidateStatsRequests(this)
+      this.loaded = false
+      this.alert = false
+      this.usage = { labels: [], datasets: [] }
     },
     genLable(step:number, locale: string) {
       return new Date(step).toLocaleString(locale,{
@@ -192,25 +208,22 @@ export default {
       })
     },
   },
+  beforeUnmount() {
+    this.stopPolling()
+    invalidateStatsRequests(this)
+  },
   watch: {
     visible(v) {
       if (v) {
+        this.stopPolling()
         this.limit = 1
         this.loadData()
         this.intervalId = setInterval(() => {
           this.loadData()
         }, 10000)
       } else {
-        this.loaded = false
-        this.alert = false
-        this.usage.labels = []
-        if (this.usage.datasets) {
-          this.usage.datasets[0].data = []
-          this.usage.datasets[1].data = []
-        }
-        if (this.intervalId && this.intervalId != 0) {
-          clearInterval(this.intervalId)
-        }
+        this.stopPolling()
+        this.resetStats()
       }
     }
   }

@@ -160,29 +160,37 @@ When adding new features, place code in the appropriate layer (handler → servi
 
 ## Testing
 
-### Current State
+### Required CI checks
 
-- The project does not yet have a formal test suite (no `*_test.go` files in the repo).
-- CI currently focuses on **builds** (e.g. `release.yml`) rather than automated tests.
+Every pull request, and each push to `main` or `latest-project-upload`, runs the following checks in GitHub Actions:
 
-### What You Can Do Now
+1. `npm ci`, `npm run lint`, and `npm run build` from `frontend/`.
+2. `go test ./...`.
+3. `go vet ./...`.
 
-1. **Build verification**: Before submitting a PR, ensure the project builds:
+The frontend is checked first because Go embeds the generated `frontend/dist` assets during compilation. The workflow uses the committed npm lockfile, Node.js `22.18.0`, and Go `1.26.3` to keep validation reproducible.
 
-   ```bash
-   go build -ldflags "-w -s" -tags "with_quic,with_grpc,with_utls,with_acme,with_gvisor,with_tailscale" -o sui main.go
-   ```
+### Local verification
 
-2. **Manual testing**: Run with `./runSUI.sh`, test the changed area (panel, API, subscription, etc.).
-
-3. **Future tests**: Contributions that add **unit tests** (e.g. for `util/`, `service/`, or API handlers) or **integration tests** are very welcome. Prefer the standard library `testing` package and table-driven tests where appropriate.
-
-### Running the Linter (optional)
+Run the same checks before opening a pull request:
 
 ```bash
+cd frontend
+npm ci
+npm run lint
+npm run build
+cd ..
+go test ./...
 go vet ./...
-# Optional: staticcheck, golangci-lint, etc.
 ```
+
+For a production-style executable build, you can also run:
+
+```bash
+go build -ldflags "-w -s" -tags "with_quic,with_grpc,with_utls,with_acme,with_gvisor,with_tailscale" -o sui main.go
+```
+
+Manual testing remains important: run with `./runSUI.sh` and verify the changed panel, API, subscription, or runtime behavior. Contributions that add focused unit or integration tests are especially welcome; prefer the standard library `testing` package and table-driven tests where appropriate.
 
 ---
 

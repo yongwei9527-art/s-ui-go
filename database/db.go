@@ -48,7 +48,10 @@ func initUser() error {
 			return errors.New("SUI_INITIAL_ADMIN_PASSWORD must not be empty or whitespace")
 		}
 		if !configured {
-			initialPassword = common.Random(24)
+			initialPassword, err = common.RandomWithError(24)
+			if err != nil {
+				return err
+			}
 		}
 		password, err := common.HashPassword(initialPassword)
 		if err != nil {

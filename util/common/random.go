@@ -2,54 +2,81 @@ package common
 
 import (
 	crand "crypto/rand"
+	"io"
 	"math/big"
-	mrand "math/rand"
-	"sync"
-	"time"
 )
 
 var (
-	allSeq []rune = []rune{
+	allSeq = []rune{
 		'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
 		'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
 		'0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
 	}
 
-	fallbackRand = mrand.New(mrand.NewSource(time.Now().UnixNano()))
-	fallbackMu   = sync.Mutex{}
+	// randomReader is crypto/rand.Reader in production. Keeping it package-local
+	// makes entropy-source failures testable without changing callers.
+	randomReader io.Reader = crand.Reader
 )
 
-func Random(n int) string {
+// RandomWithError returns a cryptographically secure random alphanumeric string.
+// It returns an error if the system entropy source cannot provide random data.
+func RandomWithError(n int) (string, error) {
 	if n <= 0 || len(allSeq) == 0 {
-		return ""
+		return "", nil
 	}
+
 	result := make([]rune, n)
-	maxBig := big.NewInt(int64(len(allSeq)))
-	for i := 0; i < n; i++ {
-		num, err := crand.Int(crand.Reader, maxBig)
+	max := big.NewInt(int64(len(allSeq)))
+	for i := range result {
+		value, err := crand.Int(randomReader, max)
 		if err != nil {
-			// fallback
-			fallbackMu.Lock()
-			result[i] = allSeq[fallbackRand.Intn(len(allSeq))]
-			fallbackMu.Unlock()
-			continue
+			return "", err
 		}
-		result[i] = allSeq[int(num.Int64())]
+		result[i] = allSeq[value.Int64()]
 	}
-	return string(result)
+	return string(result), nil
 }
 
-func RandomInt(n int) int {
+// Random is retained for compatibility. It never falls back to math/rand; it
+// returns an empty string when secure randomness is unavailable. Security-
+// sensitive callers must use RandomWithError so they can handle that failure.
+func Random(n int) string {
+	result, _ := RandomWithError(n)
+	return result
+}
+
+// RandomIntWithError returns a cryptographically secure random integer in [0, n).
+// It returns an error if the system entropy source cannot provide random data.
+func RandomIntWithError(n int) (int, error) {
 	if n <= 0 {
-		return 0
+		return 0, nil
 	}
-	max := big.NewInt(int64(n))
-	result, err := crand.Int(crand.Reader, max)
+
+	result, err := crand.Int(randomReader, big.NewInt(int64(n)))
 	if err != nil {
-		// fallback
-		fallbackMu.Lock()
-		defer fallbackMu.Unlock()
-		return fallbackRand.Intn(n)
+		return 0, err
 	}
-	return int(result.Int64())
+	return int(result.Int64()), nil
+}
+
+// RandomInt is retained for compatibility. It never falls back to math/rand;
+// it returns zero when secure randomness is unavailable. Callers that need to
+// distinguish zero from an entropy failure must use RandomIntWithError.
+func RandomInt(n int) int {
+	result, _ := RandomIntWithError(n)
+	return result
+}
+
+// RandomBytes returns n cryptographically secure random bytes. It returns an
+// error rather than producing a weaker fallback when the entropy source fails.
+func RandomBytes(n int) ([]byte, error) {
+	if n <= 0 {
+		return []byte{}, nil
+	}
+
+	result := make([]byte, n)
+	if _, err := io.ReadFull(randomReader, result); err != nil {
+		return nil, err
+	}
+	return result, nil
 }

@@ -1,16 +1,17 @@
 # s-ui-go 0.1 发布说明
 
 > **用户可见名称：** s-ui-go 0.1
-> **发布标签：** [`s-ui-go-v0.1.0`](https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.0)
+> **发布标签：** [`s-ui-go-v0.1.1`](https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.1)
 
 ## 本次发布的交付与校验
 
-Linux 发布资产是一对不可分割的文件：
+每个平台的发布资产均为不可分割的一对文件：
 
-- `s-ui-linux-amd64.zip`
-- `s-ui-linux-amd64.zip.sha256`
+- `s-ui-windows-amd64.zip` 与 `s-ui-windows-amd64.zip.sha256`
+- `s-ui-linux-amd64.zip` 与 `s-ui-linux-amd64.zip.sha256`
+- `s-ui-macos-amd64.zip` 与 `s-ui-macos-amd64.zip.sha256`
 
-正确流程是：**校验 ZIP → 解压 ZIP → 使用其中的 `sui` 或 `install-linux.sh`**。校验文件校验的是 ZIP 本身；本次发布不要求、也不提供作为安装契约的裸二进制校验文件。不要使用任何可变分支脚本或 `curl | bash` 作为 bootstrap 信任来源。
+正确流程是：**校验 ZIP → 解压 ZIP → 使用其中的安装脚本或 `sui`**。校验文件校验的是 ZIP 本身；本次发布不要求、也不提供作为安装契约的裸二进制校验文件。不要使用任何可变分支脚本或 `curl | bash` 作为 bootstrap 信任来源。
 
 ```bash
 sha256sum --check s-ui-linux-amd64.zip.sha256
@@ -47,7 +48,7 @@ XHTTP 的实际支持范围比 TCP Vision 窄；无法确认 `type=xhttp` 时应
 
 ## Official references
 
-- Release: <https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.0>
+- Release: <https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.1>
 - Xray-core v26.3.27: <https://github.com/XTLS/Xray-core/releases/tag/v26.3.27>
 - Xray transport / Reality: <https://xtls.github.io/en/config/transport.html>
 - Mihomo VLESS: <https://wiki.metacubex.one/en/config/proxies/vless/>

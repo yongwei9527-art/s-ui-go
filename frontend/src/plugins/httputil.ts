@@ -1,3 +1,4 @@
+import axios from 'axios'
 import api from './api'
 import { i18n } from '@/locales'
 import router from '@/router'
@@ -7,6 +8,7 @@ export interface Msg {
   success: boolean
   msg: string
   obj: any | null
+  cancelled?: boolean
 }
 
 function _handleMsg(msg: any): void {
@@ -36,7 +38,7 @@ function _handleMsg(msg: any): void {
 }
 
 export const logout = async () => {
-  const response = await HttpUtils.get('api/logout')
+  const response = await HttpUtils.post('api/logout', null)
   localStorage.removeItem('s-ui-authenticated')
   if(response.success){
     router.push('/login')
@@ -58,6 +60,18 @@ function isMsg(obj: any): obj is Msg {
   return obj != null && Object.hasOwn(obj,'success') && Object.hasOwn(obj,'msg')
 }
 
+function errorToMsg(error: any): Msg {
+  if (axios.isCancel(error)) {
+    return { success: false, msg: '', obj: null, cancelled: true }
+  }
+
+  const body = error?.response?.data
+  if (isMsg(body)) {
+    return { success: body.success, msg: body.msg, obj: Object.hasOwn(body, 'obj') ? body.obj : null }
+  }
+  return { success: false, msg: error?.message ?? String(error), obj: null }
+}
+
 const HttpUtils = {
   async get(url: string, data: object = {}, options: any[] = []): Promise<Msg> {
     let msg: Msg
@@ -65,7 +79,7 @@ const HttpUtils = {
         const resp = await api.get(url, { params: data, ...options })
         msg = _respToMsg(resp)
     } catch (e: any) {
-        msg = { success: false, msg: e.toString(), obj: null }
+        msg = errorToMsg(e)
     }
     _handleMsg(msg)
     return msg
@@ -76,7 +90,7 @@ const HttpUtils = {
         const resp = await api.post(url, data, options)
         msg = _respToMsg(resp)
     } catch (e: any) {
-        msg = { success: false, msg: e.toString(), obj: null }
+        msg = errorToMsg(e)
     }
     _handleMsg(msg)
     return msg

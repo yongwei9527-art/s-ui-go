@@ -384,35 +384,33 @@ func (s *ClientService) UpdateLinksByInboundChange(tx *gorm.DB, inbounds *[]mode
 }
 
 func (s *ClientService) DepleteClients() ([]uint, bool, error) {
-	var err error
 	var clients []model.Client
 	var changes []model.Changes
 	var users []string
 	var inboundIds []uint
-	var authorizationChanged bool
 
 	dt := time.Now().Unix()
 	db := database.GetDB()
-
 	tx := db.Begin()
+	if tx.Error != nil {
+		return nil, false, tx.Error
+	}
+	committed := false
 	defer func() {
-		if err == nil {
-			tx.Commit()
-			if err1 := db.Exec("PRAGMA wal_checkpoint(FULL)").Error; err1 != nil {
-				logger.Error("Error checkpointing WAL: ", err1.Error())
-			}
-		} else {
+		if !committed {
 			tx.Rollback()
 		}
 	}()
 
 	// Reset clients. A periodic reset may reactivate a previously depleted user.
-	inboundIds, err = s.ResetClients(tx, dt)
+	var resetChanged bool
+	var err error
+	inboundIds, resetChanged, err = s.ResetClients(tx, dt)
 	if err != nil {
 		return nil, false, err
 	}
 
-	// Deplete clients
+	// Deplete clients.
 	err = tx.Model(model.Client{}).Where("enable = true AND ((volume >0 AND up+down > volume) OR (expiry > 0 AND expiry < ?))", dt).Scan(&clients).Error
 	if err != nil {
 		return nil, false, err
@@ -423,7 +421,6 @@ func (s *ClientService) DepleteClients() ([]uint, bool, error) {
 		users = append(users, client.Name)
 		var userInbounds []uint
 		json.Unmarshal(client.Inbounds, &userInbounds)
-		// Find changed inbounds
 		inboundIds = common.UnionUintArray(inboundIds, userInbounds)
 		changes = append(changes, model.Changes{
 			DateTime: dt,
@@ -434,7 +431,6 @@ func (s *ClientService) DepleteClients() ([]uint, bool, error) {
 		})
 	}
 
-	// Save changes
 	if len(changes) > 0 {
 		err = tx.Model(model.Client{}).Where("enable = true AND ((volume >0 AND up+down > volume) OR (expiry > 0 AND expiry < ?))", dt).Update("enable", false).Error
 		if err != nil {
@@ -444,24 +440,36 @@ func (s *ClientService) DepleteClients() ([]uint, bool, error) {
 		if err != nil {
 			return nil, false, err
 		}
-		LastUpdate = dt
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return nil, false, err
+	}
+	committed = true
+	if resetChanged || len(changes) > 0 {
+		// ResetClients may have created the newest change record, so refresh the
+		// durable revision only after the transaction has committed.
+		publishLatestChangeRevision()
+	}
+	if err := db.Exec("PRAGMA wal_checkpoint(FULL)").Error; err != nil {
+		logger.Error("Error checkpointing WAL: ", err.Error())
 	}
 
 	// len(inboundIds) covers normal inbounds; the explicit boolean also covers
 	// users assigned exclusively to the embedded Xray runtime.
-	authorizationChanged = len(clients) > 0 || len(inboundIds) > 0
+	authorizationChanged := len(clients) > 0 || len(inboundIds) > 0
 	return inboundIds, authorizationChanged, nil
 }
-func (s *ClientService) ResetClients(tx *gorm.DB, dt int64) ([]uint, error) {
-	var err error
+
+func (s *ClientService) ResetClients(tx *gorm.DB, dt int64) ([]uint, bool, error) {
 	var resetClients, allClients []*model.Client
 	var changes []model.Changes
 	var inboundIds []uint
-	// Set delay start without periodic reset
-	err = tx.Model(model.Client{}).
-		Where("enable = true AND delay_start = true AND auto_reset = false AND (Up + Down) > 0").Find(&resetClients).Error
-	if err != nil {
-		return nil, err
+
+	// Set delay start without periodic reset.
+	if err := tx.Model(model.Client{}).
+		Where("enable = true AND delay_start = true AND auto_reset = false AND (Up + Down) > 0").Find(&resetClients).Error; err != nil {
+		return nil, false, err
 	}
 	for _, client := range resetClients {
 		client.Expiry = dt + (int64(client.ResetDays) * 86400)
@@ -476,11 +484,11 @@ func (s *ClientService) ResetClients(tx *gorm.DB, dt int64) ([]uint, error) {
 	}
 	allClients = append(allClients, resetClients...)
 
-	// Set delay start with periodic reset
-	err = tx.Model(model.Client{}).
-		Where("enable = true AND delay_start = true AND auto_reset = true AND (Up + Down) > 0").Find(&resetClients).Error
-	if err != nil {
-		return nil, err
+	// Set delay start with periodic reset.
+	resetClients = nil
+	if err := tx.Model(model.Client{}).
+		Where("enable = true AND delay_start = true AND auto_reset = true AND (Up + Down) > 0").Find(&resetClients).Error; err != nil {
+		return nil, false, err
 	}
 	for _, client := range resetClients {
 		client.NextReset = dt + (int64(client.ResetDays) * 86400)
@@ -495,11 +503,11 @@ func (s *ClientService) ResetClients(tx *gorm.DB, dt int64) ([]uint, error) {
 	}
 	allClients = append(allClients, resetClients...)
 
-	// Set periodic reset
-	err = tx.Model(model.Client{}).
-		Where("delay_start = false AND auto_reset = true AND next_reset < ?", dt).Find(&resetClients).Error
-	if err != nil {
-		return nil, err
+	// Set periodic reset.
+	resetClients = nil
+	if err := tx.Model(model.Client{}).
+		Where("delay_start = false AND auto_reset = true AND next_reset < ?", dt).Find(&resetClients).Error; err != nil {
+		return nil, false, err
 	}
 	for _, client := range resetClients {
 		client.NextReset = dt + (int64(client.ResetDays) * 86400)
@@ -516,25 +524,18 @@ func (s *ClientService) ResetClients(tx *gorm.DB, dt int64) ([]uint, error) {
 	}
 	allClients = append(allClients, resetClients...)
 
-	// Save clients
 	if len(allClients) > 0 {
-		err = tx.Save(allClients).Error
-		if err != nil {
-			return nil, err
+		if err := tx.Save(allClients).Error; err != nil {
+			return nil, false, err
 		}
 	}
-
-	// Save changes
 	if len(changes) > 0 {
-		err = tx.Model(model.Changes{}).Create(&changes).Error
-		if err != nil {
-			return nil, err
+		if err := tx.Model(model.Changes{}).Create(&changes).Error; err != nil {
+			return nil, false, err
 		}
-		LastUpdate = dt
 	}
-	return inboundIds, nil
+	return inboundIds, len(changes) > 0, nil
 }
-
 func (s *ClientService) findInboundsChanges(tx *gorm.DB, client *model.Client, fillOmitted bool) ([]uint, error) {
 	var err error
 	var oldClient model.Client

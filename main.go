@@ -25,7 +25,7 @@ func runApp() {
 
 	sigCh := make(chan os.Signal, 1)
 	// Trap shutdown signals
-	signal.Notify(sigCh, syscall.SIGHUP, syscall.SIGTERM)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM)
 	for {
 		sig := <-sigCh
 

@@ -32,8 +32,15 @@ func IsDefaultAdminCredentials(username string, password string) bool {
 	return IsDefaultAdminUsername(username) && password == defaultAdminPassword
 }
 
+// GenerateAdminPassword is retained for compatibility. New callers should use
+// GenerateAdminPasswordWithError so entropy-source failures are visible.
 func GenerateAdminPassword() string {
-	return common.Random(24)
+	password, _ := GenerateAdminPasswordWithError()
+	return password
+}
+
+func GenerateAdminPasswordWithError() (string, error) {
+	return common.RandomWithError(24)
 }
 
 func (s *UserService) GetFirstUser() (*model.User, error) {
@@ -209,7 +216,10 @@ func (s *UserService) AddToken(username string, expiry int64, desc string) (stri
 	if expiry > 0 {
 		expiry = expiry*86400 + time.Now().Unix()
 	}
-	plainToken := common.Random(32)
+	plainToken, err := common.RandomWithError(32)
+	if err != nil {
+		return "", err
+	}
 	token := &model.Tokens{
 		Token:  common.HashToken(plainToken),
 		Desc:   desc,

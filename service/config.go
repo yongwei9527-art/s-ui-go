@@ -14,15 +14,72 @@ import (
 )
 
 var (
-	LastUpdate          int64
-	corePtr             *core.Core
+	// LastUpdate is protected by lastUpdateMu. Keep all access behind
+	// loadLastUpdate and publishLastUpdate so a committed change is never
+	// observed concurrently with an unsynchronised write.
+	LastUpdate            uint64
+	lastUpdateInitialized bool
+	lastUpdateMu          sync.RWMutex
+	corePtr               *core.Core
+	coreOperationMu       sync.Mutex
+
 	startCoreMu         sync.Mutex
 	startCoreInProgress bool
 	lastStartFailTime   time.Time
 	startFailCount      int
 	startCooldown       = 15 * time.Second
 	maxStartCooldown    = 5 * time.Minute
+
+	configRestartMu                sync.Mutex
+	pendingConfigRestart           json.RawMessage
+	pendingConfigRestartVersion    uint64
+	configRestartWorkerRunning     bool
+	configRestartRetryNotification = make(chan struct{}, 1)
 )
+
+const (
+	configRestartInitialBackoff = 100 * time.Millisecond
+	configRestartMaximumBackoff = time.Second
+)
+
+func loadLastUpdate() uint64 {
+	lastUpdateMu.RLock()
+	defer lastUpdateMu.RUnlock()
+	return LastUpdate
+}
+
+func loadLastUpdateState() (uint64, bool) {
+	lastUpdateMu.RLock()
+	defer lastUpdateMu.RUnlock()
+	return LastUpdate, lastUpdateInitialized
+}
+
+func publishLastUpdate(revision uint64) {
+	lastUpdateMu.Lock()
+	if revision > LastUpdate {
+		LastUpdate = revision
+	}
+	lastUpdateInitialized = true
+	lastUpdateMu.Unlock()
+}
+
+func latestChangeRevision() (uint64, error) {
+	var latest model.Changes
+	result := database.GetDB().Order("id DESC").Limit(1).Find(&latest)
+	if result.Error != nil {
+		return 0, result.Error
+	}
+	return latest.Id, nil
+}
+
+func publishLatestChangeRevision() {
+	revision, err := latestChangeRevision()
+	if err != nil {
+		logger.Warning("unable to load latest change revision: ", err)
+		return
+	}
+	publishLastUpdate(revision)
+}
 
 func coreStartCooldown() time.Duration {
 	cooldown := startCooldown
@@ -50,6 +107,11 @@ type ConfigService struct {
 	OutboundService
 	ServicesService
 	EndpointService
+
+	// restartConfigFn is a test seam; it still runs under the serialized Core lifecycle lock.
+	restartConfigFn func(json.RawMessage) error
+	// restartConfigRetryWait is a test seam for bounded retry backoff.
+	restartConfigRetryWait func(time.Duration)
 }
 
 type SingBoxConfig struct {
@@ -113,10 +175,16 @@ func (s *ConfigService) GetConfig(data string) (*[]byte, error) {
 }
 
 func (s *ConfigService) StartCore() error {
+	coreOperationMu.Lock()
+	defer coreOperationMu.Unlock()
+	return s.startCoreLocked()
+}
+
+func (s *ConfigService) startCoreLocked() error {
 	if corePtr == nil {
 		return common.NewError("core is not initialized")
 	}
-	if corePtr != nil && corePtr.IsRunning() {
+	if corePtr.IsRunning() {
 		return nil
 	}
 	startCoreMu.Lock()
@@ -162,22 +230,28 @@ func (s *ConfigService) StartCore() error {
 }
 
 func (s *ConfigService) RestartCore() error {
-	err := s.StopCore()
-	if err != nil {
+	coreOperationMu.Lock()
+	defer coreOperationMu.Unlock()
+	if err := s.stopCoreLocked(); err != nil {
 		return err
 	}
-	return s.StartCore()
+	return s.startCoreLocked()
 }
 
 func (s *ConfigService) restartCoreWithConfig(config json.RawMessage) error {
+	coreOperationMu.Lock()
+	defer coreOperationMu.Unlock()
+	if s.restartConfigFn != nil {
+		return s.restartConfigFn(config)
+	}
+	return s.restartCoreWithConfigLocked(config)
+}
+
+func (s *ConfigService) restartCoreWithConfigLocked(config json.RawMessage) error {
 	if corePtr == nil {
 		return common.NewError("core is not initialized")
 	}
 	startCoreMu.Lock()
-	if startCoreInProgress {
-		startCoreMu.Unlock()
-		return nil
-	}
 	startCoreInProgress = true
 	startCoreMu.Unlock()
 	defer func() {
@@ -194,7 +268,7 @@ func (s *ConfigService) restartCoreWithConfig(config json.RawMessage) error {
 		logger.Error("restart sing-box err (get config):", err.Error())
 		return err
 	}
-	if corePtr != nil && corePtr.IsRunning() {
+	if corePtr.IsRunning() {
 		if err := corePtr.Stop(); err != nil {
 			logger.Error("restart sing-box err (stop):", err.Error())
 			return err
@@ -208,7 +282,111 @@ func (s *ConfigService) restartCoreWithConfig(config json.RawMessage) error {
 	return nil
 }
 
+func (s *ConfigService) enqueueConfigRestart(config json.RawMessage) {
+	configCopy := append(json.RawMessage(nil), config...)
+
+	configRestartMu.Lock()
+	pendingConfigRestart = configCopy
+	pendingConfigRestartVersion++
+	if configRestartWorkerRunning {
+		configRestartMu.Unlock()
+		select {
+		case configRestartRetryNotification <- struct{}{}:
+		default:
+		}
+		return
+	}
+	configRestartWorkerRunning = true
+	configRestartMu.Unlock()
+
+	go s.processConfigRestartQueue()
+}
+
+func (s *ConfigService) processConfigRestartQueue() {
+	var retryCount int
+	var retryVersion uint64
+
+	for {
+		configRestartMu.Lock()
+		if len(pendingConfigRestart) == 0 {
+			configRestartWorkerRunning = false
+			configRestartMu.Unlock()
+			return
+		}
+		config := append(json.RawMessage(nil), pendingConfigRestart...)
+		version := pendingConfigRestartVersion
+		configRestartMu.Unlock()
+
+		if retryVersion != version {
+			retryVersion = version
+			retryCount = 0
+		}
+		drainConfigRestartRetryNotification()
+
+		if err := s.restartCoreWithConfig(config); err == nil {
+			configRestartMu.Lock()
+			if pendingConfigRestartVersion == version {
+				pendingConfigRestart = nil
+			}
+			configRestartMu.Unlock()
+			retryCount = 0
+			continue
+		} else {
+			logger.Error("restart sing-box err:", err.Error())
+		}
+
+		configRestartMu.Lock()
+		if pendingConfigRestartVersion != version {
+			configRestartMu.Unlock()
+			continue
+		}
+		retryCount++
+		backoff := configRestartBackoff(retryCount)
+		configRestartMu.Unlock()
+
+		s.waitForConfigRestartRetry(backoff)
+	}
+}
+
+func configRestartBackoff(retry int) time.Duration {
+	backoff := configRestartInitialBackoff
+	for attempt := 1; attempt < retry && backoff < configRestartMaximumBackoff; attempt++ {
+		backoff *= 2
+	}
+	if backoff > configRestartMaximumBackoff {
+		return configRestartMaximumBackoff
+	}
+	return backoff
+}
+
+func drainConfigRestartRetryNotification() {
+	select {
+	case <-configRestartRetryNotification:
+	default:
+	}
+}
+
+func (s *ConfigService) waitForConfigRestartRetry(backoff time.Duration) {
+	if s.restartConfigRetryWait != nil {
+		s.restartConfigRetryWait(backoff)
+		return
+	}
+
+	timer := time.NewTimer(backoff)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-configRestartRetryNotification:
+	}
+}
+
 func (s *ConfigService) StopCore() error {
+	coreOperationMu.Lock()
+	defer coreOperationMu.Unlock()
+	return s.stopCoreLocked()
+}
+
+func (s *ConfigService) stopCoreLocked() error {
 	if corePtr == nil {
 		return nil
 	}
@@ -219,7 +397,6 @@ func (s *ConfigService) StopCore() error {
 	logger.Info("sing-box stopped")
 	return nil
 }
-
 func (s *ConfigService) CheckOutbound(tag string, link string) core.CheckOutboundResult {
 	if tag == "" {
 		return core.CheckOutboundResult{Error: "missing query parameter: tag"}
@@ -232,38 +409,19 @@ func (s *ConfigService) CheckOutbound(tag string, link string) core.CheckOutboun
 
 func (s *ConfigService) Save(obj string, act string, data json.RawMessage, initUsers string, loginUser string, hostname string) ([]string, error) {
 	var err error
-	var objs []string = []string{obj}
+	objs := []string{obj}
 	var restartConfigAfterCommit json.RawMessage
 	var restartCurrentConfigAfterCommit bool
 	var reloadXrayAfterCommit bool
 
 	db := database.GetDB()
 	tx := db.Begin()
+	if tx.Error != nil {
+		return nil, tx.Error
+	}
+	committed := false
 	defer func() {
-		if err == nil {
-			tx.Commit()
-			if len(restartConfigAfterCommit) > 0 {
-				go func(configData json.RawMessage) { _ = s.restartCoreWithConfig(configData) }(restartConfigAfterCommit)
-			}
-			if reloadXrayAfterCommit {
-				go func() {
-					if err := (&XrayXHTTPService{}).ReloadAfterClientChange(); err != nil {
-						logger.Warning("unable to refresh Xray XHTTP clients: ", err)
-					}
-				}()
-			}
-			if restartCurrentConfigAfterCommit {
-				go func() {
-					if corePtr != nil && corePtr.IsRunning() {
-						_ = s.RestartCore()
-					} else {
-						_ = s.StartCore()
-					}
-				}()
-			} else if corePtr == nil || !corePtr.IsRunning() {
-				s.StartCore()
-			}
-		} else {
+		if !committed {
 			tx.Rollback()
 		}
 	}()
@@ -299,8 +457,7 @@ func (s *ConfigService) Save(obj string, act string, data json.RawMessage, initU
 		if err != nil {
 			return nil, err
 		}
-		restartConfigAfterCommit = make(json.RawMessage, len(data))
-		copy(restartConfigAfterCommit, data)
+		restartConfigAfterCommit = append(json.RawMessage(nil), data...)
 	case "settings":
 		err = s.SettingService.Save(tx, data)
 	default:
@@ -311,41 +468,88 @@ func (s *ConfigService) Save(obj string, act string, data json.RawMessage, initU
 	}
 
 	dt := time.Now().Unix()
-	err = tx.Create(&model.Changes{
+	change := model.Changes{
 		DateTime: dt,
 		Actor:    loginUser,
 		Key:      obj,
 		Action:   act,
 		Obj:      data,
-	}).Error
+	}
+	err = tx.Create(&change).Error
 	if err != nil {
 		return nil, err
 	}
+	if err := tx.Commit().Error; err != nil {
+		return nil, err
+	}
+	committed = true
+	publishLastUpdate(change.Id)
 
-	LastUpdate = time.Now().Unix()
+	if len(restartConfigAfterCommit) > 0 {
+		s.enqueueConfigRestart(restartConfigAfterCommit)
+	}
+	if reloadXrayAfterCommit {
+		go func() {
+			if err := (&XrayXHTTPService{}).ReloadAfterClientChange(); err != nil {
+				logger.Warning("unable to refresh Xray XHTTP clients: ", err)
+			}
+		}()
+	}
+	if restartCurrentConfigAfterCommit {
+		go func() {
+			if corePtr != nil && corePtr.IsRunning() {
+				_ = s.RestartCore()
+			} else {
+				_ = s.StartCore()
+			}
+		}()
+	} else if corePtr == nil || !corePtr.IsRunning() {
+		_ = s.StartCore()
+	}
 
 	return objs, nil
 }
-
 func (s *ConfigService) CheckChanges(lu string) (bool, error) {
 	if lu == "" {
 		return true, nil
 	}
-	intLu, err := strconv.ParseInt(lu, 10, 64)
+	clientRevision, err := strconv.ParseUint(lu, 10, 64)
 	if err != nil {
 		return true, err
 	}
-	if LastUpdate == 0 {
-		db := database.GetDB()
-		var count int64
-		err := db.Model(model.Changes{}).Where("date_time > ?", intLu).Count(&count).Error
-		if err == nil {
-			LastUpdate = time.Now().Unix()
-		}
-		return count > 0, err
-	} else {
-		return LastUpdate > intLu, nil
+	currentRevision, err := s.currentChangeRevision()
+	if err != nil {
+		return true, err
 	}
+	// Old browsers sent a Unix timestamp. It will always be much larger than a
+	// change ID, so force one full reload to migrate them to the revision token.
+	if clientRevision > currentRevision {
+		return true, nil
+	}
+	return currentRevision > clientRevision, nil
+}
+
+// CurrentChangeRevision exposes the durable change-history ID used by API
+// clients. A zero value is a valid revision for a newly initialized database.
+func (s *ConfigService) CurrentChangeRevision() uint64 {
+	revision, err := s.currentChangeRevision()
+	if err != nil {
+		logger.Warning("unable to read current change revision: ", err)
+		return loadLastUpdate()
+	}
+	return revision
+}
+
+func (s *ConfigService) currentChangeRevision() (uint64, error) {
+	if revision, initialized := loadLastUpdateState(); initialized {
+		return revision, nil
+	}
+	revision, err := latestChangeRevision()
+	if err != nil {
+		return 0, err
+	}
+	publishLastUpdate(revision)
+	return revision, nil
 }
 
 func (s *ConfigService) GetChanges(actor string, chngKey string, count string) []model.Changes {

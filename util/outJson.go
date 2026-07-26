@@ -111,7 +111,13 @@ func addTls(out *map[string]interface{}, tls *model.Tls) {
 		realityConfig := ensureMapValue(tlsConfig, "reality")
 		realityConfig["enabled"] = true
 		if shortIDs := stringSliceValue(reality["short_id"]); len(shortIDs) > 0 {
-			realityConfig["short_id"] = shortIDs[common.RandomInt(len(shortIDs))]
+			index, err := common.RandomIntWithError(len(shortIDs))
+			if err != nil {
+				// This only selects an existing public short ID; choose a stable value
+				// rather than replacing secure randomness with a weak generator.
+				index = 0
+			}
+			realityConfig["short_id"] = shortIDs[index]
 		}
 		tlsConfig["reality"] = realityConfig
 	}

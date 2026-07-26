@@ -229,7 +229,7 @@ onBeforeMount( async () => {
   if (!appConfig.value.dns.servers) appConfig.value.dns.servers = []
   if (!appConfig.value.dns.rules) appConfig.value.dns.rules = []
   loading.value = true
-  while (Data().lastLoad == 0) {
+  while (Data().lastLoad === "") {
     await new Promise(resolve => setTimeout(resolve, 100))
   }
   oldConfig.value = JSON.parse(JSON.stringify(Data().config))

@@ -7,6 +7,16 @@ services:
     volumes:
       - "./db:/app/db"
       - "./cert:/app/cert"
+    # The application needs NET_ADMIN for nftables. Drop every other Linux
+    # capability and prevent privilege escalation while preserving that feature.
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
     tty: true
     restart: unless-stopped
     ports:

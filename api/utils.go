@@ -10,22 +10,31 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const trustedProxyContextKey = "s-ui-trusted-proxy"
+
 type Msg struct {
 	Success bool        `json:"success"`
 	Msg     string      `json:"msg"`
 	Obj     interface{} `json:"obj"`
 }
 
+// SetTrustedProxy records whether the immediate TCP peer was an explicitly
+// configured reverse proxy. Web server setup owns this decision; API handlers
+// use it only for proxy-provided transport metadata such as X-Forwarded-Proto.
+func SetTrustedProxy(c *gin.Context, trusted bool) {
+	c.Set(trustedProxyContextKey, trusted)
+}
+
+func isTrustedProxy(c *gin.Context) bool {
+	trusted, ok := c.Get(trustedProxyContextKey)
+	return ok && trusted == true
+}
+
 func getRemoteIp(c *gin.Context) string {
-	value := c.GetHeader("X-Forwarded-For")
-	if value != "" {
-		ips := strings.Split(value, ",")
-		return ips[0]
-	} else {
-		addr := c.Request.RemoteAddr
-		ip, _, _ := net.SplitHostPort(addr)
-		return ip
-	}
+	// ClientIP honors Gin's configured trusted-proxy list. The server configures
+	// that list explicitly and defaults to trusting no proxy, so raw client
+	// X-Forwarded-For headers cannot influence rate limiting or audit records.
+	return c.ClientIP()
 }
 
 func getHostname(c *gin.Context) string {

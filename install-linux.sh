@@ -2,6 +2,10 @@
 set -Eeuo pipefail
 umask 077
 
+# STATIC-CHECK: bash -n install-linux.sh && grep -Fq 'upgrade_requires_strict_proxy_mode' install-linux.sh
+# The upgrade detector runs before the old unit is stopped, so a legacy default
+# three-listener instance cannot be downgraded to a non-strict successful upgrade.
+
 readonly PRODUCT_NAME="s-ui-go"
 readonly SERVICE_NAME="s-ui"
 readonly SERVICE_USER="s-ui"
@@ -28,6 +32,7 @@ LEGACY_INSTALL=0
 XRAY_AUTOCONFIGURED=0
 REQUIRE_PROXY_CORES=0
 STRICT_PROXY_HEALTH=0
+DEFAULT_THREE_LISTENER_CONFIG=0
 INSTALL_STATE_WRITTEN=0
 UFW_RULES_ADDED_THIS_RUN=0
 UFW_COMMENT=""
@@ -271,6 +276,31 @@ wait_for_tcp_listener() {
         sleep 1
     done
     return 1
+}
+
+xray_vless_inbound_config_present() {
+    # xray-xhttp.json is generated only while an Xray VLESS inbound is enabled.
+    # Do not follow a symlink here: the installation-directory safety checks have
+    # already rejected them, and a missing runtime config is not evidence of Xray.
+    local xray_config="$INSTALL_DIR/xray-xhttp.json"
+    [[ -f "$xray_config" && ! -L "$xray_config" ]] || return 1
+    grep -Fq -- '"inbounds"' "$xray_config" &&
+        grep -Eq -- '"protocol"[[:space:]]*:[[:space:]]*"vless"' "$xray_config"
+}
+
+service_has_default_three_listeners() {
+    local port
+    [[ "$SERVICE_WAS_ACTIVE" -eq 1 ]] || return 1
+    for port in "$DEFAULT_SING_REALITY_PORT" "$DEFAULT_XRAY_REALITY_PORT" "$DEFAULT_XRAY_XHTTP_PORT"; do
+        ss -H -ltn "sport = :$port" 2>/dev/null | grep -q . || return 1
+    done
+}
+
+upgrade_requires_strict_proxy_mode() {
+    # Persist strict mode when either condition provides verifiable evidence that
+    # this preserved installation uses embedded Xray/default proxy listeners.
+    [[ "$REQUIRE_PROXY_CORES" -eq 1 ]] && return 0
+    xray_vless_inbound_config_present || service_has_default_three_listeners
 }
 
 reality_target_is_usable() {
@@ -741,6 +771,14 @@ if [[ -f "$UNIT_PATH" && ! -L "$UNIT_PATH" ]] && grep -Fqx -- 'Environment=SUI_R
 fi
 
 snapshot_service_state
+if [[ "$FRESH_INSTALL" -eq 0 ]] && upgrade_requires_strict_proxy_mode; then
+    REQUIRE_PROXY_CORES=1
+    STRICT_PROXY_HEALTH=1
+    if service_has_default_three_listeners; then
+        DEFAULT_THREE_LISTENER_CONFIG=1
+    fi
+    say '检测到启用的 Xray 入站或旧的默认三监听运行态；本次升级将持久化严格代理核心模式并验证后才写入 ready。\n' 'Detected an enabled Xray inbound or legacy default three-listener runtime; this upgrade will persist strict proxy-core mode and verify it before writing ready.\n'
+fi
 if [[ "$FRESH_INSTALL" -eq 1 && "$SERVICE_UNIT_EXISTED" -eq 1 ]]; then
     die '新安装目标已存在同名 systemd 服务；拒绝覆盖可能残留或其他实例。 / Fresh-install target already has a same-name systemd service; refusing to overwrite a possible remnant or another instance.'
 fi
@@ -775,6 +813,7 @@ if [[ "$FRESH_INSTALL" -eq 1 ]]; then
     XRAY_AUTOCONFIGURED=1
     REQUIRE_PROXY_CORES=1
     STRICT_PROXY_HEALTH=1
+    DEFAULT_THREE_LISTENER_CONFIG=1
     export SUI_AUTOCONFIGURE_XRAY_REALITY=1
     say 'Reality 目标已验证；将新建 sing-box 与嵌入式 Xray 的三监听默认配置。\n' 'Reality target verified; creating the fresh sing-box and embedded-Xray three-listener defaults.\n'
 else
@@ -865,13 +904,17 @@ if [[ "$FRESH_INSTALL" -eq 1 || "$SERVICE_WAS_ACTIVE" -eq 1 ]]; then
     systemctl start "$SERVICE_NAME"
     systemctl is-active --quiet "$SERVICE_NAME" || die '服务未处于 active 状态，请检查 systemd 日志。 / Service is not active; inspect systemd logs.'
 fi
-if [[ "$STRICT_PROXY_HEALTH" -eq 1 ]] && ! systemctl is-active --quiet "$SERVICE_NAME"; then
+# An upgrade that began inactive must still prove the replacement can start
+# before its install-state becomes ready; it is stopped again below to preserve
+# the caller's original inactive state. Strict upgrades additionally prove core
+# startup, and default three-listener instances prove all three TCP listeners.
+if { [[ "$FRESH_INSTALL" -eq 0 && "$SERVICE_WAS_ACTIVE" -eq 0 ]]; } || { [[ "$STRICT_PROXY_HEALTH" -eq 1 ]] && ! systemctl is-active --quiet "$SERVICE_NAME"; }; then
     systemctl start "$SERVICE_NAME"
     TEMPORARILY_STARTED_FOR_HEALTH=1
-    systemctl is-active --quiet "$SERVICE_NAME" || die '无法为严格端口健康检查启动服务。 / Could not start service for strict listener health checks.'
+    systemctl is-active --quiet "$SERVICE_NAME" || die '无法启动服务以验证升级后的运行态。 / Could not start service to validate the upgraded runtime.'
 fi
 
-if [[ "$STRICT_PROXY_HEALTH" -eq 1 ]]; then
+if [[ "$STRICT_PROXY_HEALTH" -eq 1 && "$DEFAULT_THREE_LISTENER_CONFIG" -eq 1 ]]; then
     for _name_port in "sing-box Reality TCP:$DEFAULT_SING_REALITY_PORT" "Xray Reality TCP:$DEFAULT_XRAY_REALITY_PORT" "Xray Reality XHTTP:$DEFAULT_XRAY_XHTTP_PORT"; do
         _name="${_name_port%%:*}"
         _port="${_name_port##*:}"
@@ -884,6 +927,8 @@ if [[ "$STRICT_PROXY_HEALTH" -eq 1 ]]; then
     if [[ "$FRESH_INSTALL" -eq 1 ]]; then
         configure_active_ufw || die '活动 UFW 事务更新失败；已回滚本安装器新增的规则。 / Active-UFW transaction failed; installer-added rules were rolled back.'
     fi
+elif [[ "$STRICT_PROXY_HEALTH" -eq 1 ]]; then
+    say '已通过严格代理核心启动验证；未对保留的非默认监听端口作假设。\n' 'Strict proxy-core startup verification passed; no assumptions were made about preserved non-default listener ports.\n'
 fi
 if [[ "$TEMPORARILY_STARTED_FOR_HEALTH" -eq 1 ]]; then
     if ! systemctl stop "$SERVICE_NAME" || ! service_is_inactive; then
@@ -896,11 +941,13 @@ printf '\n========================================\n'
 say '安装完成\n' 'Installation completed\n'
 printf '========================================\n'
 say '安装目录：%s\n' 'Installation directory: %s\n' "$INSTALL_DIR"
-if [[ "$STRICT_PROXY_HEALTH" -eq 1 ]]; then
+if [[ "$STRICT_PROXY_HEALTH" -eq 1 && "$DEFAULT_THREE_LISTENER_CONFIG" -eq 1 ]]; then
     say '本次安装执行并通过了严格三监听端口健康检查。\n' 'This installation executed and passed the strict three-listener port health check.\n'
+elif [[ "$STRICT_PROXY_HEALTH" -eq 1 ]]; then
+    say '本次安装持久化并验证了严格代理核心模式。\n' 'This installation persisted and verified strict proxy-core mode.\n'
 elif [[ "$SERVICE_WAS_ACTIVE" -eq 1 ]]; then
     say '本次升级仅确认 systemd active；保留的旧配置未要求默认端口监听检查。\n' 'This upgrade confirmed systemd active only; the preserved legacy configuration did not request default listener checks.\n'
 else
-    say '服务原本处于 inactive；已保留该状态，未宣称端口健康检查。\n' 'The service was inactive; that state was preserved and no listener health check is claimed.\n'
+    say '服务原本处于 inactive；已临时启动验证升级后的运行态并恢复 inactive。\n' 'The service was inactive; the upgraded runtime was started for validation and then restored to inactive.\n'
 fi
 say '服务名称：%s，专用用户/组：%s:%s\n' 'Service: %s, dedicated user/group: %s:%s\n' "$SERVICE_NAME" "$SERVICE_USER" "$SERVICE_GROUP"

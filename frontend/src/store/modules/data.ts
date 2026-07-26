@@ -7,7 +7,8 @@ import { Client } from '@/types/clients'
 
 const Data = defineStore('Data', {
   state: () => ({
-    lastLoad: 0,
+    // Revisions are opaque decimal strings so uint64 values retain their exact value in JavaScript.
+    lastLoad: <string>"",
     reloadItems: localStorage.getItem("reloadItems")?.split(',')?? <string[]>[],
     subURI: "",
     enableTraffic: false,
@@ -22,9 +23,10 @@ const Data = defineStore('Data', {
   }),
   actions: {
     async loadData() {
-      const msg = await HttpUtils.get('api/load', this.lastLoad >0 ? {lu: this.lastLoad} : {} )
-      if(msg.success) {
+      const msg = await HttpUtils.get('api/load', this.lastLoad ? {lu: this.lastLoad} : {} )
+      if(msg.success && msg.obj) {
         this.onlines = msg.obj.onlines
+        this.setLastLoadRevision(msg.obj.lastUpdate)
         if (msg.obj.lastLog) {
           push.error({
             title: i18n.global.t('error.core'),
@@ -38,8 +40,18 @@ const Data = defineStore('Data', {
         }
       }
     },
+    setLastLoadRevision(revision: unknown) {
+      // The server serializes revisions as decimal strings. Accept safe numeric
+      // values too so an older server response cannot break an otherwise valid
+      // client, but never derive a revision from the browser clock.
+      const normalized = typeof revision === 'string'
+        ? revision
+        : typeof revision === 'number' && Number.isSafeInteger(revision)
+          ? String(revision)
+          : ''
+      if (/^(0|[1-9]\d*)$/.test(normalized)) this.lastLoad = normalized
+    },
     setNewData(data: any) {
-      this.lastLoad = Math.floor((new Date()).getTime()/1000)
       if (data.subURI) this.subURI = data.subURI
       if (data.enableTraffic) this.enableTraffic = data.enableTraffic
       if (data.config) this.config = data.config

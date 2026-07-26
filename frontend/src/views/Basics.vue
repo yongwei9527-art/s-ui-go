@@ -257,7 +257,7 @@ const appConfig = computed((): Config => {
 
 onBeforeMount(async () => {
   loading.value = true
-  while (Data().lastLoad == 0) {
+  while (Data().lastLoad === "") {
     await new Promise(resolve => setTimeout(resolve, 100))
   }
   oldConfig.value = JSON.parse(JSON.stringify(Data().config))

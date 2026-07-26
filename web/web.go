@@ -9,6 +9,8 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/netip"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -27,6 +29,84 @@ import (
 	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
 )
+
+const (
+	// These limits bound the time and memory a client can consume before a
+	// request is handled. Keep them together so resource-protection changes
+	// are reviewed as a single server policy.
+	serverReadHeaderTimeout = 10 * time.Second
+	serverReadTimeout       = 30 * time.Second
+	serverWriteTimeout      = 60 * time.Second
+	serverIdleTimeout       = 120 * time.Second
+	serverMaxHeaderBytes    = 1 << 20 // 1 MiB
+
+	securityContentSecurityPolicy = "frame-ancestors 'self'"
+	securityReferrerPolicy        = "strict-origin-when-cross-origin"
+)
+
+const trustedProxiesEnvironment = "S_UI_TRUSTED_PROXIES"
+
+// configureTrustedProxyPolicy makes forwarded client and protocol headers opt-in.
+// By default, the application treats the directly connected peer as the client.
+func configureTrustedProxyPolicy(engine *gin.Engine) (gin.HandlerFunc, error) {
+	return newTrustedProxyPolicy(engine, os.Getenv(trustedProxiesEnvironment))
+}
+
+func newTrustedProxyPolicy(engine *gin.Engine, rawProxies string) (gin.HandlerFunc, error) {
+	proxyStrings := make([]string, 0)
+	proxyPrefixes := make([]netip.Prefix, 0)
+
+	for _, rawProxy := range strings.Split(rawProxies, ",") {
+		proxy := strings.TrimSpace(rawProxy)
+		if proxy == "" {
+			continue
+		}
+
+		prefix, err := netip.ParsePrefix(proxy)
+		if err != nil {
+			address, addressErr := netip.ParseAddr(proxy)
+			if addressErr != nil {
+				return nil, common.NewError("invalid trusted proxy ", proxy)
+			}
+			prefix = netip.PrefixFrom(address, address.BitLen())
+		}
+		prefix = prefix.Masked()
+		if prefix.Bits() == 0 {
+			return nil, common.NewError("trusted proxy must not trust every address")
+		}
+
+		proxyStrings = append(proxyStrings, proxy)
+		proxyPrefixes = append(proxyPrefixes, prefix)
+	}
+
+	if err := engine.SetTrustedProxies(proxyStrings); err != nil {
+		return nil, common.NewError("configure trusted proxies", err)
+	}
+
+	return func(c *gin.Context) {
+		api.SetTrustedProxy(c, remoteAddressIsTrusted(c.Request.RemoteAddr, proxyPrefixes))
+		c.Next()
+	}, nil
+}
+
+func remoteAddressIsTrusted(remoteAddress string, trustedProxies []netip.Prefix) bool {
+	host, _, err := net.SplitHostPort(remoteAddress)
+	if err != nil {
+		host = remoteAddress
+	}
+
+	address, err := netip.ParseAddr(host)
+	if err != nil {
+		return false
+	}
+	address = address.Unmap()
+	for _, trustedProxy := range trustedProxies {
+		if trustedProxy.Contains(address) {
+			return true
+		}
+	}
+	return false
+}
 
 type Server struct {
 	httpServer     *http.Server
@@ -54,6 +134,12 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 	}
 
 	engine := gin.Default()
+	trustedProxyMiddleware, err := configureTrustedProxyPolicy(engine)
+	if err != nil {
+		return nil, err
+	}
+	engine.Use(trustedProxyMiddleware)
+	engine.Use(securityHeaders())
 
 	// Load the HTML template
 	t := template.New("").Funcs(engine.FuncMap)
@@ -134,6 +220,29 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 	return engine, nil
 }
 
+// securityHeaders applies response headers that protect browser clients without
+// constraining the single-page application's scripts, styles, API calls, or assets.
+func securityHeaders() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.Header("X-Frame-Options", "SAMEORIGIN")
+		c.Header("Referrer-Policy", securityReferrerPolicy)
+		c.Header("Content-Security-Policy", securityContentSecurityPolicy)
+		c.Next()
+	}
+}
+
+func newHTTPServer(handler http.Handler) *http.Server {
+	return &http.Server{
+		Handler:           handler,
+		ReadHeaderTimeout: serverReadHeaderTimeout,
+		ReadTimeout:       serverReadTimeout,
+		WriteTimeout:      serverWriteTimeout,
+		IdleTimeout:       serverIdleTimeout,
+		MaxHeaderBytes:    serverMaxHeaderBytes,
+	}
+}
+
 func (s *Server) Start() (err error) {
 	//This is an anonymous function, no function name
 	defer func() {
@@ -193,11 +302,7 @@ func (s *Server) Start() (err error) {
 	}
 	s.listener = listener
 
-	s.httpServer = &http.Server{
-		Handler:           engine,
-		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       120 * time.Second,
-	}
+	s.httpServer = newHTTPServer(engine)
 
 	go func() {
 		if serveErr := s.httpServer.Serve(listener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {

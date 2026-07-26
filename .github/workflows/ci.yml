@@ -1,0 +1,89 @@
+name: Continuous Integration
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - latest-project-upload
+  workflow_dispatch:
+
+# CI only reads repository contents and does not require a write-capable token.
+permissions:
+  contents: read
+
+# Keep one validation run per ref and stop superseded runs to reduce queue time.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Go and frontend quality gates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        # actions/checkout v7.0.1, pinned to its immutable commit SHA.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          # Parent-aware whitespace checks need the parent commit, including on first-push branches.
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        # actions/setup-node v7.0.0, pinned to its immutable commit SHA.
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "22.18.0"
+          check-latest: false
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # A clean checkout must build frontend/dist before Go compiles the embedded assets.
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Lint frontend
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Run frontend unit tests
+        working-directory: frontend
+        run: npm run test:unit
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Verify repository formatting and installer syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git rev-parse --verify "${GITHUB_SHA}^" >/dev/null 2>&1; then
+            git diff --check "${GITHUB_SHA}^" "$GITHUB_SHA"
+          else
+            # Initial pushes have no parent: compare the root commit with the empty tree.
+            git diff-tree --check --root --no-commit-id -r "$GITHUB_SHA"
+          fi
+          bash -n install.sh install-linux.sh uninstall-linux.sh s-ui.sh install-macos.sh uninstall-macos.sh
+      - name: Set up Go
+        # actions/setup-go v7.0.0, pinned to its immutable commit SHA.
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: "1.26.3"
+          check-latest: false
+          cache-dependency-path: go.sum
+
+      - name: Verify Go modules
+        env:
+          GOFLAGS: -mod=readonly
+        run: go mod verify
+      # npm ci creates frontend/node_modules. Exclude any third-party Go files
+      # nested there so the backend gate only validates this repository's Go packages.
+      - name: Run Go tests
+        run: go test $(go list ./... | grep -v '/frontend/node_modules/')
+
+      - name: Run Go vet
+        run: go vet $(go list ./... | grep -v '/frontend/node_modules/')

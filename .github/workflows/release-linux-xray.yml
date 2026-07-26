@@ -1,4 +1,4 @@
-name: Release s-ui-go 0.1 Linux amd64 with embedded Xray-core
+name: Release s-ui-go three-platform amd64 packages
 
 on:
   workflow_dispatch:
@@ -6,252 +6,194 @@ on:
       tag:
         description: New s-ui-go tag (must not already exist)
         required: true
-        default: s-ui-go-v0.1.0
+        type: string
+      prerelease:
+        description: Mark this release as a prerelease
+        required: true
+        default: false
+        type: boolean
 
-# The release step needs to create a tag/release and upload exactly the verified assets below.
+# The workflow is manually dispatched and the only write is creating the requested tag/release.
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.repository }}-${{ inputs.tag }}
+  cancel-in-progress: false
+
 jobs:
   package-and-release:
-    runs-on: ubuntu-latest
+    name: Build, verify, and publish three-platform packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
     steps:
-      - name: Check out selected revision
-        # actions/checkout v7.0.1, resolved from GitHub's official tag API on 2026-07-23.
+      - name: Check out the exact dispatch commit
+        # actions/checkout v7.0.1, pinned to its immutable commit SHA.
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
+          ref: ${{ github.sha }}
 
-      - name: Set up Go
-        # actions/setup-go v7.0.0, resolved from GitHub's official tag API on 2026-07-23.
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
-        with:
-          go-version-file: go.mod
-
-      - name: Set up Node.js
-        # actions/setup-node v7.0.0, resolved from GitHub's official tag API on 2026-07-23.
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Verify release tag is new and uses the s-ui-go namespace
+      - name: Verify immutable release target and requested tag
         env:
           TAG: ${{ inputs.tag }}
+          DISPATCH_SHA: ${{ github.sha }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ ! "$TAG" =~ ^s-ui-go-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo 'Release tag must be exactly s-ui-go-vX.Y.Z (for example s-ui-go-v0.1.0).' >&2
+          [[ "$TAG" =~ ^s-ui-go-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo 'Release tag must be exactly s-ui-go-vX.Y.Z.' >&2
             exit 1
-          fi
+          }
+          test "$(git rev-parse HEAD)" = "$DISPATCH_SHA"
+          test -z "$(git status --porcelain)"
           existing_ref="$(git ls-remote --tags --refs origin "refs/tags/$TAG")"
-          if [[ -n "$existing_ref" ]]; then
+          test -z "$existing_ref" || {
             echo "Tag $TAG already exists; choose a new tag." >&2
             exit 1
-          fi
+          }
+          printf 'RELEASE_SHA=%s\n' "$DISPATCH_SHA" >> "$GITHUB_ENV"
 
-      # A clean checkout must generate frontend/dist before Go compiles its embedded assets.
-      - name: Install, lint, and build frontend from the lockfile
+      - name: Set up Node.js
+        # actions/setup-node v7.0.0, pinned to its immutable commit SHA.
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "22.18.0"
+          check-latest: false
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # A clean checkout must generate frontend/dist before Go compiles embedded assets.
+      - name: Install, test, lint, and build frontend
         working-directory: frontend
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf dist
           npm ci
           npm run lint
+          npm run test:unit
           npm run build
           test -f dist/index.html
 
-      - name: Verify shell installers
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash -n install.sh install-linux.sh uninstall-linux.sh s-ui.sh
+      - name: Set up Go
+        # actions/setup-go v7.0.0, pinned to its immutable commit SHA.
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          check-latest: false
+          cache-dependency-path: go.sum
 
-      - name: Test embedded cores and backend after frontend build
+      - name: Verify installers and backend
         env:
           CGO_ENABLED: "0"
           GOFLAGS: -mod=readonly
         shell: bash
         run: |
           set -euo pipefail
+          bash -n install.sh install-linux.sh uninstall-linux.sh s-ui.sh install-macos.sh uninstall-macos.sh
           go mod verify
-          go test ./... -count=1 -timeout=15m
-          go vet ./...
+          go_packages="$(go list ./... | grep -v '/frontend/node_modules/')"
+          go test $go_packages -count=1 -timeout=15m
+          go vet $go_packages
           production_tags='with_quic,with_grpc,with_utls,with_acme,with_gvisor,with_tailscale,with_naive_outbound,with_purego'
-          go test -tags "$production_tags" ./... -run '^$' -count=1 -timeout=15m
+          go test -tags "$production_tags" $go_packages -run '^$' -count=1 -timeout=15m
           go test -tags "$production_tags" ./internal/xrayruntime \
-            -run '^TestSingBoxAndEmbeddedXrayOperateTogether$' \
-            -count=1 -timeout=3m
+            -run '^TestSingBoxAndEmbeddedXrayOperateTogether$' -count=1 -timeout=3m
 
-      - name: Build Linux amd64 package
+      - name: Build and validate Windows amd64 package
         env:
           GOFLAGS: -mod=readonly
         shell: pwsh
-        run: |
-          ./build-windows.ps1 -System linux -Architecture amd64 -NoCGO -SkipFrontend -Package -NonInteractive
+        run: ./build-windows.ps1 -System windows -Architecture amd64 -NoCGO -SkipFrontend -Package -NonInteractive
 
-      - name: Prepare verified bootstrap installer asset
+      - name: Build and validate Linux amd64 package
+        env:
+          GOFLAGS: -mod=readonly
+        shell: pwsh
+        run: ./build-windows.ps1 -System linux -Architecture amd64 -NoCGO -SkipFrontend -Package -NonInteractive
+
+      - name: Build and validate macOS amd64 package
+        env:
+          GOFLAGS: -mod=readonly
+        shell: pwsh
+        run: ./build-windows.ps1 -System darwin -Architecture amd64 -NoCGO -SkipFrontend -Package -NonInteractive
+
+      - name: Independently verify the three archives and SHA-256 sidecars
         shell: bash
         run: |
           set -euo pipefail
-          rm -f dist/install.sh dist/install.sh.sha256
-          install -m 0755 install.sh dist/install.sh
-          (
-            cd dist
-            sha256sum install.sh > install.sh.sha256
-            sha256sum --strict --check install.sh.sha256
-          )
-          cmp -- install.sh dist/install.sh
-
-      - name: Verify release archive and checksums
-        shell: bash
-        run: |
-          set -euo pipefail
-          archive='dist/s-ui-linux-amd64.zip'
-          sidecar='dist/s-ui-linux-amd64.zip.sha256'
-          test -f "$archive"
-          test -f "$sidecar"
-          unzip -t "$archive"
-
-          ARCHIVE="$archive" python3 - <<'PY'
+          for system in windows linux macos; do
+            archive="dist/s-ui-${system}-amd64.zip"
+            sidecar="${archive}.sha256"
+            test -s "$archive"
+            test -s "$sidecar"
+            unzip -t "$archive"
+            (
+              cd dist
+              sha256sum --strict --check "s-ui-${system}-amd64.zip.sha256"
+            )
+          done
+          ARCHIVES='dist/s-ui-windows-amd64.zip dist/s-ui-linux-amd64.zip dist/s-ui-macos-amd64.zip' python3 - <<'PY'
+          import hashlib
           import os
-          import re
-          import stat
           import sys
           import zipfile
 
-          archive = os.environ["ARCHIVE"]
+          docs = ("README.md", "RELEASE_NOTES.md", "PROTOCOL_GUIDE.md", "XRAY-CORE-NOTICE.md")
           required = {
-              "sui",
-              "install.sh",
-              "install-linux.sh",
-              "uninstall-linux.sh",
-              "s-ui.sh",
-              "README.md",
-              "PROTOCOL_GUIDE.md",
-              "RELEASE_NOTES.md",
-              "XRAY-CORE-NOTICE.md",
+              "windows": {"sui.exe", "s-ui-windows.xml", "install-windows.bat", "uninstall-windows.bat", "s-ui-windows.bat", *docs},
+              "linux": {"sui", "install.sh", "install-linux.sh", "uninstall-linux.sh", "s-ui.sh", *docs},
+              "macos": {"sui", "install-macos.sh", "uninstall-macos.sh", "com.s-ui.plist", *docs},
           }
-          errors = []
-          with zipfile.ZipFile(archive) as bundle:
-              infos = bundle.infolist()
-              files = []
-              for info in infos:
-                  name = info.filename
-                  if "\x00" in name or name.startswith(("/", "\\")) or "\\" in name:
-                      errors.append(f"unsafe archive path: {name!r}")
-                      continue
-                  if re.match(r"^[A-Za-z]:", name) or any(part == ".." for part in name.split("/")):
-                      errors.append(f"unsafe archive path: {name!r}")
-                      continue
-                  if info.flag_bits & 0x1:
-                      errors.append(f"encrypted archive entry is not allowed: {name!r}")
-                      continue
-                  if info.compress_type not in {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}:
-                      errors.append(f"unsupported compression method: {name!r}")
-                      continue
-                  if info.is_dir():
-                      errors.append(f"directory entries are not allowed: {name!r}")
-                      continue
-                  mode = info.external_attr >> 16
-                  if stat.S_ISLNK(mode):
-                      errors.append(f"symbolic-link entry is not allowed: {name!r}")
-                      continue
-                  if info.create_system == 3 and mode and not stat.S_ISREG(mode):
-                      errors.append(f"special filesystem entry is not allowed: {name!r}")
-                      continue
-                  files.append(name)
-
-          if len(files) != len(set(files)):
-              errors.append("duplicate file entries found in archive")
-          names = set(files)
-          missing = sorted(required - names)
-          unexpected = sorted(names - required)
-          unexpected_required_paths = sorted(name for name in required if files.count(name) != 1)
-          if missing:
-              errors.append("missing required files: " + ", ".join(missing))
-          if unexpected:
-              errors.append("unexpected files in Linux release archive: " + ", ".join(unexpected))
-          if unexpected_required_paths:
-              errors.append("required files are not unique: " + ", ".join(unexpected_required_paths))
-          forbidden_basenames = {"xray", "xray.exe", "sui.exe", "sui-linux-amd64", "sui-linux-amd64.exe"}
-          forbidden = sorted(name for name in files if name.rsplit("/", 1)[-1].lower() in forbidden_basenames)
-          if forbidden:
-              errors.append("forbidden standalone or duplicate executable entries: " + ", ".join(forbidden))
-          if "s-ui.service" in names:
-              errors.append("static s-ui.service must not be shipped; install-linux.sh owns the installation-specific unit")
-          if errors:
-              print("\n".join(errors), file=sys.stderr)
-              sys.exit(1)
-          print("archive has exactly the expected files; structure and path safety verified")
+          for archive in os.environ["ARCHIVES"].split():
+              system = archive.split("-")[2]
+              with zipfile.ZipFile(archive) as bundle:
+                  names = [entry.filename for entry in bundle.infolist()]
+                  if len(names) != len(set(names)):
+                      raise SystemExit(f"duplicate ZIP entries: {archive}")
+                  if set(names) - required[system] - ({"libcronet.dll"} if system == "windows" else set()):
+                      raise SystemExit(f"unexpected ZIP entries: {archive}")
+                  if required[system] - set(names):
+                      raise SystemExit(f"missing ZIP entries: {archive}")
+                  for name in docs:
+                      with bundle.open(name) as bundled, open(name, "rb") as source:
+                          if hashlib.sha256(bundled.read()).digest() != hashlib.sha256(source.read()).digest():
+                              raise SystemExit(f"embedded document differs from source: {archive}:{name}")
+          print("archive structures and embedded documents verified")
           PY
 
-          cmp -- install.sh <(unzip -p "$archive" install.sh)
-          tmp_sui="$(mktemp)"
-          trap 'rm -f "$tmp_sui"' EXIT
-          unzip -p "$archive" sui > "$tmp_sui"
-          test -s "$tmp_sui"
-          application_module="$(go list -m -f '{{.Path}}')"
-          xray_module="$(go list -m -f '{{.Path}} {{.Version}}' github.com/xtls/xray-core)"
-          xray_module_path="${xray_module%% *}"
-          xray_module_version="${xray_module#* }"
-          test -n "$xray_module_path"
-          test -n "$xray_module_version"
-          module_metadata="$(go version -m "$tmp_sui")"
-          product_module_line="$(printf '%s\n' "$module_metadata" | grep -F $'mod\t'"$application_module"$'\t')"
-          test -n "$product_module_line"
-          if [[ "$product_module_line" == *$'\tv1.4'* || "$product_module_line" == *$'\t1.4'* ]]; then
-            echo "refusing legacy 1.4 product metadata: $product_module_line" >&2
-            exit 1
-          fi
-          expected_xray_module_line=$'dep\t'"$xray_module_path"$'\t'"$xray_module_version"$'\t'
-          printf '%s\n' "$module_metadata" | grep -F $'path\t'"$application_module"
-          printf '%s\n' "$module_metadata" | grep -F "$expected_xray_module_line"
-
-          (
-            cd dist
-            test "$(wc -l < s-ui-linux-amd64.zip.sha256)" -eq 1
-            read -r digest filename extra < s-ui-linux-amd64.zip.sha256
-            test -z "${extra:-}"
-            test "$filename" = 's-ui-linux-amd64.zip'
-            [[ "$digest" =~ ^[0-9a-fA-F]{64}$ ]]
-            sha256sum --strict --check s-ui-linux-amd64.zip.sha256
-
-            test "$(wc -l < install.sh.sha256)" -eq 1
-            read -r bootstrap_digest bootstrap_filename bootstrap_extra < install.sh.sha256
-            test -z "${bootstrap_extra:-}"
-            test "$bootstrap_filename" = 'install.sh'
-            [[ "$bootstrap_digest" =~ ^[0-9a-fA-F]{64}$ ]]
-            sha256sum --strict --check install.sh.sha256
-          )
-
-      - name: Publish immutable s-ui-go 0.1 prerelease
+      - name: Publish the verified tag and assets
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
+          PRERELEASE: ${{ inputs.prerelease }}
         shell: bash
         run: |
           set -euo pipefail
+          notes_file="$(mktemp)"
+          trap 'rm -f "$notes_file"' EXIT
           xray_module_version="$(go list -m -f '{{.Version}}' github.com/xtls/xray-core)"
-          cat > release-notes.md <<EOF
-          ## s-ui-go 0.1 - Linux amd64
+          cat > "$notes_file" <<EOF
+          ## s-ui-go ${TAG}
 
-          - This release intentionally publishes **Linux amd64 only**; it does not claim support for other architectures.
-          - Xray-core is compiled from the pinned Go module into \`sui\` (\`${xray_module_version}\`); there is no standalone \`xray\` executable in the ZIP.
-          - The ZIP includes \`sui\`, \`install.sh\`, \`install-linux.sh\`, \`uninstall-linux.sh\`, \`s-ui.sh\`, and the required release/protocol/notices documents.
-          - \`s-ui.service\` is deliberately excluded: \`install-linux.sh\` installs the unit for the selected installation path, avoiding a misleading static unit.
-          - Verify \`s-ui-linux-amd64.zip\` with \`s-ui-linux-amd64.zip.sha256\`. The sidecar contains the relative basename only.
-          - The bootstrap is published as \`install.sh\` plus \`install.sh.sha256\`; verify that pair before using the immutable release asset.
+          - Source commit: \`${RELEASE_SHA}\`
+          - Windows, Linux, and macOS \`amd64\` archives were built and validated from this same commit.
+          - Xray-core is compiled from the pinned Go module into \`sui\` (\`${xray_module_version}\`); no standalone \`xray\` executable is shipped.
+          - Verify each archive with its matching \`.sha256\` sidecar before installation.
           EOF
+          release_flags=()
+          if [[ "$PRERELEASE" == 'true' ]]; then
+            release_flags+=(--prerelease)
+          fi
           gh release create "$TAG" \
+            dist/s-ui-windows-amd64.zip \
+            dist/s-ui-windows-amd64.zip.sha256 \
             dist/s-ui-linux-amd64.zip \
             dist/s-ui-linux-amd64.zip.sha256 \
-            dist/install.sh \
-            dist/install.sh.sha256 \
-            --target "$GITHUB_SHA" \
-            --title 's-ui-go 0.1 (Linux amd64)' \
-            --prerelease \
-            --notes-file release-notes.md
+            dist/s-ui-macos-amd64.zip \
+            dist/s-ui-macos-amd64.zip.sha256 \
+            --target "$RELEASE_SHA" \
+            --title "s-ui-go ${TAG}" \
+            "${release_flags[@]}" \
+            --notes-file "$notes_file"

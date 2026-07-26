@@ -1,13 +1,12 @@
 // Composables
 import { createRouter, createWebHistory } from 'vue-router'
-import Login from '@/views/Login.vue'
 import Data from '@/store/modules/data'
 
 const routes = [
   {
     path: '/login',
     name: 'pages.login',
-    component: Login,
+    component: () => import('@/views/Login.vue'),
   },
   {
     path: '/',

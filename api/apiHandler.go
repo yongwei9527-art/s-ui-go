@@ -1,8 +1,12 @@
 package api
 
 import (
+	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
+	"github.com/yongwei9527-art/s-ui-go/service"
 	"github.com/yongwei9527-art/s-ui-go/util/common"
 
 	"github.com/gin-gonic/gin"
@@ -10,14 +14,61 @@ import (
 
 type APIHandler struct {
 	ApiService
-	apiv2 *APIv2Handler
+	apiv2              *APIv2Handler
+	loginLimiter       *loginRateLimiter
+	loginAuthenticator func(username, password, remoteIP string) (*service.LoginResult, error)
+	sessionMaxAge      func() (int, error)
 }
 
 func NewAPIHandler(g *gin.RouterGroup, a2 *APIv2Handler) {
 	a := &APIHandler{
-		apiv2: a2,
+		apiv2:        a2,
+		loginLimiter: newLoginRateLimiter(defaultLoginRateLimiterConfig()),
 	}
+	a.loginAuthenticator = a.UserService.Login
+	a.sessionMaxAge = a.SettingService.GetSessionMaxAge
 	a.initRouter(g)
+}
+
+const (
+	invalidLoginMessage        = "Invalid username or password."
+	loginRateLimitedMessage    = "Too many login attempts. Please try again later."
+	loginSessionFailureMessage = "Unable to create login session."
+)
+
+func (a *APIHandler) login(c *gin.Context) {
+	username := c.Request.FormValue("user")
+	password := c.Request.FormValue("pass")
+	remoteIP := getRemoteIp(c)
+
+	if retryAfter := a.loginLimiter.RetryAfter(remoteIP, username); retryAfter > 0 {
+		seconds := int((retryAfter + time.Second - 1) / time.Second)
+		c.Header("Retry-After", strconv.Itoa(seconds))
+		c.JSON(http.StatusTooManyRequests, Msg{Success: false, Msg: loginRateLimitedMessage})
+		return
+	}
+
+	loginResult, err := a.loginAuthenticator(username, password, remoteIP)
+	if err != nil {
+		a.loginLimiter.RecordFailure(remoteIP, username)
+		c.JSON(http.StatusUnauthorized, Msg{Success: false, Msg: invalidLoginMessage})
+		return
+	}
+
+	// Valid credentials reset the consecutive failure count before session
+	// creation so a transient session-store error does not lock out the user.
+	a.loginLimiter.Clear(remoteIP, username)
+
+	sessionMaxAge, err := a.sessionMaxAge()
+	if err != nil {
+		sessionMaxAge = 0
+	}
+	if err := SetLoginUser(c, loginResult.Username, sessionMaxAge); err != nil {
+		c.JSON(http.StatusInternalServerError, Msg{Success: false, Msg: loginSessionFailureMessage})
+		return
+	}
+
+	jsonObj(c, loginResult, nil)
 }
 
 func (a *APIHandler) initRouter(g *gin.RouterGroup) {
@@ -37,7 +88,9 @@ func (a *APIHandler) postHandler(c *gin.Context) {
 
 	switch action {
 	case "login":
-		a.ApiService.Login(c)
+		a.login(c)
+	case "logout":
+		a.ApiService.Logout(c)
 	case "changePass":
 		a.ApiService.ChangePass(c)
 	case "save":
@@ -74,7 +127,8 @@ func (a *APIHandler) getHandler(c *gin.Context) {
 
 	switch action {
 	case "logout":
-		a.ApiService.Logout(c)
+		c.Header("Allow", http.MethodPost)
+		c.Status(http.StatusMethodNotAllowed)
 	case "load":
 		a.ApiService.LoadData(c)
 	case "inbounds", "outbounds", "endpoints", "services", "tls", "clients", "config":

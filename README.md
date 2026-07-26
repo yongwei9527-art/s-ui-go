@@ -2,14 +2,15 @@
 
 > 基于开源 S-UI / s-ui-go 项目的社区维护构建，提供 Windows、Linux、macOS 发布包、安装脚本、服务管理脚本及相关配置说明。
 >
-> **版本约定：** 用户可见名称为 **s-ui-go 0.1**；本次发布标签为 [`s-ui-go-v0.1.0`](https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.0)。文档中的 `sui` 是程序文件名，`s-ui` 是 Linux 服务/管理命令，不代表另一套版本。
+> **版本约定：** 用户可见名称为 **s-ui-go 0.1**；本次发布标签为 [`s-ui-go-v0.1.1`](https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.1)。文档中的 `sui` 是程序文件名，`s-ui` 是 Linux 服务/管理命令，不代表另一套版本。
 
-[![Release](https://img.shields.io/badge/release-s--ui--go%200.1-blue)](https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.0)
+[![Release](https://img.shields.io/badge/release-s--ui--go%200.1-blue)](https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.1)
 [![License](https://img.shields.io/badge/license-GPL--3.0-green)](LICENSE)
 ## 目录
 
 - [项目说明](#项目说明)
 - [维护内容与差异](#维护内容与差异)
+- [项目压缩包](#项目压缩包)
 - [下载](#下载)
 - [快速安装](#快速安装)
 - [默认访问地址](#默认访问地址)
@@ -55,19 +56,37 @@
 
 上述调整的目标是提升跨平台交付、安装维护、协议配置说明、TLS/ACME 默认配置、首次启动可用性和 VPS 运行稳定性。
 
+## 项目压缩包
+
+每个 Release 提供三种 **amd64（x86_64）** 发布压缩包；请按操作系统和 CPU 架构选择。Apple Silicon、ARM Linux/Windows 不应使用这些 amd64 包，应改用对应架构的资产或自行构建。
+
+| 压缩包 | 适用平台 | 解压后使用 |
+| --- | --- | --- |
+| `s-ui-windows-amd64.zip` | 64 位 Windows 10/11、Windows Server（x86_64） | 使用资源管理器或 7-Zip 解压；在解压目录中右键 **以管理员身份运行** `install-windows.bat`。 |
+| `s-ui-linux-amd64.zip` | 使用 systemd 的 64 位 Linux 服务器（`uname -m` 为 `x86_64`） | 先下载同名 `.sha256` 校验 ZIP；执行 `unzip -q s-ui-linux-amd64.zip -d package`，再进入 `package` 并运行 `sudo bash ./install-linux.sh`。 |
+| `s-ui-macos-amd64.zip` | Intel Mac（x86_64，非 Apple Silicon） | 执行 `unzip -q s-ui-macos-amd64.zip -d package`，进入 `package` 后运行 `sudo bash ./install-macos.sh`。 |
+
+> 压缩包内包含对应平台的程序、安装/卸载脚本以及发布说明。下载位置见下方「下载」表中的固定 GitHub Release 资产链接；不要混用其他平台包或从未校验的第三方镜像下载。
+
+Linux 下载 ZIP 与同名校验文件后，可在下载目录执行以下 SHA-256 校验（校验值由同名文件提供，无需手工填写或臆造哈希）：
+
+```bash
+sha256sum --check s-ui-linux-amd64.zip.sha256
+```
+
 ## 下载
 
 当前用户可见版本：**s-ui-go 0.1**
-发布标签：**`s-ui-go-v0.1.0`**
-Release 页面：<https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.0>
+发布标签：**`s-ui-go-v0.1.1`**
+Release 页面：<https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.1>
 
 | 系统 | 架构 | 发布资产 |
 | --- | --- | --- |
-| Windows | amd64 | [`s-ui-windows-amd64.zip`](https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.0/s-ui-windows-amd64.zip) |
-| Linux | amd64 | [`s-ui-linux-amd64.zip`](https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.0/s-ui-linux-amd64.zip) + [`s-ui-linux-amd64.zip.sha256`](https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.0/s-ui-linux-amd64.zip.sha256) |
-| macOS | amd64 | [`s-ui-macos-amd64.zip`](https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.0/s-ui-macos-amd64.zip) |
+| Windows | amd64 | [`s-ui-windows-amd64.zip`](https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.1/s-ui-windows-amd64.zip) + [`s-ui-windows-amd64.zip.sha256`](https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.1/s-ui-windows-amd64.zip.sha256) |
+| Linux | amd64 | [`s-ui-linux-amd64.zip`](https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.1/s-ui-linux-amd64.zip) + [`s-ui-linux-amd64.zip.sha256`](https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.1/s-ui-linux-amd64.zip.sha256) |
+| macOS | amd64 | [`s-ui-macos-amd64.zip`](https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.1/s-ui-macos-amd64.zip) + [`s-ui-macos-amd64.zip.sha256`](https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.1/s-ui-macos-amd64.zip.sha256) |
 
-Linux 的发布单元是 **ZIP 与同名 ZIP 的 `.sha256` 文件**。先校验 ZIP，再解压并使用包内的 `sui` 或 `install-linux.sh`；不要把一个不存在的“裸二进制校验文件”当作发布契约。
+每个平台的发布单元均为 **ZIP 与同名 ZIP 的 `.sha256` 文件**。先校验 ZIP，再解压并使用包内的安装脚本或 `sui`；不要把一个不存在的“裸二进制校验文件”当作发布契约。
 ## 快速安装
 
 ### Windows
@@ -93,7 +112,7 @@ Linux 的包内安装器要求 **systemd**。推荐 Ubuntu 22.04/24.04 等带 sy
 2. **只从固定 Release 资产建立信任链**。下载 ZIP 及其同名校验文件、校验 ZIP、测试压缩包、再解压：
 
    ```bash
-   TAG='s-ui-go-v0.1.0'
+   TAG='s-ui-go-v0.1.1'
    ASSET='s-ui-linux-amd64.zip'
    BASE="https://github.com/yongwei9527-art/s-ui-go/releases/download/${TAG}"
 
@@ -359,6 +378,18 @@ $env:SUI_DEBUG="true"
 
 ## 安全提醒
 
+### 反向代理信任边界
+
+仅在面板位于实际受控的反向代理之后时，才设置 `S_UI_TRUSTED_PROXIES`。该环境变量接受以逗号分隔的代理 IP 或 CIDR，例如：
+
+```bash
+S_UI_TRUSTED_PROXIES=127.0.0.1,10.0.0.0/24
+```
+
+- 只填写真实反向代理的地址范围；反向代理必须安全地覆写或追加 `X-Forwarded-For` 与 `X-Forwarded-Proto`。
+- 不要配置 `0.0.0.0/0` 或 `::/0`，也不要在信任宽泛网段时将面板监听端口直接暴露到公网。
+- 未配置该变量时，来自客户端的伪造转发头不会影响登录限流、审计 IP 或 Secure Cookie 判定。
+
 生产环境使用前请务必：
 
 - 修改默认管理员账号和密码
@@ -377,7 +408,7 @@ $env:SUI_DEBUG="true"
 
 ## English Summary
 
-**User-facing version:** **s-ui-go 0.1**. **Release tag:** [`s-ui-go-v0.1.0`](https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.0).
+**User-facing version:** **s-ui-go 0.1**. **Release tag:** [`s-ui-go-v0.1.1`](https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.1).
 
 For Ubuntu/systemd deployments, download the immutable Linux release pair `s-ui-linux-amd64.zip` and `s-ui-linux-amd64.zip.sha256`, verify the ZIP, extract it, then use the packaged `sui` or `install-linux.sh`. Do not bootstrap from a mutable branch. The default install directory is `/usr/local/s-ui`.
 

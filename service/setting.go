@@ -41,7 +41,7 @@ var defaultValueMap = map[string]string{
 	"webListen":     "",
 	"webDomain":     "",
 	"webPort":       "2095",
-	"secret":        common.Random(32),
+	"secret":        "",
 	"webCertFile":   "",
 	"webKeyFile":    "",
 	"webPath":       "/app/",
@@ -83,11 +83,18 @@ func (s *SettingService) GetAllSetting() (*map[string]string, error) {
 
 	for key, defaultValue := range defaultValueMap {
 		if _, exists := allSetting[key]; !exists {
-			err = s.saveSetting(key, defaultValue)
+			value := defaultValue
+			if key == "secret" {
+				value, err = common.RandomWithError(32)
+				if err != nil {
+					return nil, err
+				}
+			}
+			err = s.saveSetting(key, value)
 			if err != nil {
 				return nil, err
 			}
-			allSetting[key] = defaultValue
+			allSetting[key] = value
 		}
 	}
 
@@ -220,14 +227,22 @@ func (s *SettingService) SetWebPath(webPath string) error {
 }
 
 func (s *SettingService) GetSecret() ([]byte, error) {
-	secret, err := s.getString("secret")
-	if secret == defaultValueMap["secret"] {
-		err := s.saveSetting("secret", secret)
-		if err != nil {
-			logger.Warning("save secret failed:", err)
-		}
+	setting, err := s.getSetting("secret")
+	if err == nil {
+		return []byte(setting.Value), nil
 	}
-	return []byte(secret), err
+	if !database.IsNotFound(err) {
+		return nil, err
+	}
+
+	secret, err := common.RandomWithError(32)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.saveSetting("secret", secret); err != nil {
+		return nil, err
+	}
+	return []byte(secret), nil
 }
 
 func (s *SettingService) GetSessionMaxAge() (int, error) {
