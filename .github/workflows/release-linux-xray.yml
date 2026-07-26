@@ -174,14 +174,13 @@ jobs:
           notes_file="$(mktemp)"
           trap 'rm -f "$notes_file"' EXIT
           xray_module_version="$(go list -m -f '{{.Version}}' github.com/xtls/xray-core)"
-          cat > "$notes_file" <<EOF
-          ## s-ui-go ${TAG}
-
-          - Source commit: \`${RELEASE_SHA}\`
-          - Windows, Linux, and macOS \`amd64\` archives were built and validated from this same commit.
-          - Xray-core is compiled from the pinned Go module into \`sui\` (\`${xray_module_version}\`); no standalone \`xray\` executable is shipped.
-          - Verify each archive with its matching \`.sha256\` sidecar before installation.
-          EOF
+          version="${TAG#s-ui-go-v}"
+          {
+            printf -- '- 源代码提交：`%s`\n' "$RELEASE_SHA"
+            printf -- '- Windows、Linux 和 macOS 的 `amd64` 安装包均由同一提交构建并完成验证。\n'
+            printf -- '- Xray-core 已由固定版本的 Go 模块编译并内嵌到 `sui`（`%s`）；未单独发布 `xray` 可执行文件。\n' "$xray_module_version"
+            printf -- '- 安装前请使用每个 ZIP 对应的 `.sha256` 文件完成完整性校验。\n'
+          } > "$notes_file"
           release_flags=()
           if [[ "$PRERELEASE" == 'true' ]]; then
             release_flags+=(--prerelease)
@@ -194,6 +193,6 @@ jobs:
             dist/s-ui-macos-amd64.zip \
             dist/s-ui-macos-amd64.zip.sha256 \
             --target "$RELEASE_SHA" \
-            --title "s-ui-go ${TAG}" \
+            --title "s-ui-go ${version}" \
             "${release_flags[@]}" \
             --notes-file "$notes_file"
