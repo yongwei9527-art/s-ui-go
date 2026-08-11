@@ -97,17 +97,16 @@ Release 页面：<https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-g
 
 ### Linux（Ubuntu / systemd）
 
-Linux 的包内安装器要求 **systemd**。推荐 Ubuntu 22.04/24.04 等带 systemd 的 VPS，且 `uname -m` 为 `x86_64`；安装后的默认目录是 `/usr/local/s-ui`。
+Linux 的安装器要求 **systemd**。推荐 Ubuntu 22.04/24.04 等带 systemd 的 VPS，且 `uname -m` 为 `x86_64`；安装后的默认目录是 `/usr/local/s-ui`。
 
-复制并依次执行以下三行即可完成**安全安装**（固定 Release、校验 SHA256、不使用 `curl | bash`）：
+复制并依次执行以下两行即可完成安装：
 
 ```bash
-sudo apt update && sudo apt install -y ca-certificates curl unzip
-mkdir -p ~/s-ui-go-install && cd ~/s-ui-go-install
-curl -fL -O 'https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.1/s-ui-linux-amd64.zip' -O 'https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.1/s-ui-linux-amd64.zip.sha256' && sha256sum --check s-ui-linux-amd64.zip.sha256 && unzip -qo s-ui-linux-amd64.zip -d package && sudo bash ./package/install-linux.sh
+curl -fL -O 'https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/s-ui-go-v0.1.1/install.sh'
+sudo bash ./install.sh --lang zh --version s-ui-go-v0.1.1
 ```
 
-安装器会自行补齐其余运行依赖，并检查 systemd、端口和核心启动状态。安装完成后，使用以下命令查看服务状态：
+这是固定标签 `s-ui-go-v0.1.1` 的安装器，不使用 `curl | bash`。它会自动安装所需依赖、下载同标签的 Linux ZIP 与 `.sha256` 文件、校验 SHA256、检查压缩包后再安装。安装完成后，使用以下命令查看服务状态：
 
 ```bash
 sudo systemctl status s-ui --no-pager
