@@ -91,49 +91,29 @@ Release 页面：<https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-g
 
 ### Windows
 
-1. 下载 `s-ui-windows-amd64.zip`。
-2. 解压到目标目录。
-3. 右键 `install-windows.bat`，选择 **以管理员身份运行**。
-4. 按提示设置面板端口、面板路径、订阅端口、订阅路径、管理员账号和密码。
-5. 安装完成后，可使用 `s-ui-windows.bat` 管理服务。
+1. 下载并解压 `s-ui-windows-amd64.zip`。
+2. 右键 `install-windows.bat`，选择 **以管理员身份运行**。
+3. 按提示完成初始化；以后双击 `s-ui-windows.bat` 管理服务。
 
 ### Linux（Ubuntu / systemd）
 
-Linux 的包内安装器要求 **systemd**。推荐 Ubuntu 22.04/24.04 等带 systemd 的 VPS，`uname -m` 应为 `x86_64` 才能使用本节的 amd64 资产。安装后的默认目录是 `/usr/local/s-ui`。
+Linux 的包内安装器要求 **systemd**。推荐 Ubuntu 22.04/24.04 等带 systemd 的 VPS，且 `uname -m` 为 `x86_64`；安装后的默认目录是 `/usr/local/s-ui`。
 
-1. 安装校验和运行依赖：
+复制并依次执行以下三行即可完成**安全安装**（固定 Release、校验 SHA256、不使用 `curl | bash`）：
 
-   ```bash
-   sudo apt update
-   sudo apt install -y ca-certificates curl unzip openssl iproute2 coreutils
-   systemctl --version
-   ```
+```bash
+sudo apt update && sudo apt install -y ca-certificates curl unzip
+mkdir -p ~/s-ui-go-install && cd ~/s-ui-go-install
+curl -fL -O 'https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.1/s-ui-linux-amd64.zip' -O 'https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.1/s-ui-linux-amd64.zip.sha256' && sha256sum --check s-ui-linux-amd64.zip.sha256 && unzip -qo s-ui-linux-amd64.zip -d package && sudo bash ./package/install-linux.sh
+```
 
-2. **只从固定 Release 资产建立信任链**。下载 ZIP 及其同名校验文件、校验 ZIP、测试压缩包、再解压：
+安装器会自行补齐其余运行依赖，并检查 systemd、端口和核心启动状态。安装完成后，使用以下命令查看服务状态：
 
-   ```bash
-   TAG='s-ui-go-v0.1.1'
-   ASSET='s-ui-linux-amd64.zip'
-   BASE="https://github.com/yongwei9527-art/s-ui-go/releases/download/${TAG}"
+```bash
+sudo systemctl status s-ui --no-pager
+```
 
-   mkdir -p ~/s-ui-go-install && cd ~/s-ui-go-install
-   curl -fL -O "${BASE}/${ASSET}"
-   curl -fL -O "${BASE}/${ASSET}.sha256"
-   sha256sum --check "${ASSET}.sha256"
-   unzip -t "${ASSET}"
-   rm -rf package && unzip -q "${ASSET}" -d package
-   cd package
-   ```
-
-3. 已校验的 ZIP 内含 `sui` 与包内安装器；通常使用安装器：
-
-   ```bash
-   sudo bash ./install-linux.sh
-   ```
-
-   这是“校验 ZIP → 解压 → 使用包内 `sui` / `install-linux.sh`”的完整流程。不要使用 `curl | bash`，也不要从任何可变分支下载 bootstrap；一键安装的可审计信任边界只能是固定 Release 的 ZIP 与其同名 `.sha256`。
-
-4. 全新安装会严格检查 Reality 目标、所需端口和双核心启动状态；通过后启用下列默认入站：
+全新安装通过严格检查后，会启用下列默认入站：
 
    | 核心 | 默认入站 | 端口 |
    | --- | --- | --- |
@@ -143,24 +123,13 @@ Linux 的包内安装器要求 **systemd**。推荐 Ubuntu 22.04/24.04 等带 sy
 
    若严格检查、安装或启动失败，安装器会停止并回滚本次变更；已有数据库升级会保留既有面板、管理员和协议配置，并使用安装前备份恢复失败状态。只有明确接受 Xray 默认模板保持关闭的高级场景才应使用 `--allow-manual-xray`。
 
-5. 安装后核对本机服务：
-
-   ```bash
-   sudo systemctl status s-ui --no-pager
-   sudo ss -ltnp | grep -E ':(443|10443|2088)\b'
-   sudo /usr/local/s-ui/sui -v
-   ```
-
-   安装器**不会承诺自动开放**管理面板/订阅端口 `2095/2096`；推荐将它们限制为本机并经 HTTPS 反代或 SSH 转发访问。无论本机 UFW 状态如何，云厂商安全组/云防火墙都需要你自行确认 `443/tcp`、`10443/tcp`、`2088/tcp` 是否按实际需求放行。完整的 Ubuntu 部署与恢复说明见 [Ubuntu 部署指南](UBUNTU_DEPLOYMENT.md)。
+安装器**不会承诺自动开放**管理面板/订阅端口 `2095/2096`；推荐将它们限制为本机并经 HTTPS 反代或 SSH 转发访问。无论本机 UFW 状态如何，云厂商安全组/云防火墙都需要你自行确认 `443/tcp`、`10443/tcp`、`2088/tcp` 是否按实际需求放行。完整的 Ubuntu 部署与恢复说明见 [Ubuntu 部署指南](UBUNTU_DEPLOYMENT.md)。
 ### macOS
 
-1. 下载 `s-ui-macos-amd64.zip`。
-2. 解压后进入目录。
-3. 执行安装脚本：
+下载 `s-ui-macos-amd64.zip` 并解压后，在解压目录执行：
 
 ```bash
-chmod +x install-macos.sh uninstall-macos.sh
-sudo ./install-macos.sh
+sudo bash ./install-macos.sh
 ```
 
 ## 默认访问地址
