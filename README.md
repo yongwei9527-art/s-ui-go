@@ -17,8 +17,6 @@
 - [协议选择建议](#协议选择建议)
 - [SNI 域名参考](#sni-域名参考)
 - [从源码构建](#从源码构建)
-- [验证与运行](#验证与运行)
-- [脚本说明](#脚本说明)
 - [安全提醒](#安全提醒)
 - [English Summary](#english-summary)
 - [致谢与许可](#致谢与许可)
@@ -246,19 +244,6 @@ login.microsoftonline.com
 | Linux amd64 | `dist/s-ui-linux-amd64.zip` |
 | macOS amd64 | `dist/s-ui-macos-amd64.zip` |
 
-常用参数：
-
-| 参数 | 说明 |
-| --- | --- |
-| `-System windows\|linux\|darwin` | 目标系统 |
-| `-Architecture amd64\|arm64\|386\|arm` | 目标架构 |
-| `-NoCGO` | 关闭 CGO，适合从 Windows 交叉构建 Linux/macOS 包 |
-| `-SkipFrontend` | 跳过前端构建，需要已有 `frontend/dist/` |
-| `-Package` | 生成 `dist/*.zip` 发布压缩包 |
-| Linux amd64 `-Package` | Xray-core Go 源码依赖已编译进 `sui`，压缩包不附带独立 `xray` 文件 |
-| `-NonInteractive` | 构建完成后不等待输入 |
-| `-ListCleanCandidates` | 只列出可清理候选，不删除文件 |
-
 ### Linux XHTTP / Reality 内置核心与兼容性
 
 `VLESS + Reality + TCP Vision/XHTTP` 所需的 Xray-core Go 源码已编译进 `sui`。当前上游源码版本为 **Xray-core `v26.3.27`**，对应 Go 模块 **`github.com/xtls/xray-core v1.260327.0`**（由 `go.mod`/`go.sum` 固定）。Linux 发布 ZIP 不包含、也不会启动独立 `xray` 可执行文件；运行时不需要 `SUI_XRAY_BINARY`。Xray-core 使用 MPL-2.0，详见 [XRAY-CORE-NOTICE.md](XRAY-CORE-NOTICE.md)。
@@ -283,67 +268,6 @@ XHTTP 的客户端覆盖范围比 Reality TCP Vision 更窄；无法确认 `type
 - Mihomo VLESS 配置：<https://wiki.metacubex.one/en/config/proxies/vless/>
 - Mihomo 传输配置：<https://wiki.metacubex.one/en/config/proxies/transport/>
 - Mihomo 官方发布记录（确认 `v1.19.22` 或更高）：<https://github.com/MetaCubeX/mihomo/releases>
-## 验证与运行
-
-后端测试：
-
-```bash
-go test ./...
-```
-
-前端检查和构建：
-
-```bash
-cd frontend
-npm install
-npm run lint
-npm run build
-```
-
-本地运行时，建议指定独立数据库目录：
-
-```bash
-SUI_DB_FOLDER=db SUI_DEBUG=true ./sui
-```
-
-Windows PowerShell 示例：
-
-```powershell
-$env:SUI_DB_FOLDER="db"
-$env:SUI_DEBUG="true"
-.\sui.exe
-```
-
-基础检查项：
-
-- Web 面板可以打开
-- 可以登录后台
-- 可以创建入站 / 节点配置
-- 可以生成订阅链接
-- 重启服务后配置仍然生效
-
-## 脚本说明
-
-根目录脚本是主要维护版本：
-
-| 文件 | 用途 |
-| --- | --- |
-| `build-windows.ps1` | Windows PowerShell 多系统构建和打包脚本 |
-| `build-windows.bat` | Windows CMD 构建入口 |
-| `install-windows.bat` | Windows 安装脚本 |
-| `uninstall-windows.bat` | Windows 卸载脚本 |
-| `s-ui-windows.bat` | Windows 服务管理脚本 |
-| `install.sh` | Linux 通用安装入口 |
-| `install-linux.sh` | Linux 包内安装脚本 |
-| `uninstall-linux.sh` | Linux 卸载脚本 |
-| `s-ui.sh` | Linux 服务管理脚本 |
-| `s-ui.service` | Linux systemd 服务文件 |
-| `install-macos.sh` | macOS 安装脚本 |
-| `uninstall-macos.sh` | macOS 卸载脚本 |
-| `com.s-ui.plist` | macOS launchd 配置 |
-
-`windows/` 目录中的同名文件仅用于旧路径兼容或参考，优先使用根目录脚本。
-
 ## 安全提醒
 
 ### 反向代理信任边界
