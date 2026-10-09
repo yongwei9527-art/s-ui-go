@@ -9,6 +9,7 @@ import (
 	"github.com/yongwei9527-art/s-ui-go/database/model"
 
 	"github.com/sagernet/sing-box/adapter"
+	"github.com/sagernet/sing-tun"
 	"github.com/sagernet/sing/common/atomic"
 	"github.com/sagernet/sing/common/bufio"
 	"github.com/sagernet/sing/common/network"
@@ -81,6 +82,11 @@ func (c *StatsTracker) RoutedConnection(ctx context.Context, conn net.Conn, meta
 func (c *StatsTracker) RoutedPacketConnection(ctx context.Context, conn network.PacketConn, metadata adapter.InboundContext, matchedRule adapter.Rule, matchOutbound adapter.Outbound) network.PacketConn {
 	readCounter, writeCounter := c.getReadCounters(metadata.Inbound, matchOutbound.Tag(), metadata.User)
 	return bufio.NewInt64CounterPacketConn(conn, readCounter, nil, writeCounter, nil)
+}
+
+func (c *StatsTracker) RoutedFlow(context.Context, adapter.InboundContext, adapter.Rule, adapter.Outbound) tun.FlowTracker {
+	// Flow accounting is handled by sing-box's traffic manager when it is enabled.
+	return nil
 }
 
 func (c *StatsTracker) GetStats() *[]model.Stats {

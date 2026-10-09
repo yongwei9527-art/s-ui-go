@@ -10,6 +10,7 @@ import (
 	"github.com/sagernet/sing-box/adapter"
 	_ "github.com/sagernet/sing-box/experimental/clashapi"
 	_ "github.com/sagernet/sing-box/experimental/v2rayapi"
+	"github.com/sagernet/sing-box/include"
 	"github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing-box/option"
 	_ "github.com/sagernet/sing-box/transport/v2rayquic"
@@ -34,7 +35,7 @@ type Core struct {
 
 func NewCore() *Core {
 	globalCtx = context.Background()
-	globalCtx = sb.Context(globalCtx, InboundRegistry(), OutboundRegistry(), EndpointRegistry(), DNSTransportRegistry(), ServiceRegistry())
+	globalCtx = sb.Context(globalCtx, InboundRegistry(), OutboundRegistry(), EndpointRegistry(), DNSTransportRegistry(), ServiceRegistry(), include.CertificateProviderRegistry())
 	return &Core{
 		isRunning: false,
 		instance:  nil,

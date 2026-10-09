@@ -868,13 +868,13 @@ Tun/TProxy：必须接管 DNS
 
 | 组件 | 当前固定版本 | 检查结论 |
 | --- | --- | --- |
-| `github.com/sagernet/sing-box` | `v1.13.14` | 官方稳定版已到 `v1.14.2`，但不能直接升级。`v1.14` 移除了已弃用功能，并对 DNS、规则集、ACME、Hysteria 等配置引入迁移要求。 |
-| `github.com/sagernet/sing-tun` | `v0.8.11`（间接依赖） | 随当前 sing-box 锁定；升级 sing-box 时必须一起编译并在 Windows 验证。 |
+| `github.com/sagernet/sing-box` | `v1.14.2` | 已升级到官方最新稳定版，并已适配新版 DNS 路由、流量跟踪、Clash 模式、证书提供器和 HTTP 客户端生命周期。 |
+| `github.com/sagernet/sing-tun` | `v0.9.6-0.20260924001923-ddaa4ca25e3b`（间接依赖） | 随 sing-box `v1.14.2` 锁定；已完成当前 Windows 开发环境的全量 Go 测试。 |
 | `github.com/xtls/xray-core` | `v1.260327.0`（Xray-core `v26.3.27`） | 上游较新的发行版目前标为预发布；为避免将预发布核心带入正式包，继续固定当前已验证版本。 |
 
-### 升级前必须迁移的配置
+### 现有配置的兼容与迁移计划
 
-当前项目仍提供下列旧字段；它们在 sing-box `v1.14` 已弃用，部分计划在 `v1.16` 移除。升级前必须为已有配置提供迁移，而不能只修改 `go.mod`：
+当前项目保留以下旧字段的导入与运行兼容性；它们在 sing-box `v1.14` 已弃用，部分计划在 `v1.16` 移除。创建新配置时应使用新字段；升级到 `v1.16` 前必须提供自动迁移，不能直接删除旧配置：
 
 | 旧字段/功能 | 影响范围 | 迁移方向 |
 | --- | --- | --- |
@@ -885,9 +885,8 @@ Tun/TProxy：必须接管 DNS
 
 ### 本轮结论与发布条件
 
-- 已完成当前代码的 Reality、XHTTP、协议导出和默认模板定向回归；当前固定组合可继续使用。
-- 不绕过 Go 模块校验。此次尝试更新 `sing-box v1.14.2` 时，官方校验数据库 `sum.golang.org` 无法连接，故未写入任何依赖变更。
-- 后续升级应先恢复官方模块代理与校验数据库连接，再执行依赖更新和配置迁移。
-- 发布前至少验证：`go test ./...`、三平台构建、Reality TCP、XHTTP、Hysteria2、TUIC、Naive、ShadowTLS、Tun、Redirect/TProxy，以及已有数据库升级。
+- 已升级 `sing-box` 至 `v1.14.2`，并补齐 `certificate_providers` 与 `http_clients` 的注册、启动和关闭流程；规则集下载可逐步迁移到 `route.default_http_client`。
+- 依赖下载仍保持 Go 校验链路：使用模块代理获取内容，并由官方校验数据库镜像 `sum.golang.google.cn` 校验；未关闭校验，也未使用不安全下载选项。
+- 已通过 `go test ./... -count=1 -timeout=15m`；发布前仍应完成三平台构建，以及 Reality TCP、XHTTP、Hysteria2、TUIC、Naive、ShadowTLS、Tun、Redirect/TProxy 和数据库升级的实际环境回归。
 
 官方参考：[sing-box v1.14.0 发行说明](https://github.com/SagerNet/sing-box/releases/tag/v1.14.0)、[sing-box 迁移指南](https://sing-box.sagernet.org/migration/)、[Xray-core 发行页](https://github.com/XTLS/Xray-core/releases)。

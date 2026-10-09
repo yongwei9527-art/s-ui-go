@@ -140,6 +140,11 @@ func (f *defaultFactory) SetLevel(level log.Level) {
 	f.level = level
 }
 
+func (f *defaultFactory) AttachPlatformWriter(log.PlatformWriter) {
+	// s-ui-go writes structured core logs through its own logger; there is no
+	// platform-specific log sink to attach in desktop/server builds.
+}
+
 func (f *defaultFactory) Logger() log.ContextLogger {
 	return f.NewLogger("")
 }
