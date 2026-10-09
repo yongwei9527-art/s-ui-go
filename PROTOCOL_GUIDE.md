@@ -864,39 +864,30 @@ Tun/TProxy：必须接管 DNS
 
 ## 8. 依赖模块是否要更新
 
-当前状态：**已完成一轮兼容范围内的协议依赖更新**。
+**2026-10-09 协议核心检查结果**
 
-已更新并通过测试 / 构建检查的模块：
+| 组件 | 当前固定版本 | 检查结论 |
+| --- | --- | --- |
+| `github.com/sagernet/sing-box` | `v1.13.14` | 官方稳定版已到 `v1.14.2`，但不能直接升级。`v1.14` 移除了已弃用功能，并对 DNS、规则集、ACME、Hysteria 等配置引入迁移要求。 |
+| `github.com/sagernet/sing-tun` | `v0.8.11`（间接依赖） | 随当前 sing-box 锁定；升级 sing-box 时必须一起编译并在 Windows 验证。 |
+| `github.com/xtls/xray-core` | `v1.260327.0`（Xray-core `v26.3.27`） | 上游较新的发行版目前标为预发布；为避免将预发布核心带入正式包，继续固定当前已验证版本。 |
 
-- `github.com/quic-go/quic-go`：`v0.59.0` → `v0.59.1`
-- `github.com/sagernet/quic-go`：`v0.59.0-sing-box-mod.4` → `v0.59.0-sing-box-mod.5`
-- `github.com/sagernet/sing-shadowsocks`：`v0.2.8` → `v0.2.9`
-- `github.com/sagernet/sing-shadowsocks2`：`v0.2.1` → `v0.2.2`
-- `github.com/sagernet/sing-shadowtls`：伪版本 → `v0.2.1`
-- 已移除 `github.com/quic-go/quic-go => v0.57.1` 的 `replace` 固定。
+### 升级前必须迁移的配置
 
-暂不更新的模块：
+当前项目仍提供下列旧字段；它们在 sing-box `v1.14` 已弃用，部分计划在 `v1.16` 移除。升级前必须为已有配置提供迁移，而不能只修改 `go.mod`：
 
-- `github.com/sagernet/sing-box` 保持 `v1.13.12`。
-- `github.com/sagernet/sing-tun` 保持 `v0.8.9`。
+| 旧字段/功能 | 影响范围 | 迁移方向 |
+| --- | --- | --- |
+| `dns.independent_cache` | DNS 页面与现有配置 | 新版按传输自动区分 DNS 缓存；迁移时移除该字段。 |
+| 规则集 `download_detour` | 规则集下载 | 改用 `http_clients` 与 `route.default_http_client`。 |
+| Hysteria v1 的 `recv_window_conn`、`recv_window_client`、`max_conn_client`、`disable_mtu_discovery` | Hysteria 协议表单及订阅导出 | 迁移为新版共享 QUIC 参数，或在不需要调优时移除。Hysteria2/TUIC 的 UDP 场景必须单独回归。 |
+| TLS 内联 `acme` | TLS 配置 | 改用 certificate provider；升级前保留旧配置的导入和提示路径。 |
 
-原因：
+### 本轮结论与发布条件
 
-- `sing-box v1.13.13` 在当前 Windows 构建环境下会调用 `sing-tun` 的 `MyInterface()`。
-- `sing-tun v0.8.10` 及当前可获取的更新分支接口已变为 `MyInterfaces()`，导致 Windows 编译失败。
-- 因此本项目当前选择保留可编译、可测试通过的组合：`sing-box v1.13.12` + `sing-tun v0.8.9`。
+- 已完成当前代码的 Reality、XHTTP、协议导出和默认模板定向回归；当前固定组合可继续使用。
+- 不绕过 Go 模块校验。此次尝试更新 `sing-box v1.14.2` 时，官方校验数据库 `sum.golang.org` 无法连接，故未写入任何依赖变更。
+- 后续升级应先恢复官方模块代理与校验数据库连接，再执行依赖更新和配置迁移。
+- 发布前至少验证：`go test ./...`、三平台构建、Reality TCP、XHTTP、Hysteria2、TUIC、Naive、ShadowTLS、Tun、Redirect/TProxy，以及已有数据库升级。
 
-已完成验证：
-
-```text
-[x] go test ./...
-[x] Windows 发布标签构建检查
-```
-
-后续建议：
-
-```text
-下个版本：继续观察 sing-box / sing-tun 是否发布兼容稳定组合。
-发布前：重点测试 QUIC、TUIC、Hysteria2、Naive、ShadowTLS、Tun / Redirect / TProxy。
-如果 sing-box v1.13.13 后续修复 Windows 依赖接口，再单独升级核心并重跑完整回归。
-```
+官方参考：[sing-box v1.14.0 发行说明](https://github.com/SagerNet/sing-box/releases/tag/v1.14.0)、[sing-box 迁移指南](https://sing-box.sagernet.org/migration/)、[Xray-core 发行页](https://github.com/XTLS/Xray-core/releases)。
