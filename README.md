@@ -2,7 +2,7 @@
 
 > 基于开源 S-UI / s-ui-go 项目的社区维护构建，提供 Windows、Linux、macOS 发布包、安装脚本、服务管理脚本及相关配置说明。
 >
-> **版本约定：** 用户可见名称为 **s-ui-go 0.1**；本次发布标签为 [`s-ui-go-v0.1.1`](https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.1)。文档中的 `sui` 是程序文件名，`s-ui` 是 Linux 服务/管理命令，不代表另一套版本。
+> **版本约定：** 用户可见名称为 **s-ui-go 0.1**；当前更新包包含 sing-box `v1.14.3` 和 Xray-core `v26.3.27`，固定于提交 `d77c18d`。旧 Release `s-ui-go-v0.1.1` 尚未替换，请使用下方更新包。文档中的 `sui` 是程序文件名，`s-ui` 是 Linux 服务/管理命令。
 
 [![Release](https://img.shields.io/badge/release-s--ui--go%200.1-blue)](https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.1)
 [![License](https://img.shields.io/badge/license-GPL--3.0-green)](LICENSE)
@@ -75,14 +75,14 @@ sha256sum --check s-ui-linux-amd64.zip.sha256
 ## 下载
 
 当前用户可见版本：**s-ui-go 0.1**
-发布标签：**`s-ui-go-v0.1.1`**
-Release 页面：<https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.1>
+更新包提交：**`d77c18d1b2839bc480cabbdf77e6f7d899c7c2a4`**（sing-box `v1.14.3` / Xray-core `v26.3.27`）
+以下链接下载已验证的同一提交安装包；旧 Release `s-ui-go-v0.1.1` 的资产不包含此次更新。
 
 | 系统 | 架构 | 发布资产 |
 | --- | --- | --- |
-| Windows | amd64 | [`s-ui-windows-amd64.zip`](https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.1/s-ui-windows-amd64.zip) + [`s-ui-windows-amd64.zip.sha256`](https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.1/s-ui-windows-amd64.zip.sha256) |
-| Linux | amd64 | [`s-ui-linux-amd64.zip`](https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.1/s-ui-linux-amd64.zip) + [`s-ui-linux-amd64.zip.sha256`](https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.1/s-ui-linux-amd64.zip.sha256) |
-| macOS | amd64 | [`s-ui-macos-amd64.zip`](https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.1/s-ui-macos-amd64.zip) + [`s-ui-macos-amd64.zip.sha256`](https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.1/s-ui-macos-amd64.zip.sha256) |
+| Windows | amd64 | [`s-ui-windows-amd64.zip`](https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/d77c18d1b2839bc480cabbdf77e6f7d899c7c2a4/dist/s-ui-windows-amd64.zip) + [`SHA256`](https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/d77c18d1b2839bc480cabbdf77e6f7d899c7c2a4/dist/s-ui-windows-amd64.zip.sha256) |
+| Linux | amd64 | [`s-ui-linux-amd64.zip`](https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/d77c18d1b2839bc480cabbdf77e6f7d899c7c2a4/dist/s-ui-linux-amd64.zip) + [`SHA256`](https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/d77c18d1b2839bc480cabbdf77e6f7d899c7c2a4/dist/s-ui-linux-amd64.zip.sha256) |
+| macOS | amd64 | [`s-ui-macos-amd64.zip`](https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/d77c18d1b2839bc480cabbdf77e6f7d899c7c2a4/dist/s-ui-macos-amd64.zip) + [`SHA256`](https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/d77c18d1b2839bc480cabbdf77e6f7d899c7c2a4/dist/s-ui-macos-amd64.zip.sha256) |
 
 每个平台的发布单元均为 **ZIP 与同名 ZIP 的 `.sha256` 文件**。先校验 ZIP，再解压并使用包内的安装脚本或 `sui`；不要把一个不存在的“裸二进制校验文件”当作发布契约。
 ## 快速安装
@@ -97,14 +97,23 @@ Release 页面：<https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-g
 
 Linux 的安装器要求 **systemd**。推荐 Ubuntu 22.04/24.04 等带 systemd 的 VPS，且 `uname -m` 为 `x86_64`；安装后的默认目录是 `/usr/local/s-ui`。
 
-复制并依次执行以下两行即可完成安装：
+已有安装更新：需要 `curl`、`unzip` 和 `sha256sum`，复制整个代码块执行。默认升级目录为 `/usr/local/s-ui`：
 
 ```bash
-curl -fL -O 'https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/s-ui-go-v0.1.1/install.sh'
-sudo bash ./install.sh --lang zh --version s-ui-go-v0.1.1
+(
+  set -eu
+  workdir="$(mktemp -d)"
+  cd "$workdir"
+  base='https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/d77c18d1b2839bc480cabbdf77e6f7d899c7c2a4/dist'
+  curl -fL --retry 3 -O "$base/s-ui-linux-amd64.zip"
+  curl -fL --retry 3 -O "$base/s-ui-linux-amd64.zip.sha256"
+  sha256sum --check s-ui-linux-amd64.zip.sha256
+  unzip -q s-ui-linux-amd64.zip
+  sudo bash ./install-linux.sh --lang zh --upgrade --install-dir /usr/local/s-ui
+)
 ```
 
-这是固定标签 `s-ui-go-v0.1.1` 的安装器，不使用 `curl | bash`。它会自动安装所需依赖、下载同标签的 Linux ZIP 与 `.sha256` 文件、校验 SHA256、检查压缩包后再安装。安装完成后，使用以下命令查看服务状态：
+这些命令固定下载已验证的 `d77c18d` 安装包，校验成功后才执行包内安装器。升级保留数据库和配置；如果原安装目录是 `/opt/s-ui`，请把最后一行的目录改为 `/opt/s-ui`。全新安装时去掉 `--upgrade`，其余参数不变。下载临时目录保留用于排查。完成后，使用以下命令查看服务状态：
 
 ```bash
 sudo systemctl status s-ui --no-pager
@@ -300,7 +309,7 @@ S_UI_TRUSTED_PROXIES=127.0.0.1,10.0.0.0/24
 
 ## English Summary
 
-**User-facing version:** **s-ui-go 0.1**. **Release tag:** [`s-ui-go-v0.1.1`](https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.1).
+**User-facing version:** **s-ui-go 0.1**. Current update packages are pinned to commit `d77c18d` (sing-box `v1.14.3`, Xray-core `v26.3.27`); the older `s-ui-go-v0.1.1` Release assets have not been replaced.
 
 For Ubuntu/systemd deployments, download the immutable Linux release pair `s-ui-linux-amd64.zip` and `s-ui-linux-amd64.zip.sha256`, verify the ZIP, extract it, then use the packaged `sui` or `install-linux.sh`. Do not bootstrap from a mutable branch. The default install directory is `/usr/local/s-ui`.
 
