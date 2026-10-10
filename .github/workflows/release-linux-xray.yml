@@ -142,17 +142,19 @@ jobs:
 
           docs = ("README.md", "RELEASE_NOTES.md", "PROTOCOL_GUIDE.md", "XRAY-CORE-NOTICE.md")
           required = {
-              "windows": {"sui.exe", "s-ui-windows.xml", "install-windows.bat", "uninstall-windows.bat", "s-ui-windows.bat", *docs},
+              "windows": {"sui.exe", "libcronet.dll", "s-ui-windows.xml", "install-windows.bat", "uninstall-windows.bat", "s-ui-windows.bat", *docs},
               "linux": {"sui", "install.sh", "install-linux.sh", "uninstall-linux.sh", "s-ui.sh", *docs},
               "macos": {"sui", "install-macos.sh", "uninstall-macos.sh", "com.s-ui.plist", *docs},
           }
+          cronet_sha256 = "3217c6260fbca5f16072e0b79735742f40109a63bb0ff88fd6b96dd6b54a2928"
+          cronet_length = 9529344
           for archive in os.environ["ARCHIVES"].split():
               system = archive.split("-")[2]
               with zipfile.ZipFile(archive) as bundle:
                   names = [entry.filename for entry in bundle.infolist()]
                   if len(names) != len(set(names)):
                       raise SystemExit(f"duplicate ZIP entries: {archive}")
-                  if set(names) - required[system] - ({"libcronet.dll"} if system == "windows" else set()):
+                  if set(names) - required[system]:
                       raise SystemExit(f"unexpected ZIP entries: {archive}")
                   if required[system] - set(names):
                       raise SystemExit(f"missing ZIP entries: {archive}")
@@ -160,6 +162,10 @@ jobs:
                       with bundle.open(name) as bundled, open(name, "rb") as source:
                           if hashlib.sha256(bundled.read()).digest() != hashlib.sha256(source.read()).digest():
                               raise SystemExit(f"embedded document differs from source: {archive}:{name}")
+                  if system == "windows":
+                      cronet = bundle.read("libcronet.dll")
+                      if len(cronet) != cronet_length or hashlib.sha256(cronet).hexdigest() != cronet_sha256:
+                          raise SystemExit(f"unexpected locked Cronet DLL: {archive}")
           print("archive structures and embedded documents verified")
           PY
 
@@ -174,10 +180,12 @@ jobs:
           notes_file="$(mktemp)"
           trap 'rm -f "$notes_file"' EXIT
           xray_module_version="$(go list -m -f '{{.Version}}' github.com/xtls/xray-core)"
+          sing_box_module_version="$(go list -m -f '{{.Version}}' github.com/sagernet/sing-box)"
           version="${TAG#s-ui-go-v}"
           {
             printf -- '- 源代码提交：`%s`\n' "$RELEASE_SHA"
             printf -- '- Windows、Linux 和 macOS 的 `amd64` 安装包均由同一提交构建并完成验证。\n'
+            printf -- '- sing-box 协议核心版本：`%s`。\n' "$sing_box_module_version"
             printf -- '- Xray-core 已由固定版本的 Go 模块编译并内嵌到 `sui`（`%s`）；未单独发布 `xray` 可执行文件。\n' "$xray_module_version"
             printf -- '- 安装前请使用每个 ZIP 对应的 `.sha256` 文件完成完整性校验。\n'
           } > "$notes_file"

@@ -16,6 +16,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+$ExpectedCronetWindowsAmd64Version = 'v0.0.0-20260912104006-c10c03c318db'
+$ExpectedCronetWindowsAmd64Length = 9529344
+$ExpectedCronetWindowsAmd64Sha256 = '3217c6260fbca5f16072e0b79735742f40109a63bb0ff88fd6b96dd6b54a2928'
+
 if ($Help) {
     Write-Host "用法："
     Write-Host "  .\build-windows.ps1 [-System <系统>] [-Architecture <架构>] [-NoCGO] [-SkipFrontend] [-Package] [-NonInteractive]"
@@ -92,6 +96,52 @@ function Copy-RequiredPackageFile([string]$Source, [string]$DestinationDirectory
     if (-not (Test-Path -LiteralPath $destination -PathType Leaf)) {
         throw "必需文件复制失败：$Source -> $destination"
     }
+}
+
+function Get-LockedCronetModuleInfo([string]$Architecture) {
+    if ($Architecture -notin @('amd64', 'arm64')) {
+        throw "Windows Naive/Cronet 发布包暂不支持该架构：$Architecture"
+    }
+    $modulePath = "github.com/sagernet/cronet-go/lib/windows_$Architecture"
+    $moduleInfo = (& go list -mod=readonly -m -f '{{.Version}}|{{.Dir}}' $modulePath).Trim()
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($moduleInfo)) {
+        throw "无法解析锁定的 Cronet 模块：$modulePath"
+    }
+    $fields = @($moduleInfo -split '\|', 2)
+    if ($fields.Count -ne 2 -or [string]::IsNullOrWhiteSpace($fields[0]) -or [string]::IsNullOrWhiteSpace($fields[1])) {
+        throw "Cronet 模块元数据格式无效：$moduleInfo"
+    }
+    $libraryPath = Join-Path $fields[1] 'libcronet.dll'
+    if (-not (Test-Path -LiteralPath $libraryPath -PathType Leaf)) {
+        throw "锁定的 Cronet 模块缺少 libcronet.dll：$modulePath $($fields[0])"
+    }
+    $library = Get-Item -LiteralPath $libraryPath -ErrorAction Stop
+    $hash = (Get-FileHash -LiteralPath $library.FullName -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+    if ($Architecture -eq 'amd64' -and (
+        $fields[0] -cne $ExpectedCronetWindowsAmd64Version -or
+        $library.Length -ne $ExpectedCronetWindowsAmd64Length -or
+        $hash -cne $ExpectedCronetWindowsAmd64Sha256
+    )) {
+        throw "锁定的 Windows amd64 Cronet 与已审核版本不一致：$($fields[0])，$($library.Length) 字节，SHA256 $hash。升级依赖时必须同步审核并更新固定值。"
+    }
+    return [pscustomobject]@{
+        ModulePath = $modulePath
+        Version = $fields[0]
+        LibraryPath = $library.FullName
+        Length = $library.Length
+        Sha256 = $hash
+    }
+}
+
+function Copy-LockedWindowsCronet([string]$DestinationDirectory, [string]$Architecture) {
+    $cronet = Get-LockedCronetModuleInfo $Architecture
+    Copy-RequiredPackageFile $cronet.LibraryPath $DestinationDirectory 'libcronet.dll'
+    $destination = Join-Path $DestinationDirectory 'libcronet.dll'
+    $destinationHash = (Get-FileHash -LiteralPath $destination -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+    if ((Get-Item -LiteralPath $destination -ErrorAction Stop).Length -ne $cronet.Length -or $destinationHash -cne $cronet.Sha256) {
+        throw '复制后的 libcronet.dll 与 Go 模块锁定文件不一致。'
+    }
+    Write-Host "已从锁定模块复制并验证 Cronet：$($cronet.ModulePath) $($cronet.Version)，SHA256 $($cronet.Sha256)。" -ForegroundColor Green
 }
 
 function Test-LinuxPackageArchive([string]$ArchivePath, [string]$Architecture) {
@@ -187,7 +237,7 @@ function Test-PackageArchive([string]$ArchivePath, [string]$System, [string]$Arc
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $allDocs = @('README.md','RELEASE_NOTES.md','PROTOCOL_GUIDE.md','XRAY-CORE-NOTICE.md')
     $definitions = @{
-        windows = [pscustomobject]@{ Required = @('sui.exe','s-ui-windows.xml','install-windows.bat','uninstall-windows.bat','s-ui-windows.bat') + $allDocs; Optional = @('libcronet.dll'); Binary = 'sui.exe' }
+        windows = [pscustomobject]@{ Required = @('sui.exe','libcronet.dll','s-ui-windows.xml','install-windows.bat','uninstall-windows.bat','s-ui-windows.bat') + $allDocs; Optional = @(); Binary = 'sui.exe' }
         linux = [pscustomobject]@{ Required = @('sui','install.sh','install-linux.sh','uninstall-linux.sh','s-ui.sh') + $allDocs; Optional = @(); Binary = 'sui' }
         darwin = [pscustomobject]@{ Required = @('sui','install-macos.sh','uninstall-macos.sh','com.s-ui.plist') + $allDocs; Optional = @(); Binary = 'sui' }
     }
@@ -211,6 +261,14 @@ function Test-PackageArchive([string]$ArchivePath, [string]$System, [string]$Arc
             $memory = New-Object IO.MemoryStream; $stream = $entry.Open(); try { $stream.CopyTo($memory) } finally { $stream.Dispose() }
             $embeddedHash = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($memory.ToArray())).Replace('-',''); $memory.Dispose()
             if ($embeddedHash -cne (Get-FileHash -LiteralPath $doc -Algorithm SHA256 -ErrorAction Stop).Hash) { throw "Embedded document differs from source: $doc" }
+        }
+        if ($System -eq 'windows') {
+            $cronet = Get-LockedCronetModuleInfo $Architecture
+            $entry = $zip.GetEntry('libcronet.dll'); if ($null -eq $entry) { throw 'Missing embedded libcronet.dll.' }
+            $memory = New-Object IO.MemoryStream; $stream = $entry.Open(); try { $stream.CopyTo($memory) } finally { $stream.Dispose() }
+            $embeddedBytes = $memory.ToArray(); $memory.Dispose()
+            $embeddedHash = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($embeddedBytes)).Replace('-','').ToLowerInvariant()
+            if ($embeddedBytes.Length -ne $cronet.Length -or $embeddedHash -cne $cronet.Sha256) { throw 'ZIP 中的 libcronet.dll 与 Go 模块锁定文件不一致。' }
         }
         if ($Architecture -eq 'amd64') {
             $entry = $zip.GetEntry($definition.Binary); if ($null -eq $entry) { throw "Missing release binary: $($definition.Binary)" }
@@ -245,19 +303,23 @@ function Test-BuildModuleMetadata([string]$BinaryPath) {
         throw "构建产物仍携带旧版 1.4 产品元数据：$($productModuleLines[0])"
     }
 
-    $xrayModule = (& go list -m -f '{{.Path}} {{.Version}}' github.com/xtls/xray-core).Trim()
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($xrayModule)) {
-        throw '无法读取 github.com/xtls/xray-core 的模块版本。'
+    $verifiedDependencies = [System.Collections.Generic.List[string]]::new()
+    foreach ($dependency in @('github.com/sagernet/sing-box', 'github.com/xtls/xray-core')) {
+        $dependencyModule = (& go list -mod=readonly -m -f '{{.Path}} {{.Version}}' $dependency).Trim()
+        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($dependencyModule)) {
+            throw "无法读取 $dependency 的模块版本。"
+        }
+        $dependencyFields = @($dependencyModule -split '\s+', 2)
+        if ($dependencyFields.Count -ne 2 -or [string]::IsNullOrWhiteSpace($dependencyFields[0]) -or [string]::IsNullOrWhiteSpace($dependencyFields[1])) {
+            throw "依赖模块元数据格式无效：$dependencyModule"
+        }
+        $expectedDependencyPrefix = "dep`t$($dependencyFields[0])`t$($dependencyFields[1])`t"
+        if (@($metadata | Where-Object { $_.Trim().StartsWith($expectedDependencyPrefix, [System.StringComparison]::Ordinal) }).Count -ne 1) {
+            throw "构建产物缺少精确的依赖模块元数据：$($dependencyFields[0]) $($dependencyFields[1])。"
+        }
+        [void]$verifiedDependencies.Add("$($dependencyFields[0]) $($dependencyFields[1])")
     }
-    $xrayFields = @($xrayModule -split '\s+', 2)
-    if ($xrayFields.Count -ne 2 -or [string]::IsNullOrWhiteSpace($xrayFields[0]) -or [string]::IsNullOrWhiteSpace($xrayFields[1])) {
-        throw "Xray-core 模块元数据格式无效：$xrayModule"
-    }
-    $expectedXrayPrefix = "dep`t$($xrayFields[0])`t$($xrayFields[1])`t"
-    if (@($metadata | Where-Object { $_.Trim().StartsWith($expectedXrayPrefix, [System.StringComparison]::Ordinal) }).Count -ne 1) {
-        throw "构建产物缺少精确的 Xray-core 模块元数据：$($xrayFields[0]) $($xrayFields[1])。"
-    }
-    Write-Host "已验证模块构建元数据：$modulePath（不含旧版 1.4，包含 $($xrayFields[0]) $($xrayFields[1])）。" -ForegroundColor Green
+    Write-Host "已验证模块构建元数据：$modulePath（不含旧版 1.4，包含 $($verifiedDependencies -join '、')）。" -ForegroundColor Green
 }
 function Write-CleanCandidate($Path, $Description, [switch]$Cautious) {
     if (Test-Path $Path) {
@@ -401,9 +463,7 @@ try {
         } else {
             Write-Host "构建成功：已关闭 CGO。" -ForegroundColor Green
         }
-        if ($System -eq "linux") {
-            Test-BuildModuleMetadata $output
-        }
+        Test-BuildModuleMetadata $output
     }
 } catch {
     Stop-WithMessage $_
@@ -432,9 +492,7 @@ if ($Package) {
         foreach ($script in @('s-ui-windows.xml', 'install-windows.bat', 'uninstall-windows.bat', 's-ui-windows.bat')) {
             Copy-RequiredPackageFile $script $packageDir $script
         }
-        if (Test-Path -LiteralPath "libcronet.dll" -PathType Leaf) {
-            Copy-Item -LiteralPath "libcronet.dll" -Destination (Join-Path $packageDir 'libcronet.dll') -Force -ErrorAction Stop
-        }
+        Copy-LockedWindowsCronet $packageDir $Architecture
         Copy-RequiredPackageFile $output $packageDir 'sui.exe'
         Compress-Archive -Path "$packageDir\*" -DestinationPath $archivePath -Force -ErrorAction Stop
         Write-Sha256Sidecar $archivePath

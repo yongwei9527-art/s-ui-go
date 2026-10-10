@@ -2,7 +2,6 @@ package service
 
 import (
 	"encoding/json"
-	"os"
 
 	"github.com/yongwei9527-art/s-ui-go/database"
 	"github.com/yongwei9527-art/s-ui-go/database/model"
@@ -78,28 +77,6 @@ func (s *ServicesService) Save(tx *gorm.DB, act string, data json.RawMessage) er
 			}
 		}
 
-		if corePtr != nil && corePtr.IsRunning() {
-			configData, err := srv.MarshalJSON()
-			if err != nil {
-				return err
-			}
-			if act == "edit" {
-				var oldTag string
-				err = tx.Model(model.Service{}).Select("tag").Where("id = ?", srv.Id).Find(&oldTag).Error
-				if err != nil {
-					return err
-				}
-				err = corePtr.RemoveService(oldTag)
-				if err != nil && err != os.ErrInvalid {
-					return err
-				}
-			}
-			err = corePtr.AddService(configData)
-			if err != nil {
-				return err
-			}
-		}
-
 		err = tx.Save(&srv).Error
 		if err != nil {
 			return err
@@ -109,12 +86,6 @@ func (s *ServicesService) Save(tx *gorm.DB, act string, data json.RawMessage) er
 		err = json.Unmarshal(data, &tag)
 		if err != nil {
 			return err
-		}
-		if corePtr != nil && corePtr.IsRunning() {
-			err = corePtr.RemoveService(tag)
-			if err != nil && err != os.ErrInvalid {
-				return err
-			}
 		}
 		err = tx.Where("tag = ?", tag).Delete(model.Service{}).Error
 		if err != nil {
@@ -127,27 +98,7 @@ func (s *ServicesService) Save(tx *gorm.DB, act string, data json.RawMessage) er
 }
 
 func (s *ServicesService) RestartServices(tx *gorm.DB, ids []uint) error {
-	if corePtr == nil || !corePtr.IsRunning() {
-		return nil
-	}
-	var services []*model.Service
-	err := tx.Model(model.Service{}).Preload("Tls").Where("id in ?", ids).Find(&services).Error
-	if err != nil {
-		return err
-	}
-	for _, srv := range services {
-		err = corePtr.RemoveService(srv.Tag)
-		if err != nil && err != os.ErrInvalid {
-			return err
-		}
-		srvConfig, err := srv.MarshalJSON()
-		if err != nil {
-			return err
-		}
-		err = corePtr.AddService(srvConfig)
-		if err != nil {
-			return err
-		}
-	}
+	// sing-box v1.14.3 removed dynamic component deletion. The caller now
+	// restarts the complete core after the surrounding database transaction commits.
 	return nil
 }

@@ -868,8 +868,8 @@ Tun/TProxy：必须接管 DNS
 
 | 组件 | 当前固定版本 | 检查结论 |
 | --- | --- | --- |
-| `github.com/sagernet/sing-box` | `v1.14.2` | 已升级到官方最新稳定版，并已适配新版 DNS 路由、流量跟踪、Clash 模式、证书提供器和 HTTP 客户端生命周期。 |
-| `github.com/sagernet/sing-tun` | `v0.9.6-0.20260924001923-ddaa4ca25e3b`（间接依赖） | 随 sing-box `v1.14.2` 锁定；已完成当前 Windows 开发环境的全量 Go 测试。 |
+| `github.com/sagernet/sing-box` | `v1.14.3` | 已升级到官方最新稳定版，并已适配新版 DNS 路由、流量跟踪、Clash 模式、证书提供器和 HTTP 客户端生命周期。 |
+| `github.com/sagernet/sing-tun` | `v0.9.7-0.20261009020158-bca4bf029237`（间接依赖） | 随 sing-box `v1.14.3` 锁定；已完成当前 Windows 开发环境的全量 Go 测试。 |
 | `github.com/xtls/xray-core` | `v1.260327.0`（Xray-core `v26.3.27`） | 上游较新的发行版目前标为预发布；为避免将预发布核心带入正式包，继续固定当前已验证版本。 |
 
 ### 现有配置的兼容与迁移计划
@@ -885,7 +885,7 @@ Tun/TProxy：必须接管 DNS
 
 ### 本轮结论与发布条件
 
-- 已升级 `sing-box` 至 `v1.14.2`，并补齐 `certificate_providers` 与 `http_clients` 的注册、启动和关闭流程；规则集下载可逐步迁移到 `route.default_http_client`。
+- 已升级 `sing-box` 至 `v1.14.3`，并补齐 `certificate_providers` 与 `http_clients` 的注册、启动和关闭流程；规则集下载可逐步迁移到 `route.default_http_client`。
 - 依赖下载仍保持 Go 校验链路：使用模块代理获取内容，并由官方校验数据库镜像 `sum.golang.google.cn` 校验；未关闭校验，也未使用不安全下载选项。
 - 已通过 `go test ./... -count=1 -timeout=15m`；发布前仍应完成三平台构建，以及 Reality TCP、XHTTP、Hysteria2、TUIC、Naive、ShadowTLS、Tun、Redirect/TProxy 和数据库升级的实际环境回归。
 

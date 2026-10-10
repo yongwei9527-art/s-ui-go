@@ -3,10 +3,8 @@ package service
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 
-	"github.com/yongwei9527-art/s-ui-go/core"
 	"github.com/yongwei9527-art/s-ui-go/database"
 	"github.com/yongwei9527-art/s-ui-go/database/model"
 	"github.com/yongwei9527-art/s-ui-go/util"
@@ -125,34 +123,6 @@ func (s *InboundService) Save(tx *gorm.DB, act string, data json.RawMessage, ini
 			}
 		}
 
-		if corePtr != nil && corePtr.IsRunning() {
-			if act == "edit" {
-				err = corePtr.RemoveInbound(oldTag)
-				if err != nil && err != os.ErrInvalid {
-					return err
-				}
-			}
-
-			inboundConfig, err := inbound.MarshalJSON()
-			if err != nil {
-				return err
-			}
-
-			if act == "edit" {
-				inboundConfig, err = s.addUsers(tx, inboundConfig, inbound.Id, inbound.Type)
-			} else {
-				inboundConfig, err = s.initUsers(tx, inboundConfig, initUserIds, inbound.Type)
-			}
-			if err != nil {
-				return err
-			}
-
-			err = corePtr.AddInbound(inboundConfig)
-			if err != nil {
-				return err
-			}
-		}
-
 		err = util.FillOutJson(&inbound, hostname)
 		if err != nil {
 			return err
@@ -176,12 +146,6 @@ func (s *InboundService) Save(tx *gorm.DB, act string, data json.RawMessage, ini
 		err = json.Unmarshal(data, &tag)
 		if err != nil {
 			return err
-		}
-		if corePtr != nil && corePtr.IsRunning() {
-			err = corePtr.RemoveInbound(tag)
-			if err != nil && err != os.ErrInvalid {
-				return err
-			}
 		}
 		var id uint
 		err = tx.Model(model.Inbound{}).Select("id").Where("tag = ?", tag).Scan(&id).Error
@@ -330,35 +294,7 @@ func (s *InboundService) initUsers(db *gorm.DB, inboundJson []byte, clientIds st
 }
 
 func (s *InboundService) RestartInbounds(tx *gorm.DB, ids []uint) error {
-	if corePtr == nil || !corePtr.IsRunning() {
-		return nil
-	}
-	var inbounds []*model.Inbound
-	err := tx.Model(model.Inbound{}).Preload("Tls").Where("id in ?", ids).Find(&inbounds).Error
-	if err != nil {
-		return err
-	}
-	for _, inbound := range inbounds {
-		err = corePtr.RemoveInbound(inbound.Tag)
-		if err != nil && err != os.ErrInvalid {
-			return err
-		}
-		corePtr.WithInstance(func(instance *core.Box) {
-			instance.ConnTracker().CloseConnByInbound(inbound.Tag)
-		})
-
-		inboundConfig, err := inbound.MarshalJSON()
-		if err != nil {
-			return err
-		}
-		inboundConfig, err = s.addUsers(tx, inboundConfig, inbound.Id, inbound.Type)
-		if err != nil {
-			return err
-		}
-		err = corePtr.AddInbound(inboundConfig)
-		if err != nil {
-			return err
-		}
-	}
+	// sing-box v1.14.3 removed dynamic component deletion. The caller now
+	// restarts the complete core after the surrounding database transaction commits.
 	return nil
 }

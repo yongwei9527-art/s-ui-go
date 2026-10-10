@@ -2,9 +2,13 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strconv"
 	"sync"
 	"time"
+
+	"gorm.io/gorm"
 
 	"github.com/yongwei9527-art/s-ui-go/core"
 	"github.com/yongwei9527-art/s-ui-go/database"
@@ -22,6 +26,7 @@ var (
 	lastUpdateMu          sync.RWMutex
 	corePtr               *core.Core
 	coreOperationMu       sync.Mutex
+	lastSuccessfulConfig  json.RawMessage
 
 	startCoreMu         sync.Mutex
 	startCoreInProgress bool
@@ -39,8 +44,10 @@ var (
 
 const (
 	configRestartInitialBackoff = 100 * time.Millisecond
-	configRestartMaximumBackoff = time.Second
+	configRestartMaximumBackoff = 30 * time.Second
 )
+
+var errPreviousCoreRestored = errors.New("previous core configuration restored; waiting for a corrected configuration")
 
 func loadLastUpdate() uint64 {
 	lastUpdateMu.RLock()
@@ -132,6 +139,10 @@ func NewConfigService(core *core.Core) *ConfigService {
 }
 
 func (s *ConfigService) GetConfig(data string) (*[]byte, error) {
+	return s.getConfigFromDB(data, database.GetDB())
+}
+
+func (s *ConfigService) getConfigFromDB(data string, db *gorm.DB) (*[]byte, error) {
 	var err error
 	if len(data) == 0 {
 		data, err = s.SettingService.GetNormalizedConfig()
@@ -151,19 +162,19 @@ func (s *ConfigService) GetConfig(data string) (*[]byte, error) {
 		return nil, err
 	}
 
-	singboxConfig.Inbounds, err = s.InboundService.GetAllConfig(database.GetDB())
+	singboxConfig.Inbounds, err = s.InboundService.GetAllConfig(db)
 	if err != nil {
 		return nil, err
 	}
-	singboxConfig.Outbounds, err = s.OutboundService.GetAllConfig(database.GetDB())
+	singboxConfig.Outbounds, err = s.OutboundService.GetAllConfig(db)
 	if err != nil {
 		return nil, err
 	}
-	singboxConfig.Services, err = s.ServicesService.GetAllConfig(database.GetDB())
+	singboxConfig.Services, err = s.ServicesService.GetAllConfig(db)
 	if err != nil {
 		return nil, err
 	}
-	singboxConfig.Endpoints, err = s.EndpointService.GetAllConfig(database.GetDB())
+	singboxConfig.Endpoints, err = s.EndpointService.GetAllConfig(db)
 	if err != nil {
 		return nil, err
 	}
@@ -225,6 +236,7 @@ func (s *ConfigService) startCoreLocked() error {
 	startFailCount = 0
 	lastStartFailTime = time.Time{}
 	startCoreMu.Unlock()
+	lastSuccessfulConfig = append(json.RawMessage(nil), (*rawConfig)...)
 	logger.Info("sing-box started")
 	return nil
 }
@@ -232,10 +244,14 @@ func (s *ConfigService) startCoreLocked() error {
 func (s *ConfigService) RestartCore() error {
 	coreOperationMu.Lock()
 	defer coreOperationMu.Unlock()
-	if err := s.stopCoreLocked(); err != nil {
+	if corePtr == nil {
+		return common.NewError("core is not initialized")
+	}
+	rawConfig, err := s.GetConfig("")
+	if err != nil {
 		return err
 	}
-	return s.startCoreLocked()
+	return s.restartCoreWithRawConfigLocked(*rawConfig)
 }
 
 func (s *ConfigService) restartCoreWithConfig(config json.RawMessage) error {
@@ -251,6 +267,18 @@ func (s *ConfigService) restartCoreWithConfigLocked(config json.RawMessage) erro
 	if corePtr == nil {
 		return common.NewError("core is not initialized")
 	}
+	// Build the pending configuration before stopping the running core. If the
+	// stored configuration cannot be generated, the currently working core
+	// remains available instead of being unnecessarily taken offline.
+	rawConfig, err := s.GetConfig(string(config))
+	if err != nil {
+		logger.Error("restart sing-box err (get config):", err.Error())
+		return err
+	}
+	return s.restartCoreWithRawConfigLocked(*rawConfig)
+}
+
+func (s *ConfigService) restartCoreWithRawConfigLocked(rawConfig json.RawMessage) error {
 	startCoreMu.Lock()
 	startCoreInProgress = true
 	startCoreMu.Unlock()
@@ -260,25 +288,39 @@ func (s *ConfigService) restartCoreWithConfigLocked(config json.RawMessage) erro
 		startCoreMu.Unlock()
 	}()
 
-	// Build the pending configuration before stopping the running core. If the
-	// stored configuration cannot be generated, the currently working core
-	// remains available instead of being unnecessarily taken offline.
-	rawConfig, err := s.GetConfig(string(config))
-	if err != nil {
-		logger.Error("restart sing-box err (get config):", err.Error())
-		return err
-	}
-	if corePtr.IsRunning() {
+	wasRunning := corePtr.IsRunning()
+	rollbackConfig := append(json.RawMessage(nil), lastSuccessfulConfig...)
+	if wasRunning {
 		if err := corePtr.Stop(); err != nil {
 			logger.Error("restart sing-box err (stop):", err.Error())
 			return err
 		}
 	}
-	if err := corePtr.Start(*rawConfig); err != nil {
+	if err := corePtr.Start(rawConfig); err != nil {
 		logger.Error("restart sing-box err (start):", err.Error())
+		if wasRunning && len(rollbackConfig) > 0 {
+			if rollbackErr := corePtr.Start(rollbackConfig); rollbackErr != nil {
+				logger.Error("restore previous sing-box config err:", rollbackErr.Error())
+				return errors.Join(err, common.NewError(rollbackErr, "restore previous sing-box config"))
+			}
+			logger.Warning("new sing-box config failed; previous running config restored")
+			return errors.Join(err, errPreviousCoreRestored)
+		}
 		return err
 	}
+	lastSuccessfulConfig = append(json.RawMessage(nil), rawConfig...)
 	logger.Info("sing-box restarted with new config")
+	return nil
+}
+
+// EnqueueCurrentConfigRestart schedules a coalesced, retrying restart using the
+// latest committed database state. It replaces the removed per-component hot update API.
+func (s *ConfigService) EnqueueCurrentConfigRestart() error {
+	config, err := s.SettingService.GetNormalizedConfig()
+	if err != nil {
+		return err
+	}
+	s.enqueueConfigRestart(json.RawMessage(config))
 	return nil
 }
 
@@ -333,6 +375,14 @@ func (s *ConfigService) processConfigRestartQueue() {
 			continue
 		} else {
 			logger.Error("restart sing-box err:", err.Error())
+			if errors.Is(err, errPreviousCoreRestored) {
+				configRestartMu.Lock()
+				if pendingConfigRestartVersion == version {
+					pendingConfigRestart = nil
+				}
+				configRestartMu.Unlock()
+				continue
+			}
 		}
 
 		configRestartMu.Lock()
@@ -408,10 +458,13 @@ func (s *ConfigService) CheckOutbound(tag string, link string) core.CheckOutboun
 }
 
 func (s *ConfigService) Save(obj string, act string, data json.RawMessage, initUsers string, loginUser string, hostname string) ([]string, error) {
+	coreOperationMu.Lock()
+	defer coreOperationMu.Unlock()
 	var err error
 	objs := []string{obj}
 	var restartConfigAfterCommit json.RawMessage
 	var restartCurrentConfigAfterCommit bool
+	var currentConfigBase json.RawMessage
 	var reloadXrayAfterCommit bool
 
 	db := database.GetDB()
@@ -440,18 +493,24 @@ func (s *ConfigService) Save(obj string, act string, data json.RawMessage, initU
 				return nil, common.NewErrorf("failed to update users for inbounds: %v", err)
 			}
 		}
+		restartCurrentConfigAfterCommit = true
 	case "tls":
 		err = s.TlsService.Save(tx, act, data, hostname)
 		objs = append(objs, "clients", "inbounds")
+		restartCurrentConfigAfterCommit = true
 	case "inbounds":
 		err = s.InboundService.Save(tx, act, data, initUsers, hostname)
 		objs = append(objs, "clients")
+		restartCurrentConfigAfterCommit = true
 	case "outbounds":
 		err = s.OutboundService.Save(tx, act, data)
+		restartCurrentConfigAfterCommit = true
 	case "services":
 		err = s.ServicesService.Save(tx, act, data)
+		restartCurrentConfigAfterCommit = true
 	case "endpoints":
 		err = s.EndpointService.Save(tx, act, data)
+		restartCurrentConfigAfterCommit = true
 	case "config":
 		err = s.SettingService.SaveConfig(tx, data)
 		if err != nil {
@@ -466,6 +525,13 @@ func (s *ConfigService) Save(obj string, act string, data json.RawMessage, initU
 	if err != nil {
 		return nil, err
 	}
+	if restartCurrentConfigAfterCommit {
+		config, configErr := s.SettingService.GetNormalizedConfig()
+		if configErr != nil {
+			return nil, common.NewError(configErr, "load current core config before commit")
+		}
+		currentConfigBase = json.RawMessage(config)
+	}
 
 	dt := time.Now().Unix()
 	change := model.Changes{
@@ -479,15 +545,38 @@ func (s *ConfigService) Save(obj string, act string, data json.RawMessage, initU
 	if err != nil {
 		return nil, err
 	}
+	var previousConfig json.RawMessage
+	wasRunning := corePtr != nil && corePtr.IsRunning()
+	needsCoreUpdate := restartCurrentConfigAfterCommit || len(restartConfigAfterCommit) > 0
+	if needsCoreUpdate && corePtr != nil {
+		base := currentConfigBase
+		if len(restartConfigAfterCommit) > 0 {
+			base = restartConfigAfterCommit
+		}
+		rawConfig, configErr := s.getConfigFromDB(string(base), tx)
+		if configErr != nil {
+			return nil, configErr
+		}
+		previousConfig = append(json.RawMessage(nil), lastSuccessfulConfig...)
+		if startErr := s.restartCoreWithRawConfigLocked(*rawConfig); startErr != nil {
+			return nil, fmt.Errorf("configuration was not saved because core startup failed: %w", startErr)
+		}
+	}
 	if err := tx.Commit().Error; err != nil {
+		if needsCoreUpdate && corePtr != nil {
+			if wasRunning && len(previousConfig) > 0 {
+				if restoreErr := s.restartCoreWithRawConfigLocked(previousConfig); restoreErr != nil {
+					return nil, errors.Join(err, restoreErr)
+				}
+			} else {
+				_ = corePtr.Stop()
+			}
+		}
 		return nil, err
 	}
 	committed = true
 	publishLastUpdate(change.Id)
 
-	if len(restartConfigAfterCommit) > 0 {
-		s.enqueueConfigRestart(restartConfigAfterCommit)
-	}
 	if reloadXrayAfterCommit {
 		go func() {
 			if err := (&XrayXHTTPService{}).ReloadAfterClientChange(); err != nil {
@@ -495,16 +584,10 @@ func (s *ConfigService) Save(obj string, act string, data json.RawMessage, initU
 			}
 		}()
 	}
-	if restartCurrentConfigAfterCommit {
-		go func() {
-			if corePtr != nil && corePtr.IsRunning() {
-				_ = s.RestartCore()
-			} else {
-				_ = s.StartCore()
-			}
-		}()
-	} else if corePtr == nil || !corePtr.IsRunning() {
-		_ = s.StartCore()
+	if !needsCoreUpdate && corePtr != nil && !corePtr.IsRunning() {
+		if err := s.startCoreLocked(); err != nil {
+			logger.Warning("configuration saved, but core startup failed: ", err)
+		}
 	}
 
 	return objs, nil

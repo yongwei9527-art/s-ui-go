@@ -1,14 +1,13 @@
 package cronjob
 
 import (
-	"github.com/yongwei9527-art/s-ui-go/database"
 	"github.com/yongwei9527-art/s-ui-go/logger"
 	"github.com/yongwei9527-art/s-ui-go/service"
 )
 
 type DepleteJob struct {
 	service.ClientService
-	service.InboundService
+	service.ConfigService
 }
 
 func NewDepleteJob() *DepleteJob {
@@ -22,9 +21,8 @@ func (s *DepleteJob) Run() {
 		return
 	}
 	if len(inboundIds) > 0 {
-		err := s.InboundService.RestartInbounds(database.GetDB(), inboundIds)
-		if err != nil {
-			logger.Error("unable to restart inbounds: ", err)
+		if err := s.ConfigService.EnqueueCurrentConfigRestart(); err != nil {
+			logger.Error("unable to schedule core restart after disabling depleted users: ", err)
 		}
 	}
 	if xrayAuthorizationChanged {
