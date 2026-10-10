@@ -75,14 +75,14 @@ sha256sum --check s-ui-linux-amd64.zip.sha256
 ## 下载
 
 当前用户可见版本：**s-ui-go 0.1**
-更新包分支：**`latest-project-upload`**（sing-box `v1.14.3` / Xray-core `v26.3.27`）
-以下链接下载本分支三平台安装包；旧 Release `s-ui-go-v0.1.1` 的资产不包含此次更新。
+更新包提交：**`346c865d179b8033421bf623915aaca82258098e`**（sing-box `v1.14.3` / Xray-core `v26.3.27`）
+以下链接下载固定提交的三平台安装包；旧 Release `s-ui-go-v0.1.1` 的资产不包含此次更新。
 
 | 系统 | 架构 | 发布资产 |
 | --- | --- | --- |
-| Windows | amd64 | [`s-ui-windows-amd64.zip`](https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/latest-project-upload/dist/s-ui-windows-amd64.zip) + [`SHA256`](https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/latest-project-upload/dist/s-ui-windows-amd64.zip.sha256) |
-| Linux | amd64 | [`s-ui-linux-amd64.zip`](https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/latest-project-upload/dist/s-ui-linux-amd64.zip) + [`SHA256`](https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/latest-project-upload/dist/s-ui-linux-amd64.zip.sha256) |
-| macOS | amd64 | [`s-ui-macos-amd64.zip`](https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/latest-project-upload/dist/s-ui-macos-amd64.zip) + [`SHA256`](https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/latest-project-upload/dist/s-ui-macos-amd64.zip.sha256) |
+| Windows | amd64 | [`s-ui-windows-amd64.zip`](https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/346c865d179b8033421bf623915aaca82258098e/dist/s-ui-windows-amd64.zip) + [`SHA256`](https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/346c865d179b8033421bf623915aaca82258098e/dist/s-ui-windows-amd64.zip.sha256) |
+| Linux | amd64 | [`s-ui-linux-amd64.zip`](https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/346c865d179b8033421bf623915aaca82258098e/dist/s-ui-linux-amd64.zip) + [`SHA256`](https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/346c865d179b8033421bf623915aaca82258098e/dist/s-ui-linux-amd64.zip.sha256) |
+| macOS | amd64 | [`s-ui-macos-amd64.zip`](https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/346c865d179b8033421bf623915aaca82258098e/dist/s-ui-macos-amd64.zip) + [`SHA256`](https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/346c865d179b8033421bf623915aaca82258098e/dist/s-ui-macos-amd64.zip.sha256) |
 
 每个平台的发布单元均为 **ZIP 与同名 ZIP 的 `.sha256` 文件**。先校验 ZIP，再解压并使用包内的安装脚本或 `sui`；不要把一个不存在的“裸二进制校验文件”当作发布契约。
 ## 快速安装
@@ -104,7 +104,7 @@ Linux 的安装器要求 **systemd**。推荐 Ubuntu 22.04/24.04 等带 systemd 
   set -eu
   workdir="$(mktemp -d)"
   cd "$workdir"
-  base='https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/latest-project-upload/dist'
+  base='https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/346c865d179b8033421bf623915aaca82258098e/dist'
   curl -fL --retry 3 -O "$base/s-ui-linux-amd64.zip"
   curl -fL --retry 3 -O "$base/s-ui-linux-amd64.zip.sha256"
   sha256sum --check s-ui-linux-amd64.zip.sha256
@@ -113,7 +113,7 @@ Linux 的安装器要求 **systemd**。推荐 Ubuntu 22.04/24.04 等带 systemd 
 )
 ```
 
-这些命令下载本分支最新安装包，校验成功后才执行包内安装器。升级保留数据库和配置；如果原安装目录是 `/opt/s-ui`，请把最后一行的目录改为 `/opt/s-ui`。全新安装时去掉 `--upgrade`，其余参数不变。下载临时目录保留用于排查。完成后，使用以下命令查看服务状态：
+这些命令下载已校验的 `346c865` 安装包，校验成功后才执行包内安装器。升级保留数据库和配置；如果原安装目录是 `/opt/s-ui`，请把最后一行的目录改为 `/opt/s-ui`。全新安装时去掉 `--upgrade`，其余参数不变。下载临时目录保留用于排查。完成后，使用以下命令查看服务状态：
 
 ```bash
 sudo systemctl status s-ui --no-pager
