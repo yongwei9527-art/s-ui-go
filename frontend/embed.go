@@ -4,5 +4,7 @@ import "embed"
 
 // Content contains the production build consumed by the Go web server.
 //
-//go:embed dist/*
+// Include underscore-prefixed bundler helpers required by lazy-loaded pages.
+//
+//go:embed all:dist/*
 var Content embed.FS

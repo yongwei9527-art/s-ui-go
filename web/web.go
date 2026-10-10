@@ -198,6 +198,11 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 	// Serve index.html as the entry point
 	// Handle all other routes by serving index.html
 	engine.NoRoute(func(c *gin.Context) {
+		// Missing assets must not become an HTML login response (module MIME error).
+		if strings.HasPrefix(c.Request.URL.Path, assetsBasePath) {
+			c.Status(http.StatusNotFound)
+			return
+		}
 		if c.Request.URL.Path == strings.TrimSuffix(base_url, "/") {
 			c.Redirect(http.StatusTemporaryRedirect, base_url)
 			return
