@@ -914,6 +914,18 @@ if { [[ "$FRESH_INSTALL" -eq 0 && "$SERVICE_WAS_ACTIVE" -eq 0 ]]; } || { [[ "$ST
     systemctl is-active --quiet "$SERVICE_NAME" || die '无法启动服务以验证升级后的运行态。 / Could not start service to validate the upgraded runtime.'
 fi
 
+# Type=simple can report active before initialization fails. Require the same
+# process to remain active; restarting during this window is an upgrade failure.
+_health_pid="$(systemctl show -p MainPID --value "$SERVICE_NAME")"
+[[ "$_health_pid" =~ ^[1-9][0-9]*$ ]] || die '服务进程缺失 / Service process is missing.'
+for _health_tick in {1..15}; do
+    sleep 1
+    if ! systemctl is-active --quiet "$SERVICE_NAME" || [[ "$(systemctl show -p MainPID --value "$SERVICE_NAME")" != "$_health_pid" ]]; then
+        journalctl -u "$SERVICE_NAME" -n 80 --no-pager || true
+        die '服务初始化失败或反复重启，升级已中止。 / Service initialization failed or restarted; upgrade aborted.'
+    fi
+done
+
 if [[ "$STRICT_PROXY_HEALTH" -eq 1 && "$DEFAULT_THREE_LISTENER_CONFIG" -eq 1 ]]; then
     for _name_port in "sing-box Reality TCP:$DEFAULT_SING_REALITY_PORT" "Xray Reality TCP:$DEFAULT_XRAY_REALITY_PORT" "Xray Reality XHTTP:$DEFAULT_XRAY_XHTTP_PORT"; do
         _name="${_name_port%%:*}"
@@ -946,7 +958,7 @@ if [[ "$STRICT_PROXY_HEALTH" -eq 1 && "$DEFAULT_THREE_LISTENER_CONFIG" -eq 1 ]];
 elif [[ "$STRICT_PROXY_HEALTH" -eq 1 ]]; then
     say '本次安装持久化并验证了严格代理核心模式。\n' 'This installation persisted and verified strict proxy-core mode.\n'
 elif [[ "$SERVICE_WAS_ACTIVE" -eq 1 ]]; then
-    say '本次升级仅确认 systemd active；保留的旧配置未要求默认端口监听检查。\n' 'This upgrade confirmed systemd active only; the preserved legacy configuration did not request default listener checks.\n'
+    say '本次升级通过 15 秒进程稳定性检查；保留的旧配置未要求默认端口监听检查。\n' 'This upgrade passed a 15-second process stability check; the preserved legacy configuration did not request default listener checks.\n'
 else
     say '服务原本处于 inactive；已临时启动验证升级后的运行态并恢复 inactive。\n' 'The service was inactive; the upgraded runtime was started for validation and then restored to inactive.\n'
 fi

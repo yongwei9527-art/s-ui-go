@@ -131,18 +131,7 @@ func LinkGenerator(clientConfig json.RawMessage, i *model.Inbound, hostname stri
 			addrRemark, _ := addr["remark"].(string)
 			Addrs[index]["remark"] = i.Tag + addrRemark
 			if i.TlsId > 0 {
-				newTls := map[string]interface{}{}
-				for k, v := range tls {
-					newTls[k] = v
-				}
-
-				// Override tls
-				if addrTls, ok := addr["tls"].(map[string]interface{}); ok {
-					for k, v := range addrTls {
-						newTls[k] = v
-					}
-				}
-				Addrs[index]["tls"] = newTls
+				Addrs[index]["tls"] = MergeSubscriptionTLS(tls, addr)
 			}
 		}
 	}
@@ -181,6 +170,33 @@ func LinkGenerator(clientConfig json.RawMessage, i *model.Inbound, hostname stri
 	}
 
 	return []string{}
+}
+
+// SubscriptionTLS builds client-facing TLS from the current panel template.
+func SubscriptionTLS(t *model.Tls) map[string]interface{} {
+	return prepareTls(t)
+}
+
+// MergeSubscriptionTLS copies the base and accepts legacy flat and nested address options.
+func MergeSubscriptionTLS(base map[string]interface{}, addr map[string]interface{}) map[string]interface{} {
+	merged := make(map[string]interface{}, len(base))
+	for k, v := range base {
+		merged[k] = v
+	}
+	if enabled, ok := addr["tls"].(bool); ok {
+		merged["enabled"] = enabled
+	}
+	for _, k := range []string{"insecure", "server_name", "alpn"} {
+		if v, ok := addr[k]; ok {
+			merged[k] = v
+		}
+	}
+	if nested, ok := addr["tls"].(map[string]interface{}); ok {
+		for k, v := range nested {
+			merged[k] = v
+		}
+	}
+	return merged
 }
 
 func prepareTls(t *model.Tls) map[string]interface{} {
@@ -694,15 +710,7 @@ func getTlsParams(params *[]LinkParam, tls map[string]interface{}, insecureKey s
 	if sni, ok := tls["server_name"].(string); ok {
 		*params = append(*params, LinkParam{"sni", sni})
 	}
-	if alpn, ok := tls["alpn"].([]interface{}); ok {
-		alpnList := make([]string, 0, len(alpn))
-		for _, v := range alpn {
-			if alpnValue, ok := v.(string); ok && alpnValue != "" {
-				alpnList = append(alpnList, alpnValue)
-			}
-		}
-		if len(alpnList) > 0 {
-			*params = append(*params, LinkParam{"alpn", strings.Join(alpnList, ",")})
-		}
+	if alpnList := stringSliceValue(tls["alpn"]); len(alpnList) > 0 {
+		*params = append(*params, LinkParam{"alpn", strings.Join(alpnList, ",")})
 	}
 }

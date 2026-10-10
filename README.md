@@ -2,7 +2,7 @@
 
 > 基于开源 S-UI / s-ui-go 项目的社区维护构建，提供 Windows、Linux、macOS 发布包、安装脚本、服务管理脚本及相关配置说明。
 >
-> **版本约定：** 用户可见名称为 **s-ui-go 0.1**；当前更新包包含 sing-box `v1.14.3` 和 Xray-core `v26.3.27`，固定于提交 `3768f56`。旧 Release `s-ui-go-v0.1.1` 尚未替换，请使用下方更新包。文档中的 `sui` 是程序文件名，`s-ui` 是 Linux 服务/管理命令。
+> **版本约定：** 用户可见名称为 **s-ui-go 0.1**；当前更新包包含 sing-box `v1.14.3` 和 Xray-core `v26.3.27`，包含默认节点 TLS 与订阅兼容性修复。旧 Release `s-ui-go-v0.1.1` 尚未替换，请使用下方更新包。文档中的 `sui` 是程序文件名，`s-ui` 是 Linux 服务/管理命令。
 
 [![Release](https://img.shields.io/badge/release-s--ui--go%200.1-blue)](https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.1)
 [![License](https://img.shields.io/badge/license-GPL--3.0-green)](LICENSE)
@@ -75,14 +75,14 @@ sha256sum --check s-ui-linux-amd64.zip.sha256
 ## 下载
 
 当前用户可见版本：**s-ui-go 0.1**
-更新包提交：**`3768f5620fff47757b87f6a8482b6848dbeae75b`**（sing-box `v1.14.3` / Xray-core `v26.3.27`）
-以下链接下载已验证的同一提交安装包；旧 Release `s-ui-go-v0.1.1` 的资产不包含此次更新。
+更新包分支：**`latest-project-upload`**（sing-box `v1.14.3` / Xray-core `v26.3.27`）
+以下链接下载本分支三平台安装包；旧 Release `s-ui-go-v0.1.1` 的资产不包含此次更新。
 
 | 系统 | 架构 | 发布资产 |
 | --- | --- | --- |
-| Windows | amd64 | [`s-ui-windows-amd64.zip`](https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/3768f5620fff47757b87f6a8482b6848dbeae75b/dist/s-ui-windows-amd64.zip) + [`SHA256`](https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/3768f5620fff47757b87f6a8482b6848dbeae75b/dist/s-ui-windows-amd64.zip.sha256) |
-| Linux | amd64 | [`s-ui-linux-amd64.zip`](https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/3768f5620fff47757b87f6a8482b6848dbeae75b/dist/s-ui-linux-amd64.zip) + [`SHA256`](https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/3768f5620fff47757b87f6a8482b6848dbeae75b/dist/s-ui-linux-amd64.zip.sha256) |
-| macOS | amd64 | [`s-ui-macos-amd64.zip`](https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/3768f5620fff47757b87f6a8482b6848dbeae75b/dist/s-ui-macos-amd64.zip) + [`SHA256`](https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/3768f5620fff47757b87f6a8482b6848dbeae75b/dist/s-ui-macos-amd64.zip.sha256) |
+| Windows | amd64 | [`s-ui-windows-amd64.zip`](https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/latest-project-upload/dist/s-ui-windows-amd64.zip) + [`SHA256`](https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/latest-project-upload/dist/s-ui-windows-amd64.zip.sha256) |
+| Linux | amd64 | [`s-ui-linux-amd64.zip`](https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/latest-project-upload/dist/s-ui-linux-amd64.zip) + [`SHA256`](https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/latest-project-upload/dist/s-ui-linux-amd64.zip.sha256) |
+| macOS | amd64 | [`s-ui-macos-amd64.zip`](https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/latest-project-upload/dist/s-ui-macos-amd64.zip) + [`SHA256`](https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/latest-project-upload/dist/s-ui-macos-amd64.zip.sha256) |
 
 每个平台的发布单元均为 **ZIP 与同名 ZIP 的 `.sha256` 文件**。先校验 ZIP，再解压并使用包内的安装脚本或 `sui`；不要把一个不存在的“裸二进制校验文件”当作发布契约。
 ## 快速安装
@@ -104,7 +104,7 @@ Linux 的安装器要求 **systemd**。推荐 Ubuntu 22.04/24.04 等带 systemd 
   set -eu
   workdir="$(mktemp -d)"
   cd "$workdir"
-  base='https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/3768f5620fff47757b87f6a8482b6848dbeae75b/dist'
+  base='https://raw.githubusercontent.com/yongwei9527-art/s-ui-go/latest-project-upload/dist'
   curl -fL --retry 3 -O "$base/s-ui-linux-amd64.zip"
   curl -fL --retry 3 -O "$base/s-ui-linux-amd64.zip.sha256"
   sha256sum --check s-ui-linux-amd64.zip.sha256
@@ -113,7 +113,7 @@ Linux 的安装器要求 **systemd**。推荐 Ubuntu 22.04/24.04 等带 systemd 
 )
 ```
 
-这些命令固定下载已验证的 `3768f56` 安装包，校验成功后才执行包内安装器。升级保留数据库和配置；如果原安装目录是 `/opt/s-ui`，请把最后一行的目录改为 `/opt/s-ui`。全新安装时去掉 `--upgrade`，其余参数不变。下载临时目录保留用于排查。完成后，使用以下命令查看服务状态：
+这些命令下载本分支最新安装包，校验成功后才执行包内安装器。升级保留数据库和配置；如果原安装目录是 `/opt/s-ui`，请把最后一行的目录改为 `/opt/s-ui`。全新安装时去掉 `--upgrade`，其余参数不变。下载临时目录保留用于排查。完成后，使用以下命令查看服务状态：
 
 ```bash
 sudo systemctl status s-ui --no-pager
@@ -137,6 +137,24 @@ sudo systemctl status s-ui --no-pager
 ```bash
 sudo bash ./install-macos.sh
 ```
+
+## 默认节点 TLS 与升级
+
+默认入站包含 VLESS Reality、Hysteria2、TUIC、Trojan、VMess WS、Shadowsocks 2022、Naive、AnyTLS 和 Hysteria。Reality 与 Shadowsocks 不使用普通 TLS 域名证书。
+
+其他默认 TLS 模板未提供域名证书时仍是**初始化专用自签证书**，不等于受信任证书；客户端必须支持导出的对应验证设置。生产部署推荐使用自己的域名及完整证书链，保持证书验证开启。UDP 节点还必须放行对应 UDP 端口，更新程序不会自动解决云防火墙或客户端不支持的问题。
+
+可以显式设置以下三个环境变量，让程序初始化或迁移未修改的默认 TLS 模板：
+
+```text
+S_UI_DEFAULT_TLS_SERVER_NAME=你的证书域名
+S_UI_DEFAULT_TLS_CERTIFICATE_PATH=完整证书链的绝对路径
+S_UI_DEFAULT_TLS_KEY_PATH=对应私钥的绝对路径
+```
+
+三项必须完整提供；已有安装还须显式设置 `S_UI_DEFAULT_TLS_MIGRATE_BOOTSTRAP=true` 才执行迁移；证书须与私钥匹配、未过期且包含该域名。已有自定义 TLS 配置不会被覆盖，入站 ID、端口和用户保留。迁移完成后需重新更新客户端订阅。不要把自己的私钥提交到 GitHub。
+
+systemd 不会自动继承终端环境变量，须在 `sudo systemctl edit s-ui` 中添加 `[Service]` 下的 `Environment="变量名=值"`，再执行 `sudo systemctl daemon-reload && sudo systemctl restart s-ui`。证书及私钥须位于服务用户可读取、systemd 沙箱可访问的位置（推荐安装目录的 `cert/`）；不要开放 `/root` 权限，也不要使用 `chmod 777`。导入时证书和私钥内容保存在本机数据库中；续期后需通过面板替换证书并保存，单纯重启不会更新已导入内容。迁移成功后可移除这些一次性环境变量。
 
 ## 默认访问地址
 

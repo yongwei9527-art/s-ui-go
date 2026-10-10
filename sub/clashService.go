@@ -258,6 +258,8 @@ func (s *ClashService) convertToClashMeta(outbounds *[]map[string]interface{}, b
 			// ALPN if exists
 			if alpn, ok := tls["alpn"].([]interface{}); ok {
 				proxy["alpn"] = alpn
+			} else if alpn, ok := tls["alpn"].([]string); ok {
+				proxy["alpn"] = alpn
 			}
 
 			// Add reality if exists
@@ -290,7 +292,7 @@ func (s *ClashService) convertToClashMeta(outbounds *[]map[string]interface{}, b
 					proxy["sni"] = sni
 				}
 			}
-			if insecure, ok := tls["insecure"].(bool); ok && insecure {
+			if insecure, ok := tls["insecure"].(bool); ok {
 				proxy["skip-cert-verify"] = insecure
 			}
 			// ech outbounds

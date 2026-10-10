@@ -1,13 +1,18 @@
 package database
 
 import (
+	"bytes"
+	stdtls "crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -40,6 +45,10 @@ type seededTLS struct {
 }
 
 func seedDefaultTlsAndInbounds() error {
+	production, err := loadDefaultProductionTLS()
+	if err != nil {
+		return err
+	}
 	var tlsCount int64
 	if err := db.Model(&model.Tls{}).Count(&tlsCount).Error; err != nil {
 		return err
@@ -51,12 +60,23 @@ func seedDefaultTlsAndInbounds() error {
 	}
 
 	if tlsCount > 0 || inboundCount > 0 {
+		if os.Getenv("S_UI_DEFAULT_TLS_MIGRATE_BOOTSTRAP") == "true" {
+			if production == nil {
+				return fmt.Errorf("TLS migration requires all three S_UI_DEFAULT_TLS_* settings")
+			}
+			return migrateDefaultProductionTLS(db, production)
+		}
 		return nil
 	}
 
 	return db.Transaction(func(tx *gorm.DB) error {
-		seedHost := detectDefaultSeedHost()
-		seeded, err := seedDefaultTlsTemplates(tx)
+		var seedHost string
+		if production != nil {
+			seedHost = production.serverName
+		} else {
+			seedHost = detectDefaultSeedHost()
+		}
+		seeded, err := seedDefaultTlsTemplatesWithConfig(tx, production)
 		if err != nil {
 			return err
 		}
@@ -77,39 +97,53 @@ func seedDefaultTlsAndInbounds() error {
 }
 
 func seedDefaultTlsTemplates(tx *gorm.DB) (map[string]seededTLS, error) {
+	production, err := loadDefaultProductionTLS()
+	if err != nil {
+		return nil, err
+	}
+	return seedDefaultTlsTemplatesWithConfig(tx, production)
+}
+
+func seedDefaultTlsTemplatesWithConfig(tx *gorm.DB, production *defaultProductionTLS) (map[string]seededTLS, error) {
+	buildDefaultTLS := func(name, host string, alpn []string) (model.Tls, error) {
+		if production != nil {
+			return buildProductionTLS(name, alpn, production)
+		}
+		return buildBootstrapOnlySelfSignedTLS(name, host, alpn)
+	}
 	realityTLS, err := buildRealityTLS("reality-vless", "go.microsoft.com")
 	if err != nil {
 		return nil, err
 	}
-	hy2TLS, err := buildBootstrapOnlySelfSignedTLS("tls-hy2", "tls1.tcm.mmbing.net", []string{"h3"})
+	hy2TLS, err := buildDefaultTLS("tls-hy2", "tls1.tcm.mmbing.net", []string{"h3"})
 	if err != nil {
 		return nil, err
 	}
-	tuicTLS, err := buildBootstrapOnlySelfSignedTLS("tls-tuic", "snap.licdn.com", []string{"h3"})
+	tuicTLS, err := buildDefaultTLS("tls-tuic", "snap.licdn.com", []string{"h3"})
 	if err != nil {
 		return nil, err
 	}
-	trojanTLS, err := buildBootstrapOnlySelfSignedTLS("tls-trojan", "snap.licdn.com", []string{"http/1.1"})
+	trojanTLS, err := buildDefaultTLS("tls-trojan", "snap.licdn.com", []string{"http/1.1"})
 	if err != nil {
 		return nil, err
 	}
-	trojanWSTLS, err := buildBootstrapOnlySelfSignedTLS("tls-trojan-ws", "snap.licdn.com", []string{"http/1.1"})
+	trojanWSTLS, err := buildDefaultTLS("tls-trojan-ws", "snap.licdn.com", []string{"http/1.1"})
 	if err != nil {
 		return nil, err
 	}
-	vmessWSTLS, err := buildBootstrapOnlySelfSignedTLS("tls-vmess-ws", "snap.licdn.com", []string{"http/1.1"})
+	vmessWSTLS, err := buildDefaultTLS("tls-vmess-ws", "snap.licdn.com", []string{"http/1.1"})
 	if err != nil {
 		return nil, err
 	}
-	naiveTLS, err := buildBootstrapOnlySelfSignedTLS("tls-naive", "snap.licdn.com", []string{"h2", "http/1.1"})
+	naiveTLS, err := buildDefaultTLS("tls-naive", "snap.licdn.com", []string{"h2", "http/1.1"})
 	if err != nil {
 		return nil, err
 	}
-	anyTLSTLS, err := buildBootstrapOnlySelfSignedTLS("tls-anytls", "snap.licdn.com", []string{"http/1.1"})
+	anyTLSTLS, err := buildDefaultTLS("tls-anytls", "snap.licdn.com", []string{"http/1.1"})
 	if err != nil {
 		return nil, err
 	}
-	hysteriaTLS, err := buildBootstrapOnlySelfSignedTLS("tls-hysteria", "tls1.tcm.mmbing.net", []string{"h3"})
+	hysteriaTLS, err := buildDefaultTLS("tls-hysteria", "tls1.tcm.mmbing.net", []string{"h3"})
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +155,12 @@ func seedDefaultTlsTemplates(tx *gorm.DB) (map[string]seededTLS, error) {
 		if err := tx.Create(&tpl).Error; err != nil {
 			return nil, err
 		}
-		seeded[tpl.Name] = seededTLS{id: tpl.Id, name: tpl.Name}
+		key := tpl.Name
+		if production != nil && tpl.Name != "reality-vless" {
+			// Stable internal lookup keys; persisted names identify production TLS.
+			key = bootstrapOnlySelfSignedTLSName(tpl.Name)
+		}
+		seeded[key] = seededTLS{id: tpl.Id, name: tpl.Name}
 	}
 
 	return seeded, nil
@@ -182,6 +221,10 @@ func buildBootstrapOnlySelfSignedTLS(baseName string, serverName string, alpn []
 		return model.Tls{}, err
 	}
 
+	return buildCertificateTLS(name, serverName, alpn, certPEM, privateKeyPEM, true)
+}
+
+func buildCertificateTLS(name, serverName string, alpn []string, certPEM, privateKeyPEM []byte, insecure bool) (model.Tls, error) {
 	server := map[string]interface{}{
 		"enabled":       true,
 		"server_name":   serverName,
@@ -195,7 +238,7 @@ func buildBootstrapOnlySelfSignedTLS(baseName string, serverName string, alpn []
 	client := map[string]interface{}{
 		"enabled":       true,
 		"server_name":   serverName,
-		"insecure":      true,
+		"insecure":      insecure,
 		"alpn":          alpn,
 		"min_version":   "1.2",
 		"max_version":   "1.3",
@@ -424,6 +467,23 @@ func seedDefaultInbounds(tx *gorm.DB, tlsTemplates map[string]seededTLS, seedHos
 				return nil, err
 			}
 			inbound.Tls = &tlsModel
+			var clientTLS map[string]interface{}
+			if err := json.Unmarshal(tlsModel.Client, &clientTLS); err != nil {
+				return nil, err
+			}
+			if clientTLS["insecure"] == false {
+				var addrs []map[string]interface{}
+				if err := json.Unmarshal(inbound.Addrs, &addrs); err != nil {
+					return nil, err
+				}
+				for _, addr := range addrs {
+					addr["insecure"] = false
+				}
+				inbound.Addrs, err = json.Marshal(addrs)
+				if err != nil {
+					return nil, err
+				}
+			}
 		}
 		if err := util.FillOutJson(&inbound, seedHost); err != nil {
 			return nil, err
@@ -806,4 +866,185 @@ func pemLines(pem []byte) []string {
 		return []string{}
 	}
 	return lines
+}
+
+// defaultProductionTLS is supplied by the operator. Validation does not assert
+// public-CA trust: no CA identity or chain is manufactured here.
+type defaultProductionTLS struct {
+	serverName       string
+	certificate, key []byte
+}
+
+func loadDefaultProductionTLS() (*defaultProductionTLS, error) {
+	names := []string{"S_UI_DEFAULT_TLS_SERVER_NAME", "S_UI_DEFAULT_TLS_CERTIFICATE_PATH", "S_UI_DEFAULT_TLS_KEY_PATH"}
+	values := make([]string, len(names))
+	configured := false
+	for i, name := range names {
+		value, present := os.LookupEnv(name)
+		configured = configured || present
+		values[i] = strings.TrimSpace(value)
+	}
+	if !configured {
+		return nil, nil
+	}
+	for i, value := range values {
+		if value == "" {
+			return nil, fmt.Errorf("%s is required when default TLS is configured", names[i])
+		}
+	}
+	cert, err := os.ReadFile(values[1])
+	if err != nil {
+		return nil, fmt.Errorf("read default TLS certificate: %w", err)
+	}
+	key, err := os.ReadFile(values[2])
+	if err != nil {
+		return nil, fmt.Errorf("read default TLS key: %w", err)
+	}
+	pair, err := stdtls.X509KeyPair(cert, key)
+	if err != nil {
+		return nil, fmt.Errorf("invalid default TLS certificate/key pair: %w", err)
+	}
+	now := time.Now()
+	for i, der := range pair.Certificate {
+		certificate, err := x509.ParseCertificate(der)
+		if err != nil {
+			return nil, fmt.Errorf("parse default TLS certificate %d: %w", i, err)
+		}
+		if now.Before(certificate.NotBefore) || !now.Before(certificate.NotAfter) {
+			return nil, fmt.Errorf("default TLS certificate %d is outside its validity period", i)
+		}
+		if i == 0 {
+			if err := certificate.VerifyHostname(values[0]); err != nil {
+				return nil, fmt.Errorf("default TLS hostname: %w", err)
+			}
+		}
+	}
+	return &defaultProductionTLS{serverName: values[0], certificate: cert, key: key}, nil
+}
+
+func buildProductionTLS(name string, alpn []string, config *defaultProductionTLS) (model.Tls, error) {
+	return buildCertificateTLS(name, config.serverName, alpn, config.certificate, config.key, false)
+}
+
+// Exact JSON shape plus the self-signed bootstrap certificate profile excludes
+// custom TLS, extra settings and public-CA certificates from automatic updates.
+func matchesUnmodifiedBootstrapTLS(candidate model.Tls, spec legacyBootstrapOnlyTLSSpec) bool {
+	if candidate.Name != spec.name && candidate.Name != bootstrapOnlySelfSignedTLSName(spec.name) {
+		return false
+	}
+	if !matchesLegacyBootstrapOnlyTLS(candidate, spec) {
+		return false
+	}
+	var server, client map[string]interface{}
+	if json.Unmarshal(candidate.Server, &server) != nil || json.Unmarshal(candidate.Client, &client) != nil {
+		return false
+	}
+	pemBytes := func(value interface{}) []byte {
+		values := value.([]interface{})
+		lines := make([]string, len(values))
+		for i, v := range values {
+			lines[i] = v.(string)
+		}
+		return []byte(strings.Join(lines, "\n"))
+	}
+	pair, err := stdtls.X509KeyPair(pemBytes(server["certificate"]), pemBytes(server["key"]))
+	if err != nil || len(pair.Certificate) != 1 {
+		return false
+	}
+	cert, err := x509.ParseCertificate(pair.Certificate[0])
+	if err != nil || cert.IsCA || cert.PublicKeyAlgorithm != x509.RSA ||
+		!bytes.Equal(cert.RawIssuer, cert.RawSubject) ||
+		cert.CheckSignature(cert.SignatureAlgorithm, cert.RawTBSCertificate, cert.Signature) != nil ||
+		cert.Subject.CommonName != spec.serverName ||
+		!reflect.DeepEqual(cert.DNSNames, []string{spec.serverName}) ||
+		len(cert.IPAddresses) != 0 || len(cert.URIs) != 0 || len(cert.EmailAddresses) != 0 ||
+		cert.KeyUsage != x509.KeyUsageKeyEncipherment|x509.KeyUsageDigitalSignature ||
+		!reflect.DeepEqual(cert.ExtKeyUsage, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}) {
+		return false
+	}
+	expected, err := buildCertificateTLS(candidate.Name, spec.serverName, spec.alpn, pemBytes(server["certificate"]), pemBytes(server["key"]), true)
+	if err != nil {
+		return false
+	}
+	var expectedServer, expectedClient map[string]interface{}
+	_ = json.Unmarshal(expected.Server, &expectedServer)
+	_ = json.Unmarshal(expected.Client, &expectedClient)
+	return reflect.DeepEqual(server, expectedServer) && reflect.DeepEqual(client, expectedClient)
+}
+
+// Only S_UI_DEFAULT_TLS_MIGRATE_BOOTSTRAP=true opts in. TLS and dependent
+// outbounds are updated atomically; ports and user assignments are untouched.
+func migrateDefaultProductionTLS(database *gorm.DB, config *defaultProductionTLS) error {
+	return database.Transaction(func(tx *gorm.DB) error {
+		for _, spec := range legacyBootstrapOnlyTLSSpecs {
+			var candidates []model.Tls
+			if err := tx.Where("name IN ?", []string{spec.name, bootstrapOnlySelfSignedTLSName(spec.name)}).Find(&candidates).Error; err != nil {
+				return err
+			}
+			for _, candidate := range candidates {
+				if !matchesUnmodifiedBootstrapTLS(candidate, spec) {
+					continue
+				}
+				replacement, err := buildProductionTLS(spec.name, spec.alpn, config)
+				if err != nil {
+					return err
+				}
+				replacement.Id = candidate.Id
+				if err := tx.Model(&model.Tls{}).Where("id = ?", candidate.Id).Updates(map[string]interface{}{
+					"name": replacement.Name, "server": replacement.Server, "client": replacement.Client,
+				}).Error; err != nil {
+					return err
+				}
+				var inbounds []model.Inbound
+				if err := tx.Where("tls_id = ?", candidate.Id).Find(&inbounds).Error; err != nil {
+					return err
+				}
+				for _, inbound := range inbounds {
+					var outbound map[string]interface{}
+					if err := json.Unmarshal(inbound.OutJson, &outbound); err != nil {
+						return err
+					}
+					host, _ := outbound["server"].(string)
+					if host == "" {
+						host = config.serverName
+					}
+					inbound.Tls = &replacement
+					// Address-level overrides participate in subscription exports.
+					// Keep hosts/ports, but do not let stale bootstrap TLS override
+					// the newly verified template (including nested TLS overrides).
+					var addrs []map[string]interface{}
+					if len(inbound.Addrs) > 0 {
+						if err := json.Unmarshal(inbound.Addrs, &addrs); err != nil {
+							return err
+						}
+					}
+					for _, addr := range addrs {
+						addr["insecure"] = false
+						if addr["server_name"] == spec.serverName {
+							addr["server_name"] = config.serverName
+						}
+						if nested, ok := addr["tls"].(map[string]interface{}); ok {
+							nested["insecure"] = false
+							if nested["server_name"] == spec.serverName {
+								nested["server_name"] = config.serverName
+							}
+						}
+					}
+					if len(inbound.Addrs) > 0 {
+						inbound.Addrs, err = json.Marshal(addrs)
+						if err != nil {
+							return err
+						}
+					}
+					if err := util.FillOutJson(&inbound, host); err != nil {
+						return err
+					}
+					if err := tx.Model(&model.Inbound{}).Where("id = ?", inbound.Id).Updates(map[string]interface{}{"out_json": inbound.OutJson, "addrs": inbound.Addrs}).Error; err != nil {
+						return err
+					}
+				}
+			}
+		}
+		return nil
+	})
 }

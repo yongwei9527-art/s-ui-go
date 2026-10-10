@@ -1,4 +1,4 @@
-﻿# S-UI 多系统构建脚本
+# S-UI 多系统构建脚本
 param(
     [ValidateSet("windows", "linux", "darwin")]
     [string]$System = "windows",
@@ -261,6 +261,15 @@ function Test-PackageArchive([string]$ArchivePath, [string]$System, [string]$Arc
             $memory = New-Object IO.MemoryStream; $stream = $entry.Open(); try { $stream.CopyTo($memory) } finally { $stream.Dispose() }
             $embeddedHash = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($memory.ToArray())).Replace('-',''); $memory.Dispose()
             if ($embeddedHash -cne (Get-FileHash -LiteralPath $doc -Algorithm SHA256 -ErrorAction Stop).Hash) { throw "Embedded document differs from source: $doc" }
+        }
+        foreach ($scriptName in @($names | Where-Object { $_.EndsWith('.sh') })) {
+            $entry = $zip.GetEntry($scriptName)
+            $memory = New-Object IO.MemoryStream
+            $stream = $entry.Open()
+            try { $stream.CopyTo($memory) } finally { $stream.Dispose() }
+            $scriptBytes = $memory.ToArray(); $memory.Dispose()
+            if ($scriptBytes.Length -ge 3 -and $scriptBytes[0] -eq 0xEF -and $scriptBytes[1] -eq 0xBB -and $scriptBytes[2] -eq 0xBF) { throw "Shell script contains UTF-8 BOM: $scriptName" }
+            if ($scriptBytes -contains 13) { throw "Shell script contains CRLF: $scriptName" }
         }
         if ($System -eq 'windows') {
             $cronet = Get-LockedCronetModuleInfo $Architecture

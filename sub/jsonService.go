@@ -148,6 +148,10 @@ func (j *JsonService) getOutbounds(clientConfig json.RawMessage, inbounds []*mod
 		if err != nil {
 			return nil, nil, err
 		}
+		// Refresh panel TLS rather than trusting the cached OutJson.
+		if inData.TlsId > 0 && inData.Tls != nil {
+			outbound["tls"] = util.SubscriptionTLS(inData.Tls)
+		}
 		protocol, _ := outbound["type"].(string)
 		if hostname != "" && util.IsSeededDefaultInboundTag(inData.Tag) {
 			outbound["server"] = hostname
@@ -213,16 +217,11 @@ func (j *JsonService) getOutbounds(clientConfig json.RawMessage, inbounds []*mod
 				newOut["server"] = util.ResolveAddrServer(addr, hostname, inData.Tag)
 				newOut["server_port"] = int(util.AddrServerPort(addr))
 
-				// Override TLS
-				if addrTls, ok := addr["tls"].(map[string]interface{}); ok {
-					outTls, _ := newOut["tls"].(map[string]interface{})
-					if outTls == nil {
-						outTls = make(map[string]interface{})
-					}
-					for key, value := range addrTls {
-						outTls[key] = value
-					}
-					newOut["tls"] = outTls
+				// Copy TLS so address overrides cannot leak into sibling nodes.
+				if baseTLS, ok := outbound["tls"].(map[string]interface{}); ok {
+					newOut["tls"] = util.MergeSubscriptionTLS(baseTLS, addr)
+				} else if _, ok := addr["tls"].(map[string]interface{}); ok {
+					newOut["tls"] = util.MergeSubscriptionTLS(nil, addr)
 				}
 
 				remark, _ := addr["remark"].(string)
