@@ -95,7 +95,17 @@ func vmess(data string, i int) (*map[string]interface{}, string, error) {
 		tls["enabled"] = true
 		tls_sni, _ := dataJson["sni"].(string)
 		tls_alpn, _ := dataJson["alpn"].(string)
-		_, tls_insecure := dataJson["allowInsecure"]
+		// Presence alone must not disable certificate verification: false/0
+		// are common in exported VMess subscriptions.
+		tls_insecure := false
+		switch value := dataJson["allowInsecure"].(type) {
+		case bool:
+			tls_insecure = value
+		case string:
+			tls_insecure = value == "1" || strings.EqualFold(value, "true")
+		case float64:
+			tls_insecure = value == 1
+		}
 		tls_fp, _ := dataJson["fp"].(string)
 		if len(tls_sni) > 0 {
 			tls["server_name"] = tls_sni
