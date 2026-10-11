@@ -315,7 +315,7 @@ func TestDefaultProductionTLSMigrationExportsAndPreservesData(t *testing.T) {
 	if err := database.Where("type = ?", "hysteria2").First(&hy2).Error; err != nil {
 		t.Fatal(err)
 	}
-	addr := []map[string]interface{}{{"server": "192.0.2.10", "server_port": 8443, "remark": "keep", "insecure": true, "server_name": "tls1.tcm.mmbing.net", "tls": map[string]interface{}{"enabled": true, "insecure": true, "server_name": "tls1.tcm.mmbing.net"}}}
+	addr := []map[string]interface{}{{"server": "192.0.2.10", "server_port": 8443, "remark": "keep", "insecure": true, "server_name": defaultBootstrapTLSName, "tls": map[string]interface{}{"enabled": true, "insecure": true, "server_name": defaultBootstrapTLSName}}}
 	hy2.Addrs, _ = json.Marshal(addr)
 	if err := database.Model(&hy2).Update("addrs", hy2.Addrs).Error; err != nil {
 		t.Fatal(err)

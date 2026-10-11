@@ -142,7 +142,7 @@ sudo bash ./install-macos.sh
 
 默认入站包含 VLESS Reality、Hysteria2、TUIC、Trojan、VMess WS、Shadowsocks 2022、Naive、AnyTLS 和 Hysteria。Reality 与 Shadowsocks 不使用普通 TLS 域名证书。
 
-其他默认 TLS 模板未提供域名证书时仍是**初始化专用自签证书**，不等于受信任证书；客户端必须支持导出的对应验证设置。生产部署推荐使用自己的域名及完整证书链，保持证书验证开启。UDP 节点还必须放行对应 UDP 端口，更新程序不会自动解决云防火墙或客户端不支持的问题。
+新安装无有效域名证书时，默认 TLS 使用保留名称 `bootstrap.s-ui.invalid`（无需解析），每个模板生成独立私钥和自签证书；VMess WebSocket Host 使用部署地址，不再冒用第三方域名。其他默认 TLS 模板未提供域名证书时仍是**初始化专用自签证书**，不等于受信任证书；初始化订阅明确设置 `insecure=true`，Clash 对应 `skip-cert-verify=true`。这会失去服务器身份认证，仅用于初始化测试，不建议生产使用。已有节点不自动重建或改写。客户端必须支持导出的对应验证设置。生产部署推荐使用自己的域名及完整证书链，保持证书验证开启。UDP 节点还必须放行对应 UDP 端口，更新程序不会自动解决云防火墙或客户端不支持的问题。
 
 可以显式设置以下三个环境变量，让程序初始化或迁移未修改的默认 TLS 模板：
 

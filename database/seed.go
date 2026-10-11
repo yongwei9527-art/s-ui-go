@@ -29,6 +29,9 @@ import (
 const (
 	defaultTemplateClientName = "default-user"
 
+	// Reserved non-resolving name for self-signed bootstrap TLS, not a third-party identity.
+	defaultBootstrapTLSName = "bootstrap.s-ui.invalid"
+
 	// selfSignedTLSBootstrapOnlySuffix is persisted in the TLS template name so
 	// operators can distinguish the first-boot, self-signed templates from TLS
 	// configurations that are suitable for production use.
@@ -115,35 +118,35 @@ func seedDefaultTlsTemplatesWithConfig(tx *gorm.DB, production *defaultProductio
 	if err != nil {
 		return nil, err
 	}
-	hy2TLS, err := buildDefaultTLS("tls-hy2", "tls1.tcm.mmbing.net", []string{"h3"})
+	hy2TLS, err := buildDefaultTLS("tls-hy2", defaultBootstrapTLSName, []string{"h3"})
 	if err != nil {
 		return nil, err
 	}
-	tuicTLS, err := buildDefaultTLS("tls-tuic", "snap.licdn.com", []string{"h3"})
+	tuicTLS, err := buildDefaultTLS("tls-tuic", defaultBootstrapTLSName, []string{"h3"})
 	if err != nil {
 		return nil, err
 	}
-	trojanTLS, err := buildDefaultTLS("tls-trojan", "snap.licdn.com", []string{"http/1.1"})
+	trojanTLS, err := buildDefaultTLS("tls-trojan", defaultBootstrapTLSName, []string{"http/1.1"})
 	if err != nil {
 		return nil, err
 	}
-	trojanWSTLS, err := buildDefaultTLS("tls-trojan-ws", "snap.licdn.com", []string{"http/1.1"})
+	trojanWSTLS, err := buildDefaultTLS("tls-trojan-ws", defaultBootstrapTLSName, []string{"http/1.1"})
 	if err != nil {
 		return nil, err
 	}
-	vmessWSTLS, err := buildDefaultTLS("tls-vmess-ws", "snap.licdn.com", []string{"http/1.1"})
+	vmessWSTLS, err := buildDefaultTLS("tls-vmess-ws", defaultBootstrapTLSName, []string{"http/1.1"})
 	if err != nil {
 		return nil, err
 	}
-	naiveTLS, err := buildDefaultTLS("tls-naive", "snap.licdn.com", []string{"h2", "http/1.1"})
+	naiveTLS, err := buildDefaultTLS("tls-naive", defaultBootstrapTLSName, []string{"h2", "http/1.1"})
 	if err != nil {
 		return nil, err
 	}
-	anyTLSTLS, err := buildDefaultTLS("tls-anytls", "snap.licdn.com", []string{"http/1.1"})
+	anyTLSTLS, err := buildDefaultTLS("tls-anytls", defaultBootstrapTLSName, []string{"http/1.1"})
 	if err != nil {
 		return nil, err
 	}
-	hysteriaTLS, err := buildDefaultTLS("tls-hysteria", "tls1.tcm.mmbing.net", []string{"h3"})
+	hysteriaTLS, err := buildDefaultTLS("tls-hysteria", defaultBootstrapTLSName, []string{"h3"})
 	if err != nil {
 		return nil, err
 	}
@@ -416,7 +419,7 @@ func seedDefaultInbounds(tx *gorm.DB, tlsTemplates map[string]seededTLS, seedHos
 				"type": "ws",
 				"path": "/vmess",
 				"headers": map[string]interface{}{
-					"Host": "snap.licdn.com",
+					"Host": seedHost,
 				},
 			},
 		}, []map[string]interface{}{{"server": seedHost, "server_port": vmessPort, "remark": inboundTag("vmess-ws-tls", vmessPort), "tls": true, "insecure": true}}),
@@ -974,9 +977,19 @@ func matchesUnmodifiedBootstrapTLS(candidate model.Tls, spec legacyBootstrapOnly
 
 // Only S_UI_DEFAULT_TLS_MIGRATE_BOOTSTRAP=true opts in. TLS and dependent
 // outbounds are updated atomically; ports and user assignments are untouched.
+// Recognize both historical defaults and the reserved bootstrap identity.
+func bootstrapTLSMigrationSpecs() []legacyBootstrapOnlyTLSSpec {
+	specs := append([]legacyBootstrapOnlyTLSSpec(nil), legacyBootstrapOnlyTLSSpecs...)
+	for _, spec := range legacyBootstrapOnlyTLSSpecs {
+		spec.serverName = defaultBootstrapTLSName
+		specs = append(specs, spec)
+	}
+	return specs
+}
+
 func migrateDefaultProductionTLS(database *gorm.DB, config *defaultProductionTLS) error {
 	return database.Transaction(func(tx *gorm.DB) error {
-		for _, spec := range legacyBootstrapOnlyTLSSpecs {
+		for _, spec := range bootstrapTLSMigrationSpecs() {
 			var candidates []model.Tls
 			if err := tx.Where("name IN ?", []string{spec.name, bootstrapOnlySelfSignedTLSName(spec.name)}).Find(&candidates).Error; err != nil {
 				return err
