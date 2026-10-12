@@ -32,6 +32,7 @@
           <v-card-title>{{ editing ? '编辑 Xray Reality 入站' : '新建 Xray Reality 入站' }}</v-card-title>
           <v-card-text>
             <v-row>
+              <v-col v-if="!editing" cols="12"><v-select v-model="selectedPreset" :items="xrayPresetOptions" label="默认节点模板" @update:model-value="newInbound" hint="选择模板不会自动创建或启用；请确认端口空闲并分配客户端。" persistent-hint /></v-col>
               <v-col cols="12" sm="4"><v-switch v-model="form.enable" color="primary" label="启用" hide-details /></v-col>
               <v-col cols="12" sm="8"><v-text-field v-model="form.tag" label="标签" /></v-col>
               <v-col cols="12" sm="6"><v-text-field v-model="form.listen" label="监听地址" /></v-col>
@@ -85,7 +86,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import HttpUtils from '@/plugins/httputil'
 import Data from '@/store/modules/data'
-import { createXrayDefaults } from '@/plugins/xrayDefaults'
+import { createXrayDefaults, xrayPresetOptions, type XrayPreset } from '@/plugins/xrayDefaults'
 
 interface XHTTPInbound {
   id?: number
@@ -104,7 +105,8 @@ interface XHTTPInbound {
   mode: string
 }
 
-const blank = (): XHTTPInbound => createXrayDefaults()
+const selectedPreset = ref<XrayPreset>('xhttp-auto')
+const blank = (): XHTTPInbound => createXrayDefaults(selectedPreset.value)
 const form = reactive<XHTTPInbound>(blank())
 const inbounds = ref<XHTTPInbound[]>([])
 const assignments = ref<Record<string, number[]>>({})

@@ -18,3 +18,16 @@ describe('Xray Reality defaults', () => {
     expect(createXrayDefaults().privateKey).toBe('')
   })
 })
+it('provides distinct ports and appropriate transports for all presets', () => {
+  const tcp = createXrayDefaults('tcp-vision')
+  const auto = createXrayDefaults('xhttp-auto')
+  const stream = createXrayDefaults('xhttp-stream-one')
+  expect(new Set([tcp.port, auto.port, stream.port]).size).toBe(3)
+  expect(tcp.transport).toBe('tcp')
+  expect(tcp.path).toBe('')
+  expect(stream.mode).toBe('stream-one')
+  for (const node of [tcp, auto, stream]) {
+    expect(node.enable).toBe(false)
+    expect(node.privateKey).toBe('')
+  }
+})
