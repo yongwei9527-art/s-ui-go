@@ -2,9 +2,9 @@
 
 > 基于开源 S-UI / s-ui-go 项目的社区维护构建，提供 Windows、Linux、macOS 发布包、安装脚本、服务管理脚本及相关配置说明。
 >
-> **版本约定：** 用户可见名称为 **s-ui-go 0.1**；当前更新包包含 sing-box `v1.14.3` 和 Xray-core `v26.3.27`，包含默认节点 TLS 与订阅兼容性修复。本次发布为 `s-ui-go-v0.1.2`；旧 Release 保留，请使用下方新发布安装包。文档中的 `sui` 是程序文件名，`s-ui` 是 Linux 服务/管理命令。
+> **版本约定：** 用户可见名称为 **s-ui-go 0.1**；当前更新包包含 sing-box `v1.14.3` 和 Xray-core `v26.3.27`，包含默认节点 TLS 与订阅兼容性修复。本次发布为 `s-ui-go-v0.1.3`；旧 Release 保留，请使用下方新发布安装包。文档中的 `sui` 是程序文件名，`s-ui` 是 Linux 服务/管理命令。
 
-[![Release](https://img.shields.io/badge/release-s--ui--go%200.1-blue)](https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.2)
+[![Release](https://img.shields.io/badge/release-s--ui--go%200.1-blue)](https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.3)
 [![License](https://img.shields.io/badge/license-GPL--3.0-green)](LICENSE)
 ## 目录
 
@@ -75,14 +75,14 @@ sha256sum --check s-ui-linux-amd64.zip.sha256
 ## 下载
 
 当前用户可见版本：**s-ui-go 0.1**
-更新包提交：**`951c4367fcd30c09bef876ceda5245b6e25e0f40`**（sing-box `v1.14.3` / Xray-core `v26.3.27`）
-以下链接下载 `s-ui-go-v0.1.2` 正式发布的三平台安装包；旧 Release 保留，不要混用旧包。
+构建来源：**Release 标签 `s-ui-go-v0.1.3` 对应提交**（sing-box `v1.14.3` / Xray-core `v26.3.27`）
+以下链接下载 `s-ui-go-v0.1.3` 正式发布的三平台安装包；旧 Release 保留，不要混用旧包。
 
 | 系统 | 架构 | 发布资产 |
 | --- | --- | --- |
-| Windows | amd64 | [`s-ui-windows-amd64.zip`](https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.2/s-ui-windows-amd64.zip) + [`SHA256`](https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.2/s-ui-windows-amd64.zip.sha256) |
-| Linux | amd64 | [`s-ui-linux-amd64.zip`](https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.2/s-ui-linux-amd64.zip) + [`SHA256`](https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.2/s-ui-linux-amd64.zip.sha256) |
-| macOS | amd64 | [`s-ui-macos-amd64.zip`](https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.2/s-ui-macos-amd64.zip) + [`SHA256`](https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.2/s-ui-macos-amd64.zip.sha256) |
+| Windows | amd64 | [`s-ui-windows-amd64.zip`](https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.3/s-ui-windows-amd64.zip) + [`SHA256`](https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.3/s-ui-windows-amd64.zip.sha256) |
+| Linux | amd64 | [`s-ui-linux-amd64.zip`](https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.3/s-ui-linux-amd64.zip) + [`SHA256`](https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.3/s-ui-linux-amd64.zip.sha256) |
+| macOS | amd64 | [`s-ui-macos-amd64.zip`](https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.3/s-ui-macos-amd64.zip) + [`SHA256`](https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.3/s-ui-macos-amd64.zip.sha256) |
 
 每个平台的发布单元均为 **ZIP 与同名 ZIP 的 `.sha256` 文件**。先校验 ZIP，再解压并使用包内的安装脚本或 `sui`；不要把一个不存在的“裸二进制校验文件”当作发布契约。
 ## 快速安装
@@ -97,6 +97,8 @@ sha256sum --check s-ui-linux-amd64.zip.sha256
 
 Linux 的安装器要求 **systemd**。推荐 Ubuntu 22.04/24.04 等带 systemd 的 VPS，且 `uname -m` 为 `x86_64`；安装后的默认目录是 `/usr/local/s-ui`。
 
+升级前注意：若旧节点证书引用 `/root/`，请先在面板改为安装目录 `cert/` 中服务用户可读的证书。新版会严格验证代理核心启动，失败时回滚，不再仅凭面板进程活动就报告成功。Windows/macOS 事务流程已通过隔离模拟测试，尚未在真实系统完整安装验证。
+
 已有安装更新：需要 `curl`、`unzip` 和 `sha256sum`，复制整个代码块执行。默认升级目录为 `/usr/local/s-ui`：
 
 ```bash
@@ -104,7 +106,7 @@ Linux 的安装器要求 **systemd**。推荐 Ubuntu 22.04/24.04 等带 systemd 
   set -eu
   workdir="$(mktemp -d)"
   cd "$workdir"
-  base='https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.2'
+  base='https://github.com/yongwei9527-art/s-ui-go/releases/download/s-ui-go-v0.1.3'
   curl -fL --retry 3 -O "$base/s-ui-linux-amd64.zip"
   curl -fL --retry 3 -O "$base/s-ui-linux-amd64.zip.sha256"
   sha256sum --check s-ui-linux-amd64.zip.sha256
@@ -113,7 +115,7 @@ Linux 的安装器要求 **systemd**。推荐 Ubuntu 22.04/24.04 等带 systemd 
 )
 ```
 
-这些命令固定下载 `s-ui-go-v0.1.2` 发布包（源代码提交 `951c436`），校验成功后才执行包内安装器。升级保留数据库和配置；如果原安装目录是 `/opt/s-ui`，请把最后一行的目录改为 `/opt/s-ui`。全新安装时去掉 `--upgrade`，其余参数不变。下载临时目录保留用于排查。完成后，使用以下命令查看服务状态：
+这些命令固定下载 `s-ui-go-v0.1.3` 发布包，校验成功后才执行包内安装器。升级保留数据库和配置；如果原安装目录是 `/opt/s-ui`，请把最后一行的目录改为 `/opt/s-ui`。全新安装时去掉 `--upgrade`，其余参数不变。下载临时目录保留用于排查。完成后，使用以下命令查看服务状态：
 
 ```bash
 sudo systemctl status s-ui --no-pager
@@ -138,6 +140,10 @@ sudo systemctl status s-ui --no-pager
 sudo bash ./install-macos.sh
 ```
 
+## Xray 可选默认模板
+
+页面提供 Reality TCP Vision（10443/tcp）、XHTTP auto（2088/tcp）、XHTTP stream-one（2089/tcp）三个模板；选模板不自动创建或启用节点。新节点保存时生成独立密钥，确认端口空闲、目标可达并分配客户端后再启用。已有配置不覆盖，Reality 无需自己的域名证书。
+
 ## 默认节点 TLS 与升级
 
 默认入站包含 VLESS Reality、Hysteria2、TUIC、Trojan、VMess WS、Shadowsocks 2022、Naive、AnyTLS 和 Hysteria。Reality 与 Shadowsocks 不使用普通 TLS 域名证书。
@@ -154,7 +160,7 @@ S_UI_DEFAULT_TLS_KEY_PATH=对应私钥的绝对路径
 
 三项必须完整提供；已有安装还须显式设置 `S_UI_DEFAULT_TLS_MIGRATE_BOOTSTRAP=true` 才执行迁移；证书须与私钥匹配、未过期且包含该域名。已有自定义 TLS 配置不会被覆盖，入站 ID、端口和用户保留。迁移完成后需重新更新客户端订阅。不要把自己的私钥提交到 GitHub。
 
-systemd 不会自动继承终端环境变量，须在 `sudo systemctl edit s-ui` 中添加 `[Service]` 下的 `Environment="变量名=值"`，再执行 `sudo systemctl daemon-reload && sudo systemctl restart s-ui`。证书及私钥须位于服务用户可读取、systemd 沙箱可访问的位置（推荐安装目录的 `cert/`）；不要开放 `/root` 权限，也不要使用 `chmod 777`。开发分支的 Linux 管理脚本已将新签发证书目录改为安装目录下的 `cert/`，使用受限目录权限和服务组读取权限；旧 `/root` 证书不会自动迁移，升级前需在面板更新对应证书路径。开发分支新增：经上述环境变量配置的有效证书将保存为外部 `certificate_path` / `key_path` 引用，不再复制私钥进数据库；核心支持文件变化重载。续期必须更新这两个路径对应的文件，并保持服务用户可读；推荐部署钩子在证书和私钥都更新完成后重启 `s-ui`，避免两文件更新中间态。此改动尚未包含在 `s-ui-go-v0.1.2` Release；该 Release 及以前已导入数据库的内联证书仍需通过面板替换，不能仅靠更新磁盘文件。迁移成功后可移除一次性环境变量。
+systemd 不会自动继承终端环境变量，须在 `sudo systemctl edit s-ui` 中添加 `[Service]` 下的 `Environment="变量名=值"`，再执行 `sudo systemctl daemon-reload && sudo systemctl restart s-ui`。证书及私钥须位于服务用户可读取、systemd 沙箱可访问的位置（推荐安装目录的 `cert/`）；不要开放 `/root` 权限，也不要使用 `chmod 777`。本版本的 Linux 管理脚本已将新签发证书目录改为安装目录下的 `cert/`，使用受限目录权限和服务组读取权限；旧 `/root` 证书不会自动迁移，升级前需在面板更新对应证书路径。本版本新增：经上述环境变量配置的有效证书将保存为外部 `certificate_path` / `key_path` 引用，不再复制私钥进数据库；核心支持文件变化重载。续期必须更新这两个路径对应的文件，并保持服务用户可读；推荐部署钩子在证书和私钥都更新完成后重启 `s-ui`，避免两文件更新中间态。`s-ui-go-v0.1.2` 及以前已导入数据库的内联证书仍需在面板改为外部路径，不能仅靠更新磁盘文件。迁移成功后可移除一次性环境变量。
 
 ## 默认访问地址
 
