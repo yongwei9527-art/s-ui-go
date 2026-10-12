@@ -38,6 +38,7 @@ UFW_RULES_ADDED_THIS_RUN=0
 UFW_COMMENT=""
 BACKUP_DIR=""
 BACKUP_READY=0
+UPGRADE_SERVICE_STOPPED=0
 SERVICE_UNIT_EXISTED=0
 SERVICE_WAS_ACTIVE=0
 SERVICE_WAS_ENABLED=0
@@ -566,6 +567,7 @@ restore_upgrade() {
     say '安装失败，正在恢复升级前的程序、数据库、unit、环境和服务状态...\n' 'Installation failed; restoring the pre-upgrade executable, database, unit, environment, and service state...\n' >&2
     if ! systemctl stop "$SERVICE_NAME" >/dev/null 2>&1 || ! service_is_inactive; then
         rollback_error '无法停止当前服务 / could not stop the current service'
+        return 1
     fi
     restore_file_from_backup sui "$INSTALL_DIR/sui" || rollback_error '无法恢复主程序 / executable'
     if [[ -d "$BACKUP_DIR/db" && ! -L "$BACKUP_DIR/db" ]]; then
@@ -621,6 +623,8 @@ rollback_fresh_install() {
         else
             if ! systemctl stop "$SERVICE_NAME" >/dev/null 2>&1 || ! service_is_inactive; then
                 cleanup_failed=1
+                say '服务未停止；保留文件和数据库，拒绝破坏性清理。\n' 'Service not stopped; preserving files and database.\n' >&2
+                return 1
             fi
             systemctl disable "$SERVICE_NAME" >/dev/null 2>&1 || cleanup_failed=1
             rm -f -- "$UNIT_PATH" || cleanup_failed=1
@@ -649,6 +653,8 @@ rollback_on_exit() {
     if [[ "$status" -ne 0 ]]; then
         if [[ "$FRESH_INSTALL" -eq 0 && "$BACKUP_READY" -eq 1 ]]; then
             restore_upgrade
+        elif [[ "$FRESH_INSTALL" -eq 0 && "$UPGRADE_SERVICE_STOPPED" -eq 1 && "$SERVICE_WAS_ACTIVE" -eq 1 ]]; then
+            systemctl start "$SERVICE_NAME" || say '备份失败，恢复原服务启动也失败。\n' 'Backup failed; could not restart original service.\n' >&2
         elif [[ "$FRESH_INSTALL" -eq 1 && "$INSTALL_STATE_WRITTEN" -eq 1 ]]; then
             rollback_fresh_install
         fi
@@ -819,7 +825,8 @@ if [[ "$FRESH_INSTALL" -eq 1 ]]; then
 else
     say '检测到现有数据库；将保留面板、订阅、管理员和协议配置。\n' 'Existing database detected; panel, subscription, administrator, and protocol settings will be preserved.\n'
     [[ "$LEGACY_INSTALL" -eq 0 ]] || say '这是无 install-state 标记的旧安装；兼容升级，成功后会写入 ready 标记。\n' 'This is a legacy installation without an install-state marker; it will be upgraded compatibly and receive a ready marker on success.\n'
-    [[ "$REQUIRE_PROXY_CORES" -eq 1 ]] && STRICT_PROXY_HEALTH=1
+    REQUIRE_PROXY_CORES=1
+    STRICT_PROXY_HEALTH=1
 fi
 
 trap rollback_on_exit EXIT
@@ -827,10 +834,11 @@ trap rollback_on_exit EXIT
 if [[ "$FRESH_INSTALL" -eq 0 ]]; then
     install -d -m 0700 -- "$INSTALL_DIR/backups"
     chown -h root:root -- "$INSTALL_DIR/backups"
-    create_upgrade_backup
     if ! systemctl stop "$SERVICE_NAME" || ! service_is_inactive; then
         die '无法停止并确认现有服务已 inactive，已中止升级以保护数据库。 / Could not stop the existing service and confirm inactive state; upgrade aborted to protect the database.'
     fi
+    UPGRADE_SERVICE_STOPPED=1
+    create_upgrade_backup
 fi
 
 ensure_service_account

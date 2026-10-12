@@ -69,6 +69,7 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    server: { deps: { inline: ['vuetify'] } },
     include: ['src/**/*.test.ts'],
   },
   define: { 'process.env': {} },

@@ -32,7 +32,7 @@
           <v-card-title>{{ editing ? '编辑 Xray Reality 入站' : '新建 Xray Reality 入站' }}</v-card-title>
           <v-card-text>
             <v-row>
-              <v-col v-if="!editing" cols="12"><v-select v-model="selectedPreset" :items="xrayPresetOptions" label="默认节点模板" @update:model-value="newInbound" hint="选择模板不会自动创建或启用；请确认端口空闲并分配客户端。" persistent-hint /></v-col>
+              <v-col v-if="!editing" cols="12"><v-select v-model="selectedPreset" :disabled="loading" :items="xrayPresetOptions" label="默认节点模板" @update:model-value="newInbound" hint="选择模板不会自动创建或启用；请确认端口空闲并分配客户端。" persistent-hint /></v-col>
               <v-col cols="12" sm="4"><v-switch v-model="form.enable" color="primary" label="启用" hide-details /></v-col>
               <v-col cols="12" sm="8"><v-text-field v-model="form.tag" label="标签" /></v-col>
               <v-col cols="12" sm="6"><v-text-field v-model="form.listen" label="监听地址" /></v-col>
@@ -58,7 +58,7 @@
           </v-card-text>
           <v-card-actions class="px-4 pb-4">
             <v-btn color="primary" prepend-icon="mdi-content-save" :loading="loading" @click="save">保存并应用</v-btn>
-            <v-btn variant="text" @click="newInbound">清空</v-btn>
+            <v-btn variant="text" :disabled="loading" @click="newInbound">清空</v-btn>
           </v-card-actions>
         </v-card>
       </v-col>
@@ -70,8 +70,8 @@
             <v-list-item v-for="inbound in inbounds" :key="inbound.id" :title="inbound.tag" :subtitle="`${inbound.listen}:${inbound.port} · ${inbound.serverName}${inbound.enable ? '' : ' · 已禁用'}`">
               <template #prepend><v-icon :color="inbound.enable ? 'success' : ''">mdi-lan</v-icon></template>
               <template #append>
-                <v-btn icon="mdi-pencil" variant="text" size="small" @click="edit(inbound)" />
-                <v-btn icon="mdi-delete-outline" color="error" variant="text" size="small" @click="remove(inbound.id)" />
+                <v-btn icon="mdi-pencil" :disabled="loading" variant="text" size="small" @click="edit(inbound)" />
+                <v-btn icon="mdi-delete-outline" :disabled="loading" color="error" variant="text" size="small" @click="remove(inbound.id)" />
               </template>
             </v-list-item>
           </v-list>
@@ -125,6 +125,7 @@ const applyData = (obj: any) => {
 }
 
 const load = async () => {
+  if (loading.value) return
   loading.value = true
   try {
     const msg = await HttpUtils.get('api/xray-xhttp')
@@ -132,12 +133,19 @@ const load = async () => {
   } finally { loading.value = false }
 }
 
-const newInbound = () => {
+const resetForm = () => {
+  delete form.id
   Object.assign(form, blank())
   clientIds.value = []
 }
 
+const newInbound = () => {
+  if (loading.value) return
+  resetForm()
+}
+
 const edit = (inbound: XHTTPInbound) => {
+  if (loading.value) return
   Object.assign(form, JSON.parse(JSON.stringify(inbound)))
   // XHTTP was the only transport before this field existed.
   if (!form.transport) form.transport = 'xhttp'
@@ -145,6 +153,7 @@ const edit = (inbound: XHTTPInbound) => {
 }
 
 const generateRealityCredentials = async () => {
+  if (loading.value) return
   loading.value = true
   try {
     const msg = await HttpUtils.get('api/keypairs', { k: 'reality' })
@@ -162,6 +171,7 @@ const generateRealityCredentials = async () => {
 }
 
 const save = async () => {
+  if (loading.value) return
   // Generate only for new nodes; never rotate an edited node implicitly.
   if (!editing.value && !form.privateKey && !form.publicKey) {
     await generateRealityCredentials()
@@ -177,26 +187,29 @@ const save = async () => {
     const msg = await HttpUtils.post('api/xray-xhttp-save', { data: JSON.stringify({ inbound: form, clientIds: clientIds.value }) })
     if (msg.success) {
       applyData(msg.obj)
-      newInbound()
+      resetForm()
     }
   } finally { loading.value = false }
 }
 
 const remove = async (id?: number) => {
+  if (loading.value) return
   if (!id || !confirm('确定删除此 XHTTP 入站？')) return
   loading.value = true
   try {
     const msg = await HttpUtils.post('api/xray-xhttp-delete', { id })
     if (msg.success) {
       applyData(msg.obj)
-      if (form.id === id) newInbound()
+      if (form.id === id) resetForm()
     }
   } finally { loading.value = false }
 }
 
 const restart = async () => {
+  if (loading.value) return
   loading.value = true
-  try { await HttpUtils.post('api/restartXrayXHTTP', {}) ; await load() } finally { loading.value = false }
+  try { await HttpUtils.post('api/restartXrayXHTTP', {}) } finally { loading.value = false }
+  await load()
 }
 
 onMounted(load)

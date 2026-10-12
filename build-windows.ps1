@@ -490,6 +490,20 @@ if ($Package) {
     $packageSystem = $System
     if ($System -eq "darwin") { $packageSystem = "macos" }
     $packageDir = "dist\s-ui-$packageSystem-$Architecture"
+    # Resolve and validate the final target before any recursive deletion.
+    $workspaceRoot = [IO.Path]::GetFullPath($PSScriptRoot).TrimEnd('\')
+    if ([IO.Path]::GetFullPath($PWD.Path).TrimEnd('\') -ne $workspaceRoot) { throw 'Run packaging from the repository root.' }
+    $packageDir = [IO.Path]::GetFullPath((Join-Path $workspaceRoot $packageDir))
+    $expectedParent = [IO.Path]::GetFullPath((Join-Path $workspaceRoot 'dist'))
+    if ([IO.Path]::GetDirectoryName($packageDir) -ne $expectedParent) { throw 'Package target escaped the repository dist directory.' }
+    $checkPath = $packageDir
+    while ($checkPath) {
+        if (Test-Path -LiteralPath $checkPath) {
+            $item = Get-Item -LiteralPath $checkPath -Force
+            if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw "Refusing redirected package path: $checkPath" }
+        }
+        $checkPath = [IO.Path]::GetDirectoryName($checkPath)
+    }
     if (Test-Path -LiteralPath $packageDir) { Remove-Item -LiteralPath $packageDir -Recurse -Force -ErrorAction Stop }
     New-Item -ItemType Directory -Path $packageDir -Force -ErrorAction Stop | Out-Null
     $archivePath = "dist\s-ui-$packageSystem-$Architecture.zip"
