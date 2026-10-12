@@ -768,7 +768,7 @@ ssl_cert_issue_CF() {
                 export CF_Key="${CF_GlobalKey}"
                 export CF_Email="${CF_AccountEmail}"
 
-                ~/.acme.sh/acme.sh --issue --dns dns_cf -d ${CF_Domain} -d *.${CF_Domain} $force_flag --log
+                ~/.acme.sh/acme.sh --issue --dns dns_cf -d "${CF_Domain}" -d "*.${CF_Domain}" $force_flag --log
                 if [ $? -ne 0 ]; then
                     LOGE "证书签发失败，脚本已退。.."
                     exit 1
@@ -782,9 +782,9 @@ ssl_cert_issue_CF() {
                     exit 1
                 fi
 
-                ~/.acme.sh/acme.sh --installcert -d ${CF_Domain} -d *.${CF_Domain} \
-                    --fullchain-file ${certPath}/${CF_Domain}/fullchain.pem \
-                    --key-file ${certPath}/${CF_Domain}/privkey.pem
+                ~/.acme.sh/acme.sh --installcert -d "${CF_Domain}" -d "*.${CF_Domain}" \
+                    --fullchain-file "${certPath}/${CF_Domain}/fullchain.pem" \
+                    --key-file "${certPath}/${CF_Domain}/privkey.pem"
 
                 if [ $? -ne 0 ]; then
                     LOGE "证书安装失败，脚本已退。.."
