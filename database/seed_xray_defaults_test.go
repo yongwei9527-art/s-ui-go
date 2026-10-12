@@ -1,6 +1,9 @@
 package database
 
 import (
+	"encoding/base64"
+	"encoding/hex"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"strings"
 	"testing"
 
@@ -62,6 +65,25 @@ func TestSeedDefaultXrayRealityTemplatesCreatesDisabledDrafts(t *testing.T) {
 		}
 		if inbound.Transport == "tcp" && (inbound.Path != "" || inbound.Mode != "") {
 			t.Fatalf("TCP template unexpectedly has XHTTP fields: %#v", inbound)
+		}
+		privateBytes, err := base64.RawURLEncoding.DecodeString(inbound.PrivateKey)
+		if err != nil || len(privateBytes) != 32 {
+			t.Fatal("invalid default Reality private key")
+		}
+		var key wgtypes.Key
+		copy(key[:], privateBytes)
+		public := key.PublicKey()
+		if base64.RawURLEncoding.EncodeToString(public[:]) != inbound.PublicKey {
+			t.Fatal("default Reality key pair mismatch")
+		}
+		shortBytes, err := hex.DecodeString(inbound.ShortID)
+		if err != nil || len(shortBytes) != 8 {
+			t.Fatal("invalid default Reality short ID")
+		}
+		for _, previous := range seen {
+			if previous.PrivateKey == inbound.PrivateKey || previous.ShortID == inbound.ShortID {
+				t.Fatal("default nodes share Reality credentials")
+			}
 		}
 		seen[inbound.Transport] = inbound
 	}

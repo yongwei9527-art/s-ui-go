@@ -34,7 +34,7 @@ func TestRealityTransportsEndToEnd(t *testing.T) {
 	realityTarget := startLocalRealityTarget(t)
 	echoTarget := startLocalTCPEcho(t)
 
-	for _, transport := range []string{"tcp", "xhttp"} {
+	for _, transport := range []string{"tcp", "xhttp", "xhttp-stream-one"} {
 		t.Run(transport, func(t *testing.T) {
 			serverPort := unusedLoopbackPort(t)
 
@@ -287,10 +287,14 @@ func roundTripThroughSOCKS(t *testing.T, socksPort int, target string, payload [
 }
 
 func e2eServerConfig(transport string, port int, realityTarget string) []byte {
+	path, mode := "/xhttp", "auto"
+	if transport == "xhttp-stream-one" {
+		transport, path, mode = "xhttp", "/xhttp-stream", "stream-one"
+	}
 	transportSettings := ""
 	clientFlow := ""
 	if transport == "xhttp" {
-		transportSettings = `,"xhttpSettings":{"path":"/xhttp","mode":"auto"}`
+		transportSettings = fmt.Sprintf(`,"xhttpSettings":{"path":%q,"mode":%q}`, path, mode)
 	} else {
 		clientFlow = `,"flow":"xtls-rprx-vision"`
 	}
@@ -323,10 +327,14 @@ func e2eServerConfig(transport string, port int, realityTarget string) []byte {
 }
 
 func e2eClientConfig(transport string, serverPort, socksPort int, publicKey string) []byte {
+	path, mode := "/xhttp", "auto"
+	if transport == "xhttp-stream-one" {
+		transport, path, mode = "xhttp", "/xhttp-stream", "stream-one"
+	}
 	transportSettings := ""
 	clientFlow := ""
 	if transport == "xhttp" {
-		transportSettings = `,"xhttpSettings":{"path":"/xhttp","mode":"auto"}`
+		transportSettings = fmt.Sprintf(`,"xhttpSettings":{"path":%q,"mode":%q}`, path, mode)
 	} else {
 		clientFlow = `,"flow":"xtls-rprx-vision"`
 	}
