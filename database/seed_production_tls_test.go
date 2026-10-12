@@ -234,12 +234,16 @@ func TestDefaultProductionTLSFreshInstall(t *testing.T) {
 		if server["server_name"] != "vpn.example.test" || client["server_name"] != "vpn.example.test" || client["insecure"] != false {
 			t.Fatalf("bad TLS: %s", template.Client)
 		}
-		wantCert, _ := json.Marshal(pemLines(cert))
-		gotCert, _ := json.Marshal(server["certificate"])
-		wantKey, _ := json.Marshal(pemLines(key))
-		gotKey, _ := json.Marshal(server["key"])
-		if !bytes.Equal(wantCert, gotCert) || !bytes.Equal(wantKey, gotKey) {
-			t.Fatal("supplied PEM replaced")
+		if server["certificate_path"] != os.Getenv(productionEnvNames[1]) || server["key_path"] != os.Getenv(productionEnvNames[2]) {
+			t.Fatalf("missing renewal paths: %v", server)
+		}
+		if server["certificate"] != nil || server["key"] != nil {
+			t.Fatal("production PEM copied into database")
+		}
+		for _, field := range []string{"key", "key_path", "certificate_path"} {
+			if client[field] != nil {
+				t.Fatalf("server material exposed to client: %s", field)
+			}
 		}
 	}
 	var inbounds []model.Inbound
@@ -498,5 +502,46 @@ func TestDefaultProductionTLSMigrationRollback(t *testing.T) {
 	_ = database.Order("id").Find(&after).Error
 	if !reflect.DeepEqual(before, after) {
 		t.Fatal("TLS changes were not rolled back")
+	}
+}
+
+func TestProductionTLSRenewalKeepsStableExternalReferences(t *testing.T) {
+	clearProductionEnv(t)
+	cert, key := productionCertificate(t, "vpn.example.test", time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
+	configureProductionTLS(t, "vpn.example.test", cert, key)
+	first, err := loadDefaultProductionTLS()
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := buildProductionTLS("tls-trojan", []string{"http/1.1"}, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	renewedCert, renewedKey := productionCertificate(t, "vpn.example.test", time.Now().Add(-time.Minute), time.Now().Add(24*time.Hour))
+	if err := os.WriteFile(first.certificatePath, renewedCert, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(first.keyPath, renewedKey, 0600); err != nil {
+		t.Fatal(err)
+	}
+	second, err := loadDefaultProductionTLS()
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := buildProductionTLS("tls-trojan", []string{"http/1.1"}, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before.Server, after.Server) || !bytes.Equal(before.Client, after.Client) {
+		t.Fatal("renewal requires rewritten database TLS")
+	}
+	if bytes.Equal(first.certificate, second.certificate) {
+		t.Fatal("renewed files not read")
+	}
+	if err := os.Remove(first.keyPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadDefaultProductionTLS(); err == nil {
+		t.Fatal("missing external key accepted")
 	}
 }

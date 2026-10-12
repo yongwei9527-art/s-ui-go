@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -874,8 +875,9 @@ func pemLines(pem []byte) []string {
 // defaultProductionTLS is supplied by the operator. Validation does not assert
 // public-CA trust: no CA identity or chain is manufactured here.
 type defaultProductionTLS struct {
-	serverName       string
-	certificate, key []byte
+	serverName               string
+	certificate, key         []byte
+	certificatePath, keyPath string
 }
 
 func loadDefaultProductionTLS() (*defaultProductionTLS, error) {
@@ -922,11 +924,33 @@ func loadDefaultProductionTLS() (*defaultProductionTLS, error) {
 			}
 		}
 	}
-	return &defaultProductionTLS{serverName: values[0], certificate: cert, key: key}, nil
+	certificatePath, err := filepath.Abs(values[1])
+	if err != nil {
+		return nil, err
+	}
+	keyPath, err := filepath.Abs(values[2])
+	if err != nil {
+		return nil, err
+	}
+	return &defaultProductionTLS{serverName: values[0], certificate: cert, key: key, certificatePath: certificatePath, keyPath: keyPath}, nil
 }
 
 func buildProductionTLS(name string, alpn []string, config *defaultProductionTLS) (model.Tls, error) {
-	return buildCertificateTLS(name, config.serverName, alpn, config.certificate, config.key, false)
+	template, err := buildCertificateTLS(name, config.serverName, alpn, config.certificate, config.key, false)
+	if err != nil || config.certificatePath == "" || config.keyPath == "" {
+		return template, err
+	}
+	var server map[string]interface{}
+	if err := json.Unmarshal(template.Server, &server); err != nil {
+		return model.Tls{}, err
+	}
+	// Keep renewed material outside the database; sing-box watches these files.
+	delete(server, "certificate")
+	delete(server, "key")
+	server["certificate_path"] = config.certificatePath
+	server["key_path"] = config.keyPath
+	template.Server, err = json.MarshalIndent(server, "", "  ")
+	return template, err
 }
 
 // Exact JSON shape plus the self-signed bootstrap certificate profile excludes

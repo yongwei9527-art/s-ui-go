@@ -154,7 +154,7 @@ S_UI_DEFAULT_TLS_KEY_PATH=对应私钥的绝对路径
 
 三项必须完整提供；已有安装还须显式设置 `S_UI_DEFAULT_TLS_MIGRATE_BOOTSTRAP=true` 才执行迁移；证书须与私钥匹配、未过期且包含该域名。已有自定义 TLS 配置不会被覆盖，入站 ID、端口和用户保留。迁移完成后需重新更新客户端订阅。不要把自己的私钥提交到 GitHub。
 
-systemd 不会自动继承终端环境变量，须在 `sudo systemctl edit s-ui` 中添加 `[Service]` 下的 `Environment="变量名=值"`，再执行 `sudo systemctl daemon-reload && sudo systemctl restart s-ui`。证书及私钥须位于服务用户可读取、systemd 沙箱可访问的位置（推荐安装目录的 `cert/`）；不要开放 `/root` 权限，也不要使用 `chmod 777`。导入时证书和私钥内容保存在本机数据库中；续期后需通过面板替换证书并保存，单纯重启不会更新已导入内容。迁移成功后可移除这些一次性环境变量。
+systemd 不会自动继承终端环境变量，须在 `sudo systemctl edit s-ui` 中添加 `[Service]` 下的 `Environment="变量名=值"`，再执行 `sudo systemctl daemon-reload && sudo systemctl restart s-ui`。证书及私钥须位于服务用户可读取、systemd 沙箱可访问的位置（推荐安装目录的 `cert/`）；不要开放 `/root` 权限，也不要使用 `chmod 777`。开发分支新增：经上述环境变量配置的有效证书将保存为外部 `certificate_path` / `key_path` 引用，不再复制私钥进数据库；核心支持文件变化重载。续期必须更新这两个路径对应的文件，并保持服务用户可读；推荐部署钩子在证书和私钥都更新完成后重启 `s-ui`，避免两文件更新中间态。此改动尚未包含在 `s-ui-go-v0.1.2` Release；该 Release 及以前已导入数据库的内联证书仍需通过面板替换，不能仅靠更新磁盘文件。迁移成功后可移除一次性环境变量。
 
 ## 默认访问地址
 
