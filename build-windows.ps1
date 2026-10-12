@@ -237,7 +237,7 @@ function Test-PackageArchive([string]$ArchivePath, [string]$System, [string]$Arc
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $allDocs = @('README.md','RELEASE_NOTES.md','PROTOCOL_GUIDE.md','XRAY-CORE-NOTICE.md')
     $definitions = @{
-        windows = [pscustomobject]@{ Required = @('sui.exe','libcronet.dll','s-ui-windows.xml','install-windows.bat','uninstall-windows.bat','s-ui-windows.bat') + $allDocs; Optional = @(); Binary = 'sui.exe' }
+        windows = [pscustomobject]@{ Required = @('sui.exe','libcronet.dll','s-ui-windows.xml','install-windows.bat','install-windows.ps1','uninstall-windows.bat','s-ui-windows.bat') + $allDocs; Optional = @(); Binary = 'sui.exe' }
         linux = [pscustomobject]@{ Required = @('sui','install.sh','install-linux.sh','uninstall-linux.sh','s-ui.sh') + $allDocs; Optional = @(); Binary = 'sui' }
         darwin = [pscustomobject]@{ Required = @('sui','install-macos.sh','uninstall-macos.sh','com.s-ui.plist') + $allDocs; Optional = @(); Binary = 'sui' }
     }
@@ -512,7 +512,7 @@ if ($Package) {
         foreach ($document in @('RELEASE_NOTES.md', 'PROTOCOL_GUIDE.md', 'XRAY-CORE-NOTICE.md', 'README.md')) {
             Copy-RequiredPackageFile $document $packageDir $document
         }
-        foreach ($script in @('s-ui-windows.xml', 'install-windows.bat', 'uninstall-windows.bat', 's-ui-windows.bat')) {
+        foreach ($script in @('s-ui-windows.xml', 'install-windows.bat', 'install-windows.ps1', 'uninstall-windows.bat', 's-ui-windows.bat')) {
             Copy-RequiredPackageFile $script $packageDir $script
         }
         Copy-LockedWindowsCronet $packageDir $Architecture

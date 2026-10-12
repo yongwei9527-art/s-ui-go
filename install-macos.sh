@@ -144,12 +144,89 @@ run_sui_optional() {
   if [[ -n "$output" ]]; then printf '%s\n' "$output"; fi
 }
 
+# Transaction helpers (also exercised by mocked tests).
+validate_install_path() {
+  local path="$1" part current="" rest
+  case "$path" in /usr|/usr/local|/Library|/System|/Applications|/etc|/var|/tmp|/private|/private/tmp|/opt|/Users) return 1 ;; esac
+  [[ "$path" == /* && "$path" != / && "$path" != */ && "$path" != *//* ]] || return 1
+  [[ "$path" != *[!a-zA-Z0-9_./-]* ]] || return 1
+  rest="${path#/}"
+  while [[ -n "$rest" ]]; do
+    part="${rest%%/*}"
+    [[ "$part" != . && "$part" != .. && -n "$part" ]] || return 1
+    current="$current/$part"
+    [[ ! -L "$current" ]] || return 1
+    if [[ "$rest" == */* ]]; then rest="${rest#*/}"; else rest=""; fi
+  done
+  [[ ! -e "$path" || -d "$path" ]]
+}
+
+assert_safe_targets() {
+  validate_install_path "$INSTALL_DIR" || return 1
+  local target
+  for target in db logs cert sui s-ui.env README.md PROTOCOL_GUIDE.md; do
+    [[ ! -L "$INSTALL_DIR/$target" ]] || return 1
+  done
+  if [[ -d "$INSTALL_DIR/db" ]]; then
+    [[ -z "$(find "$INSTALL_DIR/db" -type l -print)" ]] || return 1
+  fi
+  [[ ! -L /Library && ! -L /Library/LaunchDaemons && ! -L "$PLIST_PATH" ]]
+}
+
+service_absent() {
+  local output rc
+  if output=$(launchctl print system/com.s-ui 2>&1); then return 1; fi
+  [[ "$output" == *"Could not find service"* || "$output" == *"Could not find specified service"* ]] || return 1
+  if output=$(pgrep -f "$INSTALL_DIR/sui" 2>&1); then return 1; else rc=$?; fi
+  [[ "$rc" == 1 && -z "$output" ]]
+}
+
+stop_service() {
+  launchctl bootout system/com.s-ui >/dev/null 2>&1 || true
+  local attempt
+  for attempt in 1 2 3 4 5; do
+    if service_absent; then return 0; fi
+    sleep 1
+  done
+  echo 'Cannot confirm stopped service; refusing database overwrite.' >&2
+  return 1
+}
+
+rollback() {
+  local status=$? target
+  trap - EXIT
+  if [[ "$status" != 0 && -n "${BACKUP_DIR:-}" && "${MUTATED:-0}" == 1 ]]; then
+    if stop_service && assert_safe_targets; then
+      for target in db sui s-ui.env README.md PROTOCOL_GUIDE.md; do
+        rm -rf "$INSTALL_DIR/$target"
+        if [[ -e "$BACKUP_DIR/$target" ]]; then cp -pR "$BACKUP_DIR/$target" "$INSTALL_DIR/$target"; fi
+      done
+      rm -f "$PLIST_PATH"
+      if [[ -f "$BACKUP_DIR/service.plist" ]]; then
+        cp -p "$BACKUP_DIR/service.plist" "$PLIST_PATH"
+        if [[ "${SERVICE_WAS_LOADED:-0}" == 1 ]]; then
+          launchctl bootstrap system "$PLIST_PATH" || echo 'Old service restart failed.' >&2
+        fi
+      fi
+    else
+      echo 'Rollback refused: service may still be running.' >&2
+    fi
+    printf 'Backup retained: %s\n' "$BACKUP_DIR" >&2
+  fi
+  if [[ "$status" != 0 && "${MUTATED:-0}" == 0 && "${SERVICE_WAS_LOADED:-0}" == 1 && -f "$PLIST_PATH" ]]; then
+    launchctl bootstrap system "$PLIST_PATH" || echo 'Original service restart failed after backup error.' >&2
+  fi
+  exit "$status"
+}
+# END TRANSACTION HELPERS
+
 select_install_language
 
 printf '========================================\n'
 say 'S-UI macOS 安装程序\n' 'S-UI macOS Installer\n'
 printf '========================================\n\n'
 
+if [[ "$(uname -s)" != Darwin ]]; then echo 'macOS required' >&2; exit 1; fi
 if [ "${EUID:-$(id -u)}" -ne 0 ]; then
   say '错误：请使用管理员权限运行，例如：sudo ./install-macos.sh\n' 'Error: please run with administrator privileges, for example: sudo ./install-macos.sh\n'
   exit 1
@@ -169,6 +246,10 @@ read -r input_install_dir
 if [ -n "$input_install_dir" ]; then INSTALL_DIR="$input_install_dir"; fi
 CONFIG_FILE="$INSTALL_DIR/s-ui.env"
 
+assert_safe_targets || { echo 'Unsafe installation path or symlink' >&2; exit 1; }
+EXISTING_DB=0
+if [[ -d "$INSTALL_DIR/db" && -n "$(find "$INSTALL_DIR/db" -type f -print)" ]]; then EXISTING_DB=1; fi
+if [[ "$EXISTING_DB" == 0 ]]; then
 say '面板端口，默认 %s：' 'Panel port, default %s: ' "$PANEL_PORT"
 read -r input_panel_port
 if [ -n "$input_panel_port" ]; then PANEL_PORT="$input_panel_port"; fi
@@ -192,15 +273,32 @@ read -r ADMIN_USERNAME
 if [ -z "$ADMIN_USERNAME" ]; then ADMIN_USERNAME="admin"; fi
 
 say '管理员密码：' 'Admin password: '
-stty -echo
+if [[ -t 0 ]]; then stty -echo; fi
 read -r ADMIN_PASSWORD
-stty echo
+if [[ -t 0 ]]; then stty echo; fi
 printf '\n'
 if [ -z "$ADMIN_PASSWORD" ]; then
   say '错误：密码不能为空。\n' 'Error: password cannot be empty.\n'
   exit 1
 fi
 
+fi
+assert_safe_targets || exit 1
+SERVICE_WAS_LOADED=0
+if launchctl print system/com.s-ui >/dev/null 2>&1; then SERVICE_WAS_LOADED=1; fi
+stop_service || exit 1
+INSTALL_PARENT="${INSTALL_DIR%/*}"
+INSTALL_PARENT="${INSTALL_PARENT:-/}"
+mkdir -p "$INSTALL_PARENT"
+BACKUP_DIR="$(mktemp -d "$INSTALL_PARENT/.s-ui-backup.XXXXXXXX")"
+MUTATED=0
+trap rollback EXIT
+for target in db sui s-ui.env README.md PROTOCOL_GUIDE.md; do
+  if [[ -e "$INSTALL_DIR/$target" ]]; then cp -pR "$INSTALL_DIR/$target" "$BACKUP_DIR/$target"; fi
+done
+if [[ -f "$PLIST_PATH" ]]; then cp -p "$PLIST_PATH" "$BACKUP_DIR/service.plist"; fi
+assert_safe_targets || exit 1
+MUTATED=1
 say '正在创建目录...\n' 'Creating directories...\n'
 mkdir -p "$INSTALL_DIR/db" "$INSTALL_DIR/logs" "$INSTALL_DIR/cert"
 
@@ -221,8 +319,9 @@ if [ -f "PROTOCOL_GUIDE.md" ]; then cp -f "PROTOCOL_GUIDE.md" "$INSTALL_DIR/PROT
 
 say '正在执行数据库迁移...\n' 'Running database migration...\n'
 cd "$INSTALL_DIR"
-run_sui_optional '数据库迁移' 'database migration' migrate
+run_sui_required '数据库迁移' 'database migration' migrate
 
+if [[ "$EXISTING_DB" == 0 ]]; then
 say '正在应用配置...\n' 'Applying configuration...\n'
 run_sui_required '应用面板和订阅配置' 'applying panel and subscription settings' setting -port "$PANEL_PORT" -path "$PANEL_PATH" -subPort "$SUB_PORT" -subPath "$SUB_PATH"
 
@@ -239,6 +338,7 @@ SUB_PORT=$SUB_PORT
 SUB_PATH=$SUB_PATH
 EOF
 
+fi
 say '正在安装 launchd 服务...\n' 'Installing launchd service...\n'
 cat > "$PLIST_PATH" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -265,6 +365,8 @@ cat > "$PLIST_PATH" <<EOF
   <dict>
     <key>SUI_DB_FOLDER</key>
     <string>db</string>
+    <key>SUI_REQUIRE_PROXY_CORES</key>
+    <string>1</string>
     <key>SUI_DEBUG</key>
     <string>false</string>
   </dict>
@@ -272,13 +374,30 @@ cat > "$PLIST_PATH" <<EOF
 </plist>
 EOF
 chmod 644 "$PLIST_PATH"
-launchctl unload "$PLIST_PATH" >/dev/null 2>&1 || true
-launchctl load "$PLIST_PATH"
+launchctl bootstrap system "$PLIST_PATH"
+launchctl kickstart system/com.s-ui
+health_pid=""
+for attempt in 1 2 3 4 5; do
+  state="$(launchctl print system/com.s-ui)"
+  pid="$(printf '%s\n' "$state" | awk '$1 == "pid" && $2 == "=" {print $3}')"
+  [[ "$pid" =~ ^[1-9][0-9]*$ ]] || exit 1
+  kill -0 "$pid" || exit 1
+  [[ -z "$health_pid" || "$health_pid" == "$pid" ]] || exit 1
+  health_pid="$pid"
+  sleep 1
+done
+if [[ "$EXISTING_DB" == 1 && "$SERVICE_WAS_LOADED" == 0 ]]; then stop_service || exit 1; fi
+trap - EXIT
+printf 'Backup retained: %s\n' "$BACKUP_DIR"
 
 printf '\n========================================\n'
 say '安装完成\n' 'Installation completed\n'
 printf '========================================\n'
 say '安装目录：%s\n' 'Installation directory: %s\n' "$INSTALL_DIR"
-say '面板地址：http://localhost:%s%s\n' 'Panel URL: http://localhost:%s%s\n' "$PANEL_PORT" "$PANEL_PATH"
-say '订阅地址：http://localhost:%s%s\n' 'Subscription URL: http://localhost:%s%s\n' "$SUB_PORT" "$SUB_PATH"
+if [[ "$EXISTING_DB" == 0 ]]; then
+  say '面板地址：http://localhost:%s%s\n' 'Panel URL: http://localhost:%s%s\n' "$PANEL_PORT" "$PANEL_PATH"
+  say '订阅地址：http://localhost:%s%s\n' 'Subscription URL: http://localhost:%s%s\n' "$SUB_PORT" "$SUB_PATH"
+else
+  say '已保留数据库中的配置和管理员。\n' 'Existing database settings and administrator preserved.\n'
+fi
 say '服务配置：%s\n' 'Service configuration: %s\n' "$PLIST_PATH"
