@@ -553,6 +553,34 @@ install_acme() {
     LOGE "出于安全原因，已禁用 curl | sh 形式的可变远。acme.sh 安装。请先通过受信任的软件源或已验证的固定版本安装 acme.sh。"
     return 1
 }
+validate_certificate_domain() {
+    local name="$1"
+    [[ ${#name} -le 253 && "$name" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ && "$name" != *..* ]] || {
+        LOGE '域名包含不安全字符；拒绝操作证书目录。'
+        return 1
+    }
+}
+prepare_certificate_directory() {
+    local directory="$1" group=root file
+    path_has_symlink_component "$directory" && { LOGE '证书目录不能包含符号链接。'; return 1; }
+    [[ "$directory" == "$SUI_HOME/cert" || "$directory" == "$SUI_HOME/cert/"* ]] || return 1
+    for file in "$directory/privkey.pem" "$directory/fullchain.pem" "$directory/self.key" "$directory/self.crt"; do
+        [[ -L "$file" ]] && return 1
+    done
+    getent group s-ui >/dev/null && group=s-ui
+    install -d -o root -g "$group" -m 0750 -- "$SUI_HOME/cert" "$directory"
+}
+set_certificate_permissions() {
+    local directory="$1" group=root file
+    prepare_certificate_directory "$directory" || return 1
+    getent group s-ui >/dev/null && group=s-ui
+    for file in "$directory/privkey.pem" "$directory/fullchain.pem" "$directory/self.key" "$directory/self.crt"; do
+        [[ -L "$file" ]] && return 1
+        [[ -f "$file" ]] || continue
+        chown root:"$group" -- "$file" && chmod 0640 -- "$file" || return 1
+    done
+}
+
 ssl_cert_issue_main() {
     echo -e "${green}\t1.${plain} 申请 SSL 证书"
     echo -e "${green}\t2.${plain} 吊销证书"
@@ -613,7 +641,8 @@ ssl_cert_issue() {
     fi
 
     local domain=""
-    read -p "请输入域名：" domain
+    read -r -p "请输入域名：" domain
+    validate_certificate_domain "$domain" || return 1
     LOGD "当前域名为：${domain}，正在检。.."
     local currentCert=$(~/.acme.sh/acme.sh --list | tail -1 | awk '{print $1}')
 
@@ -626,13 +655,8 @@ ssl_cert_issue() {
         LOGI "域名检查通过，可以开始签发证书.."
     fi
 
-    certPath="/root/cert/${domain}"
-    if [ ! -d "$certPath" ]; then
-        mkdir -p "$certPath"
-    else
-        rm -rf -- "$certPath"
-        mkdir -p "$certPath"
-    fi
+    certPath="$SUI_HOME/cert/${domain}"
+    prepare_certificate_directory "$certPath" || return 1
 
     local WebPort=80
     read -p "请选择用于签发证书的端口，默认 80。" WebPort
@@ -650,8 +674,8 @@ ssl_cert_issue() {
         LOGI "证书签发成功，正在安装证书.."
     fi
     ~/.acme.sh/acme.sh --installcert -d ${domain} \
-        --key-file /root/cert/${domain}/privkey.pem \
-        --fullchain-file /root/cert/${domain}/fullchain.pem
+        --key-file "${certPath}/privkey.pem" \
+        --fullchain-file "${certPath}/fullchain.pem"
 
     if [ $? -ne 0 ]; then
         LOGE "安装证书失败，已退。"
@@ -665,12 +689,12 @@ ssl_cert_issue() {
     if [ $? -ne 0 ]; then
         LOGE "自动续签设置失败，证书详情："
         ls -lah cert/*
-        chmod 600 "$certPath"/*
+        set_certificate_permissions "$certPath" || return 1
         exit 1
     else
         LOGI "自动续签设置成功，证书详情："
         ls -lah cert/*
-        chmod 600 "$certPath"/*
+        set_certificate_permissions "$certPath" || return 1
     fi
 }
 
@@ -681,7 +705,7 @@ ssl_cert_issue_CF() {
     echo "2) 强制续签已有证书"
     echo "3) 返回主菜单"
     read -p "请输入选项 [1-3]。" choice
-    certPath="/root/cert-CF"
+    certPath="$SUI_HOME/cert"
 
     case $choice in
         1|2)
@@ -698,7 +722,7 @@ ssl_cert_issue_CF() {
             LOGI "1. Cloudflare 注册邮箱"
             LOGI "2. Cloudflare Global API Key"
             LOGI "3. 已通过 Cloudflare DNS 解析到当前服务器的域。"
-            LOGI "4. 证书默认安装路径。/root/cert"
+            LOGI "4. 证书默认安装路径：$SUI_HOME/cert"
             confirm "确认继续签" "y"
             if [ $? -eq 0 ]; then
                 if ! command -v ~/.acme.sh/acme.sh &>/dev/null; then
@@ -719,7 +743,8 @@ ssl_cert_issue_CF() {
                 fi
 
                 LOGD "请设置域名："
-                read -p "请输入域名：" CF_Domain
+                read -r -p "请输入域名：" CF_Domain
+                validate_certificate_domain "$CF_Domain" || return 1
                 LOGD "当前域名为：${CF_Domain}"
 
                 CF_GlobalKey=""
@@ -751,7 +776,7 @@ ssl_cert_issue_CF() {
                     LOGI "证书签发成功，正在安。.."
                 fi
 
-                mkdir -p ${certPath}/${CF_Domain}
+                prepare_certificate_directory "${certPath}/${CF_Domain}"
                 if [ $? -ne 0 ]; then
                     LOGE "创建目录失败${certPath}/${CF_Domain}"
                     exit 1
@@ -775,7 +800,7 @@ ssl_cert_issue_CF() {
                 else
                     LOGI "证书已安装，并已开启自动续签。"
                     ls -lah ${certPath}/${CF_Domain}
-                    chmod 755 ${certPath}/${CF_Domain}
+                    set_certificate_permissions "${certPath}/${CF_Domain}" || return 1
                 fi
             fi
             show_menu
@@ -792,8 +817,8 @@ ssl_cert_issue_CF() {
 }
 
 generate_self_signed_cert() {
-    cert_dir="/etc/sing-box"
-    mkdir -p "$cert_dir"
+    cert_dir="$SUI_HOME/cert"
+    prepare_certificate_directory "$cert_dir" || return 1
     LOGI "请选择证书类型。"
     echo -e "${green}\t1.${plain} Ed25519（推荐）"
     echo -e "${green}\t2.${plain} RSA 2048"
@@ -836,7 +861,7 @@ generate_self_signed_cert() {
         -out "${cert_dir}/self.crt" \
         -subj "/CN=myserver"
     if [[ $? -eq 0 ]]; then
-        sudo chmod 600 "${cert_dir}/self."*
+        set_certificate_permissions "$cert_dir" || return 1
         LOGI "自签名证书生成成功！"
         LOGI "证书路径${cert_dir}/self.crt"
         LOGI "密钥路径${cert_dir}/self.key"

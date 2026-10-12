@@ -127,7 +127,7 @@ sudo systemctl status s-ui --no-pager
    | 内置 Xray-core | VLESS Reality TCP Vision | `10443/tcp` |
    | 内置 Xray-core | VLESS Reality XHTTP | `2088/tcp` |
 
-   若严格检查、安装或启动失败，安装器会停止并回滚本次变更；已有数据库升级会保留既有面板、管理员和协议配置，并使用安装前备份恢复失败状态。只有明确接受 Xray 默认模板保持关闭的高级场景才应使用 `--allow-manual-xray`。
+   若严格检查、安装或启动失败，安装器会停止并回滚本次变更；已有数据库升级会保留既有面板、管理员和协议配置，并使用安装前备份恢复失败状态。
 
 安装器**不会承诺自动开放**管理面板/订阅端口 `2095/2096`；推荐将它们限制为本机并经 HTTPS 反代或 SSH 转发访问。无论本机 UFW 状态如何，云厂商安全组/云防火墙都需要你自行确认 `443/tcp`、`10443/tcp`、`2088/tcp` 是否按实际需求放行。完整的 Ubuntu 部署与恢复说明见 [Ubuntu 部署指南](UBUNTU_DEPLOYMENT.md)。
 ### macOS
@@ -154,7 +154,7 @@ S_UI_DEFAULT_TLS_KEY_PATH=对应私钥的绝对路径
 
 三项必须完整提供；已有安装还须显式设置 `S_UI_DEFAULT_TLS_MIGRATE_BOOTSTRAP=true` 才执行迁移；证书须与私钥匹配、未过期且包含该域名。已有自定义 TLS 配置不会被覆盖，入站 ID、端口和用户保留。迁移完成后需重新更新客户端订阅。不要把自己的私钥提交到 GitHub。
 
-systemd 不会自动继承终端环境变量，须在 `sudo systemctl edit s-ui` 中添加 `[Service]` 下的 `Environment="变量名=值"`，再执行 `sudo systemctl daemon-reload && sudo systemctl restart s-ui`。证书及私钥须位于服务用户可读取、systemd 沙箱可访问的位置（推荐安装目录的 `cert/`）；不要开放 `/root` 权限，也不要使用 `chmod 777`。开发分支新增：经上述环境变量配置的有效证书将保存为外部 `certificate_path` / `key_path` 引用，不再复制私钥进数据库；核心支持文件变化重载。续期必须更新这两个路径对应的文件，并保持服务用户可读；推荐部署钩子在证书和私钥都更新完成后重启 `s-ui`，避免两文件更新中间态。此改动尚未包含在 `s-ui-go-v0.1.2` Release；该 Release 及以前已导入数据库的内联证书仍需通过面板替换，不能仅靠更新磁盘文件。迁移成功后可移除一次性环境变量。
+systemd 不会自动继承终端环境变量，须在 `sudo systemctl edit s-ui` 中添加 `[Service]` 下的 `Environment="变量名=值"`，再执行 `sudo systemctl daemon-reload && sudo systemctl restart s-ui`。证书及私钥须位于服务用户可读取、systemd 沙箱可访问的位置（推荐安装目录的 `cert/`）；不要开放 `/root` 权限，也不要使用 `chmod 777`。开发分支的 Linux 管理脚本已将新签发证书目录改为安装目录下的 `cert/`，使用受限目录权限和服务组读取权限；旧 `/root` 证书不会自动迁移，升级前需在面板更新对应证书路径。开发分支新增：经上述环境变量配置的有效证书将保存为外部 `certificate_path` / `key_path` 引用，不再复制私钥进数据库；核心支持文件变化重载。续期必须更新这两个路径对应的文件，并保持服务用户可读；推荐部署钩子在证书和私钥都更新完成后重启 `s-ui`，避免两文件更新中间态。此改动尚未包含在 `s-ui-go-v0.1.2` Release；该 Release 及以前已导入数据库的内联证书仍需通过面板替换，不能仅靠更新磁盘文件。迁移成功后可移除一次性环境变量。
 
 ## 默认访问地址
 
