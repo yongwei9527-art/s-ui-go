@@ -10,7 +10,7 @@
       </v-card-title>
       <v-card-text>
         <v-alert type="info" variant="tonal" density="compact" class="mb-3">
-          Xray-core Go 源码依赖已编译进 S-UI 主程序，无需安装或配置外部 xray 可执行文件。XHTTP 使用独立 TCP 端口，默认端口为 2088。
+          Xray-core Go 源码依赖已编译进 S-UI 主程序，无需安装或配置外部 xray 可执行文件。XHTTP 默认 TCP 端口为 2088，目标为 go.microsoft.com:443。新节点保存时自动生成独立密钥；确认目标可达、分配客户端后再手动启用。Reality 无需自己的域名证书。
         </v-alert>
         <v-alert type="warning" variant="tonal" density="compact" class="mb-3">
           当前内置 Xray 流量不会计入 S-UI 的上传/下载统计或配额；同时它使用独立的 Xray 直连出站，不会自动继承 sing-box 的路由与 DNS 策略。需要严格限额或分流时，请先完成额外的流量统计与策略配置。
@@ -85,6 +85,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import HttpUtils from '@/plugins/httputil'
 import Data from '@/store/modules/data'
+import { createXrayDefaults } from '@/plugins/xrayDefaults'
 
 interface XHTTPInbound {
   id?: number
@@ -103,7 +104,7 @@ interface XHTTPInbound {
   mode: string
 }
 
-const blank = (): XHTTPInbound => ({ enable: false, tag: 'vless-reality-xhttp-2088', listen: '0.0.0.0', port: 2088, serverName: '', dest: '', privateKey: '', publicKey: '', shortId: '', fingerprint: 'chrome', transport: 'xhttp', path: '/xhttp', mode: 'auto' })
+const blank = (): XHTTPInbound => createXrayDefaults()
 const form = reactive<XHTTPInbound>(blank())
 const inbounds = ref<XHTTPInbound[]>([])
 const assignments = ref<Record<string, number[]>>({})
@@ -159,6 +160,16 @@ const generateRealityCredentials = async () => {
 }
 
 const save = async () => {
+  // Generate only for new nodes; never rotate an edited node implicitly.
+  if (!editing.value && !form.privateKey && !form.publicKey) {
+    await generateRealityCredentials()
+    if (!form.privateKey || !form.publicKey) return
+  }
+  if (!editing.value && !form.shortId) {
+    const bytes = new Uint8Array(8)
+    crypto.getRandomValues(bytes)
+    form.shortId = Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('')
+  }
   loading.value = true
   try {
     const msg = await HttpUtils.post('api/xray-xhttp-save', { data: JSON.stringify({ inbound: form, clientIds: clientIds.value }) })

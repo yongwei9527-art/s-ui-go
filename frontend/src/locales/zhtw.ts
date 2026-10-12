@@ -37,6 +37,7 @@ export default {
     system: "系統",
   },
   pages: {
+    xrayXhttp: 'Xray Reality / XHTTP',
     login: "登錄",
     home: "主頁",
     inbounds: "入站管理",

@@ -37,6 +37,7 @@ export default {
     system: "Система",
   },
   pages: {
+    xrayXhttp: 'Xray Reality / XHTTP',
     login: "Вход",
     home: "Главная",
     inbounds: "Входящие",

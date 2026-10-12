@@ -37,6 +37,7 @@ export default {
     system: "Phòng bán",
   },
   pages: {
+    xrayXhttp: 'Xray Reality / XHTTP',
     login: "Đăng nhập",
     home: "Trang chủ",
     inbounds: "Đầu Vào",
