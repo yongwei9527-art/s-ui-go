@@ -213,11 +213,20 @@ func (s *ClashService) convertToClashMeta(outbounds *[]map[string]interface{}, b
 				}
 			}
 
-			if portLists, ok := obMap["server_ports"].([]interface{}); ok {
-				var ports []string
-				for _, portList := range portLists {
-					portRange, _ := portList.(string)
-					ports = append(ports, strings.ReplaceAll(portRange, ":", "-"))
+			var ports []string
+			switch portLists := obMap["server_ports"].(type) {
+			case []string:
+				ports = append(ports, portLists...)
+			case []interface{}:
+				for _, value := range portLists {
+					if portRange, ok := value.(string); ok {
+						ports = append(ports, portRange)
+					}
+				}
+			}
+			if len(ports) > 0 {
+				for i := range ports {
+					ports[i] = strings.ReplaceAll(ports[i], ":", "-")
 				}
 				proxy["ports"] = strings.Join(ports, ",")
 			}

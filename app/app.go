@@ -146,10 +146,13 @@ func (a *APP) Start() error {
 	return nil
 }
 
-// stopStarted releases only components successfully started by Start, in reverse
-// startup order. This keeps failed startup attempts from leaving listeners or
-// proxy cores running.
+// stopStarted first drains background jobs, then releases successfully started
+// servers and cores in reverse order. A cron job must not restart a core while
+// failed startup cleanup is closing it.
 func (a *APP) stopStarted(started startedComponents) {
+	if started.cron {
+		a.stopCron()
+	}
 	if started.xray {
 		if err := a.stopXray(); err != nil {
 			logger.Warning("stop embedded Xray XHTTP runtime err:", err)
@@ -169,9 +172,6 @@ func (a *APP) stopStarted(started startedComponents) {
 		if err := a.stopWeb(); err != nil {
 			logger.Warning("stop Web Server err:", err)
 		}
-	}
-	if started.cron {
-		a.stopCron()
 	}
 }
 

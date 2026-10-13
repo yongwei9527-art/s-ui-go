@@ -173,12 +173,21 @@ export default {
   methods: {
     async loadData(id: number) {
       this.loading = true
-      const inboundArray = await Data().loadInbounds([id])
-      this.inbound = inboundArray[0]
-      if (this.HasInData.includes(this.inbound.type) && this.inbound.out_json == null) {
-        this.inbound.out_json = {}
+      try {
+        const inboundArray = await Data().loadInbounds([id])
+        if (!inboundArray[0]) {
+          this.closeModal()
+          return
+        }
+        this.inbound = inboundArray[0]
+        if (this.HasInData.includes(this.inbound.type) && this.inbound.out_json == null) {
+          this.inbound.out_json = {}
+        }
+      } catch {
+        this.closeModal()
+      } finally {
+        this.loading = false
       }
-      this.loading = false
     },
     updateData(id: number) {
       if (id > 0) {

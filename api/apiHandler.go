@@ -75,6 +75,7 @@ func (a *APIHandler) initRouter(g *gin.RouterGroup) {
 	g.Use(func(c *gin.Context) {
 		path := c.Request.URL.Path
 		if !strings.HasSuffix(path, "login") && !strings.HasSuffix(path, "logout") {
+			c.Set("s-ui-login-url", strings.TrimSuffix(g.BasePath(), "/api")+"/login")
 			checkLogin(c)
 		}
 	})

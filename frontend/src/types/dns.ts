@@ -53,7 +53,7 @@ const defaultValues: Record<DnsType, DnsServer> = {
   resolved: { type: 'resolved' },
 }
 export function createDnsServer<T extends DnsServer>(type: string, json?: Partial<T>): DnsServer {
-  const defaultObject: DnsServer = { ...defaultValues[type], ...(json || {}) }
+  const defaultObject: DnsServer = { ...structuredClone(defaultValues[type] ?? {}), ...(json || {}) }
   return defaultObject
 }
 

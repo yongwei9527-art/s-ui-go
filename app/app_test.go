@@ -81,7 +81,7 @@ func TestStartCleansStartedComponentsAfterXrayFailure(t *testing.T) {
 
 	want := []string{
 		"start cron", "start web", "start sub", "start core", "start xray",
-		"stop core", "stop sub", "stop web", "stop cron",
+		"stop cron", "stop core", "stop sub", "stop web",
 	}
 	if got := *events; !reflect.DeepEqual(got, want) {
 		t.Fatalf("lifecycle events = %v, want %v", got, want)
@@ -111,7 +111,7 @@ func TestRestartAppRestoresRuntimeAfterFailedRestart(t *testing.T) {
 	want := []string{
 		"stop cron", "stop sub", "stop web", "stop xray", "stop core",
 		"start cron", "start web", "start sub", "start core", "start xray",
-		"stop core", "stop sub", "stop web", "stop cron",
+		"stop cron", "stop core", "stop sub", "stop web",
 		"start cron", "start web", "start sub", "start core", "start xray",
 	}
 	if got := *events; !reflect.DeepEqual(got, want) {

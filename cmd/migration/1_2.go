@@ -3,6 +3,7 @@ package migration
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -42,9 +43,23 @@ func moveJsonToDb(db *gorm.DB) error {
 		return err
 	}
 
-	oldInbounds := oldConfig["inbounds"].([]interface{})
-	db.Migrator().DropTable(&model.Inbound{})
-	db.AutoMigrate(&model.Inbound{})
+	if oldConfig == nil {
+		return fmt.Errorf("legacy config must be a JSON object")
+	}
+	oldInbounds, err := legacyObjects(oldConfig, "inbounds")
+	if err != nil {
+		return err
+	}
+	oldOutbounds, err := legacyObjects(oldConfig, "outbounds")
+	if err != nil {
+		return err
+	}
+	if err := db.Migrator().DropTable(&model.Inbound{}); err != nil {
+		return err
+	}
+	if err := db.AutoMigrate(&model.Inbound{}); err != nil {
+		return err
+	}
 	for _, inbound := range oldInbounds {
 		inbObj, _ := inbound.(map[string]interface{})
 		tag, _ := inbObj["tag"].(string)
@@ -124,9 +139,12 @@ func moveJsonToDb(db *gorm.DB) error {
 	blockOutboundTags := []string{}
 	dnsOutboundTags := []string{}
 
-	oldOutbounds := oldConfig["outbounds"].([]interface{})
-	db.Migrator().DropTable(&model.Outbound{}, &model.Endpoint{})
-	db.AutoMigrate(&model.Outbound{}, &model.Endpoint{})
+	if err := db.Migrator().DropTable(&model.Outbound{}, &model.Endpoint{}); err != nil {
+		return err
+	}
+	if err := db.AutoMigrate(&model.Outbound{}, &model.Endpoint{}); err != nil {
+		return err
+	}
 	for _, outbound := range oldOutbounds {
 		outType, _ := outbound.(map[string]interface{})["type"].(string)
 		outboundRaw, _ := json.MarshalIndent(outbound, "", "  ")
@@ -210,10 +228,11 @@ func moveJsonToDb(db *gorm.DB) error {
 	}
 
 	// Remove v2rayapi and clashapi from experimental config
-	experimental := oldConfig["experimental"].(map[string]interface{})
-	delete(experimental, "v2ray_api")
-	delete(experimental, "clash_api")
-	oldConfig["experimental"] = experimental
+	if experimental, ok := oldConfig["experimental"].(map[string]interface{}); ok {
+		delete(experimental, "v2ray_api")
+		delete(experimental, "clash_api")
+		oldConfig["experimental"] = experimental
+	}
 
 	// Save the other configs
 	var otherConfigs json.RawMessage
@@ -222,10 +241,14 @@ func moveJsonToDb(db *gorm.DB) error {
 		return err
 	}
 
-	return db.Save(&model.Setting{
-		Key:   "config",
-		Value: string(otherConfigs),
-	}).Error
+	result := db.Model(&model.Setting{}).Where("key = ?", "config").Update("value", string(otherConfigs))
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected > 0 {
+		return nil
+	}
+	return db.Create(&model.Setting{Key: "config", Value: string(otherConfigs)}).Error
 }
 
 func migrateTls(db *gorm.DB) error {
@@ -314,4 +337,23 @@ func to1_2(db *gorm.DB) error {
 		return err
 	}
 	return migrateChanges(db)
+}
+
+// Validate collection shapes before dropping any legacy tables. Missing or null
+// optional collections mean no entries, not a panic during an upgrade.
+func legacyObjects(config map[string]interface{}, key string) ([]interface{}, error) {
+	value := config[key]
+	if value == nil {
+		return nil, nil
+	}
+	list, ok := value.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("legacy %s must be an array", key)
+	}
+	for i, item := range list {
+		if object, ok := item.(map[string]interface{}); !ok || object == nil {
+			return nil, fmt.Errorf("legacy %s[%d] must be an object", key, i)
+		}
+	}
+	return list, nil
 }

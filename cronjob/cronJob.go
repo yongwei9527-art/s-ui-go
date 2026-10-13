@@ -50,6 +50,6 @@ func (c *CronJob) Start(loc *time.Location, trafficAge int) error {
 
 func (c *CronJob) Stop() {
 	if c.cron != nil {
-		c.cron.Stop()
+		<-c.cron.Stop().Done()
 	}
 }

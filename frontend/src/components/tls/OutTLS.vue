@@ -334,7 +334,7 @@ export default {
     },
     optionALPN: {
       get(): boolean { return this.tls.alpn != undefined },
-      set(v:boolean) { this.$props.outbound.tls.alpn = v ? defaultOutTls.alpn : undefined }
+      set(v:boolean) { this.$props.outbound.tls.alpn = v ? structuredClone(defaultOutTls.alpn) : undefined }
     },
     optionMinV: {
       get(): boolean { return this.tls.min_version != undefined },
@@ -346,19 +346,19 @@ export default {
     },
     optionCS: {
       get(): boolean { return this.tls.cipher_suites != undefined },
-      set(v:boolean) { this.$props.outbound.tls.cipher_suites = v ? defaultOutTls.cipher_suites : undefined }
+      set(v:boolean) { this.$props.outbound.tls.cipher_suites = v ? structuredClone(defaultOutTls.cipher_suites) : undefined }
     },
     optionFP: {
       get(): boolean { return this.tls.utls != undefined },
-      set(v:boolean) { this.$props.outbound.tls.utls = v ? defaultOutTls.utls : undefined }
+      set(v:boolean) { this.$props.outbound.tls.utls = v ? structuredClone(defaultOutTls.utls) : undefined }
     },
     optionReality: {
       get(): boolean { return this.tls.reality != undefined },
-      set(v:boolean) { this.$props.outbound.tls.reality = v ? defaultOutTls.reality : undefined }
+      set(v:boolean) { this.$props.outbound.tls.reality = v ? structuredClone(defaultOutTls.reality) : undefined }
     },
     optionEch: {
       get(): boolean { return this.tls.ech != undefined },
-      set(v:boolean) { this.$props.outbound.tls.ech = v ? defaultOutTls.ech : undefined }
+      set(v:boolean) { this.$props.outbound.tls.ech = v ? structuredClone(defaultOutTls.ech) : undefined }
     },
     optionFragment: {
       get(): boolean { return this.tls.fragment != undefined },

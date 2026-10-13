@@ -6,6 +6,7 @@ axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest'
 axios.defaults.baseURL = "./"
 const api = axios.create()
 const pendingRequests = new Map()
+const requestKeys = new WeakMap<object, string>()
 
 const stableRequestValue = (value: any): string => {
     if (value === undefined || value === null) return ''
@@ -27,8 +28,11 @@ const getRequestKey = (config: any): string | null => {
 }
 
 const clearPendingRequest = (config: any) => {
-    const requestKey = getRequestKey(config)
-    if (requestKey === null) return
+    const token = config?.cancelToken
+    if (!token) return
+    const requestKey = requestKeys.get(token)
+    if (requestKey === undefined) return
+    requestKeys.delete(token)
 
     const pending = pendingRequests.get(requestKey)
     if (pending?.token === config.cancelToken) {
@@ -47,6 +51,8 @@ api.interceptors.request.use(
         config.cancelToken = cancelSource.token
         if (requestKey !== null) {
             pendingRequests.set(requestKey, cancelSource)
+            requestKeys.set(cancelSource.token, requestKey)
+            void cancelSource.token.promise.then(() => clearPendingRequest({ cancelToken: cancelSource.token }))
         }
 
         if (config.data instanceof FormData) {

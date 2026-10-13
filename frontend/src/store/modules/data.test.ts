@@ -100,3 +100,12 @@ describe('Data change revision tracking', () => {
     expect(store.lastLoad).toBe('77')
   })
 })
+
+it('applies explicit false and empty values in save responses', () => {
+  setActivePinia(createPinia())
+  const store = Data()
+  store.setNewData({ enableTraffic: true, subURI: 'https://example.test/sub' })
+  store.setNewData({ enableTraffic: false, subURI: '' })
+  expect(store.enableTraffic).toBe(false)
+  expect(store.subURI).toBe('')
+})

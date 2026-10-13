@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
@@ -121,7 +122,7 @@ func getPublicIP() string {
 	}
 	ch := make(chan result, len(apis))
 	var wg sync.WaitGroup
-	client := &http.Client{Timeout: 3 * time.Second}
+	client := &http.Client{Timeout: 3 * time.Second, Transport: http.DefaultTransport}
 
 	for _, api := range apis {
 		wg.Add(1)
@@ -133,12 +134,17 @@ func getPublicIP() string {
 				return
 			}
 			defer resp.Body.Close()
-			body, err := io.ReadAll(resp.Body)
+			body, err := io.ReadAll(io.LimitReader(resp.Body, 129))
 			if err != nil {
 				ch <- result{"", err}
 				return
 			}
-			ch <- result{string(body), nil}
+			ip, parseErr := netip.ParseAddr(strings.TrimSpace(string(body)))
+			if resp.StatusCode != http.StatusOK || len(body) > 128 || parseErr != nil {
+				ch <- result{"", fmt.Errorf("invalid IP lookup response from %s", url)}
+				return
+			}
+			ch <- result{ip.Unmap().String(), nil}
 		}(api)
 	}
 

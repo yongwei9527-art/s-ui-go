@@ -660,8 +660,9 @@ ssl_cert_issue() {
 
     local WebPort=80
     read -p "请选择用于签发证书的端口，默认 80。" WebPort
-    if [[ ${WebPort} -gt 65535 || ${WebPort} -lt 1 ]]; then
-        LOGE "输入的端。${WebPort} 无效，将使用默认端口"
+    if [[ ! "$WebPort" =~ ^[0-9]{1,5}$ ]] || (( 10#$WebPort < 1 || 10#$WebPort > 65535 )); then
+        LOGE "输入的端口 ${WebPort} 无效，将使用默认端口 80"
+        WebPort=80
     fi
     LOGI "将使用端。${WebPort} 签发证书，请确保该端口已放行..."
     ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
@@ -735,13 +736,6 @@ ssl_cert_issue_CF() {
                 fi
 
                 CF_Domain=""
-                if [ ! -d "$certPath" ]; then
-                    mkdir -p $certPath
-                else
-                    rm -rf -- "$certPath"
-                    mkdir -p $certPath
-                fi
-
                 LOGD "请设置域名："
                 read -r -p "请输入域名：" CF_Domain
                 validate_certificate_domain "$CF_Domain" || return 1
@@ -1001,7 +995,7 @@ if [[ $# > 0 ]]; then
         check_install 0 && update 0
         ;;
     "install")
-        check_uninstall 0 && install 0
+        check_uninstall 0 && install
         ;;
     "uninstall")
         check_install 0 && uninstall 0

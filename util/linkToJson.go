@@ -3,7 +3,6 @@ package util
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/url"
 	"strconv"
 	"strings"
@@ -411,7 +410,7 @@ func ss(u *url.URL, i int) (*map[string]interface{}, string, error) {
 }
 
 func parseNaiveLink(u *url.URL, i int) (*map[string]interface{}, string, error) {
-	var host, portStr, username, password string
+	var host, username, password string
 	var port int
 
 	switch u.Scheme {
@@ -426,22 +425,12 @@ func parseNaiveLink(u *url.URL, i int) (*map[string]interface{}, string, error) 
 			} else {
 				username = userInfo
 			}
-			host, portStr, _ = net.SplitHostPort(hostPort)
-			if portStr != "" {
-				port, _ = strconv.Atoi(portStr)
-			} else {
-				port = 443
-			}
+			host, port = splitHostPortDefault(hostPort, 443)
 		} else {
 			return nil, "", common.NewError("Invalid naive link (http2)")
 		}
 	case "naive+https", "naive+quic":
-		host, portStr, _ = net.SplitHostPort(u.Host)
-		if portStr != "" {
-			port, _ = strconv.Atoi(portStr)
-		} else {
-			port = 443
-		}
+		host, port = splitHostPortDefault(u.Host, 443)
 		if u.User != nil {
 			username = u.User.Username()
 			password, _ = u.User.Password()

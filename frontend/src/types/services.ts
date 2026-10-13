@@ -72,6 +72,6 @@ const defaultValues: Record<SrvType, Srv> = {
 }
 
 export function createSrv<T extends Srv>(type: string, json?: Partial<T>): Srv {
-  const defaultObject: Srv = { ...defaultValues[type], ...(json || {}) }
+  const defaultObject: Srv = { ...structuredClone(defaultValues[type] ?? {}), ...(json || {}) }
   return defaultObject
 }

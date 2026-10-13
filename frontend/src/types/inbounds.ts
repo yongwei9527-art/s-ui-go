@@ -237,6 +237,6 @@ const defaultValues: Record<InType, Inbound> = {
 }
 
 export function createInbound<T extends Inbound>(type: InType,json?: Partial<T>): Inbound {
-  const defaultObject: Inbound = { ...defaultValues[type] ?? {}, ...(json ?? {}) }
+  const defaultObject: Inbound = { ...structuredClone(defaultValues[type] ?? {}), ...(json ?? {}) }
   return defaultObject
 }

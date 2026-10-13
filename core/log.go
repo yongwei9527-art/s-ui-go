@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"sync"
 	"time"
 
 	suiLog "github.com/yongwei9527-art/s-ui-go/logger"
@@ -26,9 +27,7 @@ func (p PlatformWriter) WriteMessage(level log.Level, message string) {
 		suiLog.Info(message)
 	case log.LevelWarn:
 		suiLog.Warning(message)
-	case log.LevelPanic:
-	case log.LevelFatal:
-	case log.LevelError:
+	case log.LevelPanic, log.LevelFatal, log.LevelError:
 		suiLog.Error(message)
 	default:
 		suiLog.Debug(message)
@@ -86,6 +85,8 @@ func NewFactory(options log.Options) (log.Factory, error) {
 var _ log.Factory = (*defaultFactory)(nil)
 
 type defaultFactory struct {
+	observerMu sync.RWMutex
+	closed     bool
 	ctx        context.Context
 	formatter  log.Formatter
 	writer     io.Writer
@@ -114,6 +115,14 @@ func NewDefaultFactory(
 }
 
 func (f *defaultFactory) Start() error {
+	f.observerMu.Lock()
+	defer f.observerMu.Unlock()
+	if f.closed {
+		return os.ErrClosed
+	}
+	if f.observer != nil {
+		return nil
+	}
 	if f.filePath != "" {
 		logFile, err := filemanager.OpenFile(f.ctx, f.filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 		if err != nil {
@@ -122,21 +131,33 @@ func (f *defaultFactory) Start() error {
 		f.writer = logFile
 		f.file = logFile
 	}
+	if f.observer == nil {
+		f.observer = observable.NewObserver[log.Entry](f.subscriber, 64)
+	}
 	return nil
 }
 
 func (f *defaultFactory) Close() error {
-	return common.Close(
-		common.PtrOrNil(f.file),
-		f.subscriber,
-	)
+	f.observerMu.Lock()
+	defer f.observerMu.Unlock()
+	if f.closed {
+		return nil
+	}
+	f.closed = true
+	if f.observer != nil {
+		return common.Close(common.PtrOrNil(f.file), f.observer)
+	}
+	return common.Close(common.PtrOrNil(f.file), f.subscriber)
 }
-
 func (f *defaultFactory) Level() log.Level {
+	f.observerMu.RLock()
+	defer f.observerMu.RUnlock()
 	return f.level
 }
 
 func (f *defaultFactory) SetLevel(level log.Level) {
+	f.observerMu.Lock()
+	defer f.observerMu.Unlock()
 	f.level = level
 }
 
@@ -154,11 +175,23 @@ func (f *defaultFactory) NewLogger(tag string) log.ContextLogger {
 }
 
 func (f *defaultFactory) Subscribe() (subscription observable.Subscription[log.Entry], done <-chan struct{}, err error) {
+	f.observerMu.RLock()
+	defer f.observerMu.RUnlock()
+	if f.closed {
+		return nil, nil, os.ErrClosed
+	}
+	if f.observer == nil {
+		return nil, nil, os.ErrInvalid
+	}
 	return f.observer.Subscribe()
 }
 
 func (f *defaultFactory) UnSubscribe(sub observable.Subscription[log.Entry]) {
-	f.observer.UnSubscribe(sub)
+	f.observerMu.RLock()
+	defer f.observerMu.RUnlock()
+	if f.observer != nil {
+		f.observer.UnSubscribe(sub)
+	}
 }
 
 type observableLogger struct {
@@ -167,19 +200,23 @@ type observableLogger struct {
 }
 
 func (l *observableLogger) Log(ctx context.Context, level log.Level, args []any) {
+	l.observerMu.RLock()
+	defer l.observerMu.RUnlock()
+	if l.closed {
+		return
+	}
 	level = log.OverrideLevelFromContext(level, ctx)
 	if level > l.level {
 		return
 	}
 	msg := F.ToString(args...)
+	l.subscriber.Emit(log.Entry{Level: level, Message: l.formatter.FormatSimple(ctx, l.tag, msg)})
 	switch level {
 	case log.LevelInfo:
 		suiLog.Info(l.tag, msg)
 	case log.LevelWarn:
 		suiLog.Warning(l.tag, msg)
-	case log.LevelPanic:
-	case log.LevelFatal:
-	case log.LevelError:
+	case log.LevelPanic, log.LevelFatal, log.LevelError:
 		suiLog.Error(l.tag, msg)
 	default:
 		suiLog.Debug(l.tag, msg)

@@ -333,7 +333,7 @@ S_UI_TRUSTED_PROXIES=127.0.0.1,10.0.0.0/24
 
 ## English Summary
 
-**User-facing version:** **s-ui-go 0.1**. Current update packages are pinned to commit `3768f56` (sing-box `v1.14.3`, Xray-core `v26.3.27`); the older `s-ui-go-v0.1.1` Release assets have not been replaced.
+**User-facing version:** **s-ui-go 0.1**. The published packages are from tag `s-ui-go-v0.1.3` (sing-box `v1.14.3`, Xray-core `v26.3.27`). Older Release assets are preserved. Source changes made after this tag are not included in these packages until a new release is published.
 
 For Ubuntu/systemd deployments, download the immutable Linux release pair `s-ui-linux-amd64.zip` and `s-ui-linux-amd64.zip.sha256`, verify the ZIP, extract it, then use the packaged `sui` or `install-linux.sh`. Do not bootstrap from a mutable branch. The default install directory is `/usr/local/s-ui`.
 

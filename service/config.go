@@ -39,6 +39,8 @@ var (
 	pendingConfigRestart           json.RawMessage
 	pendingConfigRestartVersion    uint64
 	configRestartWorkerRunning     bool
+	configRestartSuspended         bool
+	configRestartWorkerCancel      chan struct{}
 	configRestartRetryNotification = make(chan struct{}, 1)
 )
 
@@ -188,7 +190,15 @@ func (s *ConfigService) getConfigFromDB(data string, db *gorm.DB) (*[]byte, erro
 func (s *ConfigService) StartCore() error {
 	coreOperationMu.Lock()
 	defer coreOperationMu.Unlock()
-	return s.startCoreLocked()
+	if err := s.startCoreLocked(); err != nil {
+		return err
+	}
+	// Only an explicit successful start reopens the asynchronous queue.
+	configRestartMu.Lock()
+	configRestartSuspended = false
+	s.startConfigRestartWorkerLocked()
+	configRestartMu.Unlock()
+	return nil
 }
 
 func (s *ConfigService) startCoreLocked() error {
@@ -338,20 +348,66 @@ func (s *ConfigService) enqueueConfigRestart(config json.RawMessage) {
 		}
 		return
 	}
-	configRestartWorkerRunning = true
+	s.startConfigRestartWorkerLocked()
 	configRestartMu.Unlock()
-
-	go s.processConfigRestartQueue()
 }
 
-func (s *ConfigService) processConfigRestartQueue() {
+// configRestartMu must be held. A canceled generation is never reused, even
+// when StartCore resumes the queue before the old goroutine has exited.
+func (s *ConfigService) startConfigRestartWorkerLocked() {
+	if configRestartSuspended || configRestartWorkerRunning || len(pendingConfigRestart) == 0 {
+		return
+	}
+	cancel := make(chan struct{})
+	configRestartWorkerCancel = cancel
+	configRestartWorkerRunning = true
+	go s.processConfigRestartQueue(cancel)
+}
+
+func restartWorkerCanceled(cancel <-chan struct{}) bool {
+	select {
+	case <-cancel:
+		return true
+	default:
+		return false
+	}
+}
+
+var errConfigRestartSuperseded = errors.New("queued core restart canceled or superseded")
+
+func (s *ConfigService) restartQueuedConfig(config json.RawMessage, version uint64, cancel <-chan struct{}) error {
+	coreOperationMu.Lock()
+	defer coreOperationMu.Unlock()
+	// Lock order is always coreOperationMu -> configRestartMu. Never acquire
+	// the lifecycle lock while holding the queue lock or wait for the worker.
+	configRestartMu.Lock()
+	stale := configRestartSuspended || restartWorkerCanceled(cancel) || pendingConfigRestartVersion != version
+	configRestartMu.Unlock()
+	if stale {
+		return errConfigRestartSuperseded
+	}
+	if s.restartConfigFn != nil {
+		return s.restartConfigFn(config)
+	}
+	return s.restartCoreWithConfigLocked(config)
+}
+
+func (s *ConfigService) processConfigRestartQueue(cancel chan struct{}) {
+	defer func() {
+		configRestartMu.Lock()
+		configRestartWorkerRunning = false
+		configRestartWorkerCancel = nil
+		// A resume may have happened while the canceled worker was exiting.
+		// Hand off the latest submission rather than abandoning it.
+		s.startConfigRestartWorkerLocked()
+		configRestartMu.Unlock()
+	}()
 	var retryCount int
 	var retryVersion uint64
 
 	for {
 		configRestartMu.Lock()
-		if len(pendingConfigRestart) == 0 {
-			configRestartWorkerRunning = false
+		if restartWorkerCanceled(cancel) || configRestartSuspended || len(pendingConfigRestart) == 0 {
 			configRestartMu.Unlock()
 			return
 		}
@@ -365,19 +421,22 @@ func (s *ConfigService) processConfigRestartQueue() {
 		}
 		drainConfigRestartRetryNotification()
 
-		if err := s.restartCoreWithConfig(config); err == nil {
+		if err := s.restartQueuedConfig(config, version, cancel); err == nil {
 			configRestartMu.Lock()
-			if pendingConfigRestartVersion == version {
+			if !restartWorkerCanceled(cancel) && pendingConfigRestartVersion == version {
 				pendingConfigRestart = nil
 			}
 			configRestartMu.Unlock()
 			retryCount = 0
 			continue
 		} else {
+			if errors.Is(err, errConfigRestartSuperseded) {
+				continue
+			}
 			logger.Error("restart sing-box err:", err.Error())
 			if errors.Is(err, errPreviousCoreRestored) {
 				configRestartMu.Lock()
-				if pendingConfigRestartVersion == version {
+				if !restartWorkerCanceled(cancel) && pendingConfigRestartVersion == version {
 					pendingConfigRestart = nil
 				}
 				configRestartMu.Unlock()
@@ -394,7 +453,7 @@ func (s *ConfigService) processConfigRestartQueue() {
 		backoff := configRestartBackoff(retryCount)
 		configRestartMu.Unlock()
 
-		s.waitForConfigRestartRetry(backoff)
+		s.waitForConfigRestartRetry(backoff, cancel)
 	}
 }
 
@@ -416,7 +475,7 @@ func drainConfigRestartRetryNotification() {
 	}
 }
 
-func (s *ConfigService) waitForConfigRestartRetry(backoff time.Duration) {
+func (s *ConfigService) waitForConfigRestartRetry(backoff time.Duration, cancel <-chan struct{}) {
 	if s.restartConfigRetryWait != nil {
 		s.restartConfigRetryWait(backoff)
 		return
@@ -425,6 +484,7 @@ func (s *ConfigService) waitForConfigRestartRetry(backoff time.Duration) {
 	timer := time.NewTimer(backoff)
 	defer timer.Stop()
 	select {
+	case <-cancel:
 	case <-timer.C:
 	case <-configRestartRetryNotification:
 	}
@@ -433,6 +493,17 @@ func (s *ConfigService) waitForConfigRestartRetry(backoff time.Duration) {
 func (s *ConfigService) StopCore() error {
 	coreOperationMu.Lock()
 	defer coreOperationMu.Unlock()
+	// Disable queued starts before stopping the instance. In-flight restarts
+	// have already released coreOperationMu; waiting workers recheck their
+	// immutable cancellation signal after acquiring it. Keep the latest
+	// submission for a subsequent successful StartCore, including submissions
+	// made while stopped. Do not wait for a worker while holding this lock.
+	configRestartMu.Lock()
+	configRestartSuspended = true
+	if configRestartWorkerCancel != nil && !restartWorkerCanceled(configRestartWorkerCancel) {
+		close(configRestartWorkerCancel)
+	}
+	configRestartMu.Unlock()
 	return s.stopCoreLocked()
 }
 

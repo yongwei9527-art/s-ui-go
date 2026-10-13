@@ -25,7 +25,7 @@ Please be respectful and constructive when interacting with maintainers and othe
 
 ### Prerequisites
 
-- **Go**: 1.25 or later (see `go.mod` for the exact version).
+- **Go**: 1.26.3 or later (see `go.mod` for the exact version).
 - **Git**: For cloning and submodules.
 - **C compiler**: Required for CGO (e.g. `gcc`, `musl-dev` on Alpine).
 - **Node.js** (optional): Only if you plan to work on or rebuild the frontend. The repo can be run with pre-built frontend assets.
@@ -56,7 +56,7 @@ The current frontend source lives solely under `frontend/` in this repository. T
    SUI_DB_FOLDER=db SUI_DEBUG=true ./sui
    ```
 
-   Default panel: **http://localhost:2095/app/** (user: `admin`, password: `admin` — change in production).
+   Default panel: **http://localhost:2095/app/**. On an empty database, the username defaults to `admin` and a random password is printed once to stderr; there is no default `admin` password. Save it securely and change it after first login.
 
 ### Full Stack (Backend + Frontend)
 
@@ -164,7 +164,7 @@ When adding new features, place code in the appropriate layer (handler → servi
 
 Every pull request, and each push to `main` or `latest-project-upload`, runs the following checks in GitHub Actions:
 
-1. `npm ci`, `npm run lint`, and `npm run build` from `frontend/`.
+1. `npm ci`, `npm run lint`, `npm run test:unit`, and `npm run build` from `frontend/`.
 2. `go test ./...`.
 3. `go vet ./...`.
 

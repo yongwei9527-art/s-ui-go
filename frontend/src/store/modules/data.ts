@@ -52,8 +52,8 @@ const Data = defineStore('Data', {
       if (/^(0|[1-9]\d*)$/.test(normalized)) this.lastLoad = normalized
     },
     setNewData(data: any) {
-      if (data.subURI) this.subURI = data.subURI
-      if (data.enableTraffic) this.enableTraffic = data.enableTraffic
+      if (Object.hasOwn(data, 'subURI')) this.subURI = data.subURI ?? ''
+      if (Object.hasOwn(data, 'enableTraffic')) this.enableTraffic = data.enableTraffic ?? false
       if (data.config) this.config = data.config
       if (Object.hasOwn(data, 'clients')) this.clients = data.clients ?? []
       if (Object.hasOwn(data, 'inbounds')) this.inbounds = data.inbounds ?? []

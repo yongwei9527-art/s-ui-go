@@ -234,3 +234,15 @@ func assertMapContains(t *testing.T, actual, want map[string]interface{}) {
 		}
 	}
 }
+
+func TestNaiveLinkWithoutPortKeepsHost(t *testing.T) {
+	for _, host := range []string{"example.test", "[2001:db8::1]"} {
+		out, _, err := GetOutbound("naive+https://user:pass@"+host+"#node", 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if (*out)["server"] != strings.Trim(host, "[]") || (*out)["server_port"] != 443 {
+			t.Fatalf("invalid naive target: %#v", *out)
+		}
+	}
+}

@@ -79,3 +79,22 @@ func TestGetExternalLinkHonorsTimeout(t *testing.T) {
 		t.Fatalf("GetExternalLink() took %s, want it to honor timeout", elapsed)
 	}
 }
+
+func TestGetExternalSubRejectsInvalidOutbounds(t *testing.T) {
+	initializeExternalSubscriptionLogger()
+	for _, body := range []string{`{}`, `{"outbounds":null}`, `{"outbounds":{}}`, `{"outbounds":"invalid"}`} {
+		t.Run(body, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(body))
+			}))
+			defer server.Close()
+			outbounds, err := GetExternalSub(server.URL)
+			if err == nil || len(outbounds) != 0 {
+				t.Fatalf("GetExternalSub = %v, %v; want explicit error", outbounds, err)
+			}
+			if !strings.Contains(err.Error(), "outbounds must be an array") {
+				t.Fatalf("missing invalid-subscription diagnostic: %v", err)
+			}
+		})
+	}
+}

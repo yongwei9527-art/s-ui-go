@@ -158,10 +158,10 @@ export default {
           steps.push(now - (oneStep * i))
         }
         const labels = <string[]>[]
-        for (let i = 1; i < 360; i++) {
+        for (let i = 1; i < steps.length; i++) {
           labels.push(this.genLable(steps[i], l))
         }
-        const { uplink: uplinkData, downlink: downlinkData } = aggregateTrafficByBucket(obj, steps.slice(0, 360))
+        const { uplink: uplinkData, downlink: downlinkData } = aggregateTrafficByBucket(obj, steps)
         this.usage = {
           labels: labels,
           datasets: [

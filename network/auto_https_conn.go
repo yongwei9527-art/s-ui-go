@@ -9,6 +9,11 @@ import (
 	"sync"
 )
 
+// Bound the bytes buffered while distinguishing plaintext HTTP from TLS.
+// Time is bounded by the caller's read deadline (http.Server sets one before
+// the TLS handshake). TLS records are never read ahead looking for HTTP headers.
+const maxAutoHTTPSHeaderBytes = 16 << 10
+
 type AutoHttpsConn struct {
 	net.Conn
 
@@ -28,8 +33,21 @@ func (c *AutoHttpsConn) readRequest() bool {
 	c.firstBuf = make([]byte, 2048)
 	n, err := c.Conn.Read(c.firstBuf)
 	c.firstBuf = c.firstBuf[:n]
-	if err != nil {
+	if len(c.firstBuf) == 0 || c.firstBuf[0] < 'A' || c.firstBuf[0] > 'Z' {
 		return false
+	}
+	for !bytes.Contains(c.firstBuf, []byte("\r\n\r\n")) {
+		if err != nil || len(c.firstBuf) >= maxAutoHTTPSHeaderBytes {
+			return false
+		}
+		remaining := maxAutoHTTPSHeaderBytes - len(c.firstBuf)
+		chunk := make([]byte, min(2048, remaining))
+		n, readErr := c.Conn.Read(chunk)
+		c.firstBuf = append(c.firstBuf, chunk[:n]...)
+		err = readErr
+		if n == 0 {
+			return false
+		}
 	}
 	reader := bytes.NewReader(c.firstBuf)
 	bufReader := bufio.NewReader(reader)

@@ -40,8 +40,10 @@ func getRemoteIp(c *gin.Context) string {
 func getHostname(c *gin.Context) string {
 	host := c.Request.Host
 	if strings.Contains(host, ":") {
-		host, _, _ = net.SplitHostPort(c.Request.Host)
-		if strings.Contains(host, ":") {
+		if parsed, _, err := net.SplitHostPort(host); err == nil {
+			host = parsed
+		}
+		if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
 			host = "[" + host + "]"
 		}
 	}
@@ -92,7 +94,11 @@ func checkLogin(c *gin.Context) {
 		if c.GetHeader("X-Requested-With") == "XMLHttpRequest" {
 			pureJsonMsg(c, false, "Invalid login")
 		} else {
-			c.Redirect(http.StatusTemporaryRedirect, "/login")
+			loginPath := c.GetString("s-ui-login-url")
+			if loginPath == "" {
+				loginPath = "/login"
+			}
+			c.Redirect(http.StatusTemporaryRedirect, loginPath)
 		}
 		c.Abort()
 	} else {

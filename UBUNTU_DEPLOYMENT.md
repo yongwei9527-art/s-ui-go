@@ -1,7 +1,7 @@
 # s-ui-go 0.1 在 Ubuntu VPS 的部署指南
 
 > **用户可见名称：** s-ui-go 0.1
-> **发布标签：** [`s-ui-go-v0.1.0`](https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.0)
+> **发布标签：** [`s-ui-go-v0.1.3`](https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.3)
 
 本文说明 Ubuntu VPS 的非容器化安装。受支持的包内安装方式要求 **systemd**；默认安装目录为 `/usr/local/s-ui`。本文中的 `sui` 是程序文件名，`s-ui` 是 systemd 服务与管理命令。
 
@@ -32,25 +32,26 @@ sudo apt install -y ca-certificates curl unzip openssl iproute2 coreutils
 不要从任何可变分支或通过 `curl | bash` 建立 bootstrap。请只信任固定 Release 的 ZIP 及其同名校验资产：
 
 ```bash
-TAG='s-ui-go-v0.1.0'
-ASSET='s-ui-linux-amd64.zip'
-BASE="https://github.com/yongwei9527-art/s-ui-go/releases/download/${TAG}"
-
-mkdir -p ~/s-ui-go-install && cd ~/s-ui-go-install
-curl -fL -O "${BASE}/${ASSET}"
-curl -fL -O "${BASE}/${ASSET}.sha256"
-sha256sum --check "${ASSET}.sha256"
-unzip -t "${ASSET}"
-rm -rf package && unzip -q "${ASSET}" -d package
-cd package
-ls -l sui install-linux.sh XRAY-CORE-NOTICE.md
+(
+  set -eu
+  TAG='s-ui-go-v0.1.3'
+  ASSET='s-ui-linux-amd64.zip'
+  BASE="https://github.com/yongwei9527-art/s-ui-go/releases/download/${TAG}"
+  workdir="$(mktemp -d)"
+  cd "$workdir"
+  curl -fL --retry 3 -O "${BASE}/${ASSET}"
+  curl -fL --retry 3 -O "${BASE}/${ASSET}.sha256"
+  sha256sum --check "${ASSET}.sha256"
+  unzip -q "${ASSET}"
+  sudo bash ./install-linux.sh --lang zh --install-dir /usr/local/s-ui
+)
 ```
 
-只有 `sha256sum --check` 输出 `OK` 且 `unzip -t` 成功时才继续。已验证的压缩包内含 `sui`、`install-linux.sh`、服务管理文件和合规说明；不会有独立 `xray` 文件。
+只有 `sha256sum --check` 输出 `OK` 且解压成功时才继续。已验证的压缩包内含 `sui`、`install-linux.sh`、服务管理文件和合规说明；不会有独立 `xray` 文件。
 
 ## 3. 使用包内安装器
 
-在上一步解压出的 `package` 目录执行：
+上一步完整代码块已经调用包内安装器。若手动解压，请在实际解压目录执行：
 
 ```bash
 sudo bash ./install-linux.sh
@@ -125,7 +126,7 @@ XHTTP 的支持范围比 TCP Vision 更窄。不能确认 `type=xhttp` 时，优
 
 ## 7. 更新、恢复与敏感数据
 
-升级时再次执行第 2 节的 ZIP 校验流程，解压后运行新的包内 `install-linux.sh`。不要用“下载一个裸 `sui` 并校验它”的方式替代发布流程。升级失败时先查看：
+已有安装请使用 [README 的完整升级命令](README.md#linuxubuntu--systemd)：校验 ZIP 后调用包内 `install-linux.sh --lang zh --upgrade --install-dir /usr/local/s-ui`。自定义安装目录须替换为原目录；升级不会覆盖现有管理员、面板设置和节点配置。不要用“下载一个裸 `sui` 并校验它”的方式替代发布流程。升级失败时先查看：
 
 ```bash
 sudo journalctl -u s-ui -n 200 --no-pager
@@ -136,7 +137,7 @@ Reality 私钥、数据库和安装状态应视为敏感凭据。仅给 root 或
 
 ## 8. 官方参考
 
-- s-ui-go 0.1 Release：<https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.0>
+- s-ui-go 0.1 Release：<https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.3>
 - Xray-core `v26.3.27`：<https://github.com/XTLS/Xray-core/releases/tag/v26.3.27>
 - Xray Reality/传输文档：<https://xtls.github.io/en/config/transport.html>
 - Mihomo VLESS：<https://wiki.metacubex.one/en/config/proxies/vless/>

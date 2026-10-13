@@ -1,7 +1,7 @@
 # s-ui-go 0.1 发布说明
 
 > **用户可见名称：** s-ui-go 0.1
-> **发布标签：** [`s-ui-go-v0.1.1`](https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.1)
+> **发布标签：** [`s-ui-go-v0.1.3`](https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.3)
 
 ## 本次发布的交付与校验
 
@@ -48,7 +48,7 @@ XHTTP 的实际支持范围比 TCP Vision 窄；无法确认 `type=xhttp` 时应
 
 ## Official references
 
-- Release: <https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.1>
+- Release: <https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.3>
 - Xray-core v26.3.27: <https://github.com/XTLS/Xray-core/releases/tag/v26.3.27>
 - Xray transport / Reality: <https://xtls.github.io/en/config/transport.html>
 - Mihomo VLESS: <https://wiki.metacubex.one/en/config/proxies/vless/>

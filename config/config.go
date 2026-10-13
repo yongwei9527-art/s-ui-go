@@ -96,7 +96,7 @@ func GetInitialAdminPassword() (string, bool) {
 func GetDBFolderPath() string {
 	dbFolderPath := os.Getenv("SUI_DB_FOLDER")
 	if dbFolderPath == "" {
-		dir, err := filepath.Abs(filepath.Dir(os.Args[0]))
+		executable, err := os.Executable()
 		if err != nil {
 			// Cross-platform fallback path
 			if runtime.GOOS == "windows" {
@@ -104,7 +104,7 @@ func GetDBFolderPath() string {
 			}
 			return "/usr/local/s-ui/db"
 		}
-		dbFolderPath = filepath.Join(dir, "db")
+		dbFolderPath = filepath.Join(filepath.Dir(executable), "db")
 	}
 	return dbFolderPath
 }

@@ -2,6 +2,7 @@ package migration
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
@@ -48,7 +49,15 @@ func migrate_dns(db *gorm.DB) error {
 								dnsServer["server"] = addr
 							case "udp", "tcp", "tls", "quic", "https", "h3":
 								dnsServer["type"] = addrParsed.Scheme
-								dnsServer["server"] = addrParsed.Host
+								dnsServer["server"] = addrParsed.Hostname()
+								if addrParsed.Scheme == "https" || addrParsed.Scheme == "h3" {
+									if addrParsed.RawQuery != "" {
+										return fmt.Errorf("cannot migrate DNS URL with query parameters: %q", addr)
+									}
+									if addrParsed.Path != "" {
+										dnsServer["path"] = addrParsed.EscapedPath()
+									}
+								}
 							case "dhcp":
 								dnsServer["type"] = addrParsed.Scheme
 								if addrParsed.Host != "auto" && addrParsed.Host != "" {
@@ -97,7 +106,7 @@ func migrate_dns(db *gorm.DB) error {
 
 func remove_outbound_strategy(db *gorm.DB) error {
 	var outbounds []model.Outbound
-	err := db.Find(&outbounds).Where("json_extract(options, '$.domain_strategy') IS NOT NULL").Error
+	err := db.Where("json_extract(options, '$.domain_strategy') IS NOT NULL").Find(&outbounds).Error
 	if err != nil {
 		return err
 	}
@@ -108,7 +117,9 @@ func remove_outbound_strategy(db *gorm.DB) error {
 		}
 		delete(restFields, "domain_strategy")
 		outbound.Options, _ = json.MarshalIndent(restFields, "", "  ")
-		db.Save(&outbound)
+		if err := db.Save(&outbound).Error; err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -124,6 +135,9 @@ func anytls_user_config(db *gorm.DB) error {
 		if err := json.Unmarshal(client.Config, &configs); err != nil {
 			return err
 		}
+		if configs == nil {
+			return fmt.Errorf("client %d has invalid null config", client.Id)
+		}
 		if configs["anytls"] != nil {
 			continue
 		}
@@ -133,7 +147,9 @@ func anytls_user_config(db *gorm.DB) error {
 			return err
 		}
 		clients[index].Config = configJson
-		db.Save(&clients[index])
+		if err := db.Save(&clients[index]).Error; err != nil {
+			return err
+		}
 	}
 	return nil
 }

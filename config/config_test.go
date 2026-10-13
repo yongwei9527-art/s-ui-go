@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -19,5 +20,19 @@ func TestProductRenameKeepsLegacyDatabasePath(t *testing.T) {
 	}
 	if got, want := GetDBPath(), filepath.Join(dbDir, "s-ui.db"); got != want {
 		t.Fatalf("database path = %q, want legacy-compatible %q", got, want)
+	}
+}
+
+func TestDefaultDBFolderUsesExecutableNotArgs(t *testing.T) {
+	t.Setenv("SUI_DB_FOLDER", "")
+	oldArgs := os.Args
+	os.Args = append([]string{"sui"}, oldArgs[1:]...)
+	defer func() { os.Args = oldArgs }()
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := GetDBFolderPath(), filepath.Join(filepath.Dir(executable), "db"); got != want {
+		t.Fatalf("DB folder=%q want %q", got, want)
 	}
 }

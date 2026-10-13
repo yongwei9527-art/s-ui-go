@@ -742,6 +742,12 @@ if [[ -e "$INSTALL_DIR/db" || -L "$INSTALL_DIR/db" ]]; then
     assert_no_symlinks_below "$INSTALL_DIR/db" '数据库目录 / database directory'
     [[ -f "$INSTALL_DIR/db/s-ui.db" && ! -L "$INSTALL_DIR/db/s-ui.db" ]] && DB_EXISTS=1
 fi
+# Never classify unknown pre-existing data as a fresh installation: its rollback
+# is allowed to remove only a database directory created by this installer.
+if [[ "$DB_EXISTS" -eq 0 && -e "$INSTALL_DIR/db" ]]; then
+    [[ -d "$INSTALL_DIR/db" ]] || die 'Database path exists but is not a directory; refusing to continue.'
+    [[ -z "$(find "$INSTALL_DIR/db" -mindepth 1 -maxdepth 1 -print -quit)" ]] || die 'Unrecognized nonempty database directory; refusing to overwrite or delete existing data.'
+fi
 if [[ "$STATE_VALUE" == "installing" ]]; then
     die '检测到一次中断的新安装，拒绝将半初始化状态当作升级。请先审查或使用卸载器清理目标目录后重试。 / Interrupted fresh installation detected; refusing to treat a partial state as an upgrade. Review it or use the uninstaller to clean the target directory, then retry.'
 fi

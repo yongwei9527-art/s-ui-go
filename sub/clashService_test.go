@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/yongwei9527-art/s-ui-go/util"
 	"gopkg.in/yaml.v3"
 )
 
@@ -250,4 +251,25 @@ func containsString(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestClashHysteria2KeepsPortRangesFromParsedLink(t *testing.T) {
+	out, _, err := util.GetOutbound("hy2://pass@example.test?mport=2000-3000,4000#node", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outbounds := []map[string]interface{}{*out}
+	text, err := (&ClashService{}).convertToClashMeta(&outbounds, "{}", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config struct {
+		Proxies []map[string]interface{} `yaml:"proxies"`
+	}
+	if err := yaml.Unmarshal([]byte(text), &config); err != nil {
+		t.Fatal(err)
+	}
+	if len(config.Proxies) != 1 || config.Proxies[0]["ports"] != "2000-3000,4000" {
+		t.Fatalf("port ranges lost: %s", text)
+	}
 }
