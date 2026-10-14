@@ -68,11 +68,11 @@ export default {
   computed: {
     allowed_ips: {
       get() { return this.$props.data.allowed_ips?.join(',') },
-      set(v:string) { this.$props.data.allowed_ips = v.length > 0 ? v.split(',') : undefined }
+      set(v:string) { v ??= ''; this.$props.data.allowed_ips = v.length > 0 ? v.split(',') : undefined }
     },
     reserved: {
       get() { return this.$props.data.reserved?.join(',') },
-      set(v:string) {
+      set(v:string) { v ??= '';
         if(!v.endsWith(',')) {
           this.$props.data.reserved = v.length > 0 ? v.split(',').map(str => parseInt(str, 10)) : undefined
         }
@@ -80,7 +80,7 @@ export default {
     },
     address: {
       get() { return this.$props.data.address },
-      set(v:string) { this.$props.data.address = v.length > 0 ? v : undefined }
+      set(v:string) { v ??= ''; this.$props.data.address = v.length > 0 ? v : undefined }
     },
     port: {
       get() { return this.$props.data.port },
@@ -92,19 +92,25 @@ export default {
     },
     privateKey: {
       get() {
-        const indexKeys = this.$props.ext?.keys.findIndex((key: any) => key.public_key == this.$props.data.public_key)?? -1
+        const indexKeys = this.$props.ext?.keys?.findIndex((key: any) => key.public_key == this.$props.data.public_key)?? -1
         return indexKeys > -1 ? this.$props.ext.keys[indexKeys].private_key : ''
       },
-      set(v:string) {
-        const indexKeys = this.$props.ext?.keys.findIndex((key: any) => key.public_key == this.$props.data.public_key)?? -1
-        this.$props.ext.keys[indexKeys].private_key = v
+      set(v:string) { v ??= '';
+        const indexKeys = this.$props.ext?.keys?.findIndex((key: any) => key.public_key == this.$props.data.public_key)?? -1
+        if (indexKeys < 0) {
+          if (!v || !this.$props.ext) return
+          this.$props.ext.keys ??= []
+          this.$props.ext.keys.push({ public_key: this.$props.data.public_key, private_key: v })
+        } else {
+          this.$props.ext.keys[indexKeys].private_key = v
+        }
       }
     },
     publicKey: {
       get() { return this.$props.data.public_key },
-      set(v:string) {
-        const indexKeys = this.$props.ext?.keys.findIndex((key: any) => key.public_key == this.$props.data.public_key)?? -1
-        this.$props.ext.keys[indexKeys].public_key = v
+      set(v:string) { v ??= '';
+        const indexKeys = this.$props.ext?.keys?.findIndex((key: any) => key.public_key == this.$props.data.public_key)?? -1
+        if (indexKeys >= 0) this.$props.ext.keys[indexKeys].public_key = v
         this.$props.data.public_key = v
       }
     }

@@ -108,7 +108,7 @@ export default {
     },
     extra_args: {
       get() { return this.$props.data.extra_args?.join(',') },
-      set(v:string) { this.$props.data.extra_args = v.length > 0 ? v.split(',') : undefined }
+      set(v:string) { v ??= ''; this.$props.data.extra_args = v.length > 0 ? v.split(',') : undefined }
     },
   },
 }

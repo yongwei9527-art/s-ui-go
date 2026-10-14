@@ -86,7 +86,7 @@ func configureProductionTLS(t *testing.T, host string, cert, key []byte) {
 
 func productionDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	database, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "production-fixture.db")), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}

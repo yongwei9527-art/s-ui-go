@@ -36,17 +36,20 @@ export default {
   },
   methods: {
     async load() {
-      this.wgData = this.$props.data
+      this.wgData = this.$props.data ?? {}
       this.wgLinks = []
       const address = location.hostname
-      this.wgData.peers.forEach((_: any, index: number) => {
+      const peers = Array.isArray(this.wgData.peers) ? this.wgData.peers : []
+      peers.forEach((_: any, index: number) => {
         this.wgLinks.push(this.getWireguardLink(index, address))
       })
     },
     getWireguardLink(peerId: number, address: string) {
-      const peerData = this.wgData.peers[peerId]
-      const keys = this.wgData.ext?.keys?.find((key: any) => key.public_key == peerData.public_key)
-      if (!keys || !this.wgData.ext?.public_key) return ''
+      const peerData = this.wgData.peers?.[peerId]
+      if (!peerData || !Array.isArray(peerData.allowed_ips)) return ''
+      const keyList = Array.isArray(this.wgData.ext?.keys) ? this.wgData.ext.keys : []
+      const keys = keyList.find((key: any) => key?.public_key == peerData.public_key)
+      if (!keys?.private_key || !this.wgData.ext?.public_key) return ''
       let txt = `[Interface]\n`
       txt += `PrivateKey = ${keys.private_key}\n`
       txt += `Address = ${peerData.allowed_ips.join(',')}\n`
@@ -58,7 +61,8 @@ export default {
       txt += `[Peer]\n`
       txt += `PublicKey = ${this.wgData.ext.public_key}\n`
       txt += `AllowedIPs = 0.0.0.0/0, ::/0\n`
-      txt += `Endpoint = ${address}:${this.wgData.listen_port}\n`
+      const host = address.includes(':') && !address.startsWith('[') ? `[${address}]` : address
+      txt += `Endpoint = ${host}:${this.wgData.listen_port}\n`
       if (peerData.pre_shared_key) {
           txt += `\nPresharedKey = ${peerData.pre_shared_key}`
       }

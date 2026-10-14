@@ -194,12 +194,12 @@ export default {
       set(v:number) { this.$props.data.up_mbps = v>0 ? v : undefined }
     },
     server_ports: {
-      get() { return this.$props.data.server_ports?.join(',')?? [] },
-      set(v:string) { this.$props.data.server_ports = v.length > 0 ? v.split(',') : undefined }
+      get() { return this.$props.data.server_ports?.join(',')?? '' },
+      set(v:string) { v ??= ''; this.$props.data.server_ports = v.length > 0 ? v.split(',') : undefined }
     },
     masqueradeType: {
-      get() { return typeof this.$props.data.masquerade === 'object' ? this.$props.data.masquerade.type?? '' : '' },
-      set(v:string) {
+      get() { return this.$props.data.masquerade && typeof this.$props.data.masquerade === 'object' ? this.$props.data.masquerade.type?? '' : '' },
+      set(v:string) { v ??= '';
         if (v == '') {
           this.$props.data.masquerade = ''
         } else {

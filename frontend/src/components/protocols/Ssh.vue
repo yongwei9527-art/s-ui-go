@@ -1,5 +1,10 @@
 <template>
   <v-card subtitle="SSH">
+    <v-row>
+      <v-col cols="12" sm="6" md="4">
+        <v-text-field v-model="data.user" :label="$t('types.un')" hide-details></v-text-field>
+      </v-col>
+    </v-row>
     <template v-if="optionKey">
         <v-row>
           <v-col cols="auto">
@@ -32,7 +37,7 @@
             <v-textarea
               :label="$t('tls.key')"
               hide-details
-              v-model="data.private_key">
+              v-model="private_key">
             </v-textarea>
           </v-col>
         </v-row>
@@ -48,9 +53,6 @@
       </template>
       <template v-else>
         <v-row>
-          <v-col cols="12" sm="6" md="4">
-            <v-text-field v-model="data.user" :label="$t('types.un')" hide-details></v-text-field>
-          </v-col>
           <v-col cols="12" sm="6" md="4">
             <v-text-field v-model="data.password" :label="$t('types.pw')" hide-details></v-text-field>
           </v-col>
@@ -107,17 +109,20 @@ export default {
   data() {
     return {
       menu: false,
-      usePath: 0,
+      usePath: this.$props.data.private_key != undefined ? 1 : 0,
     }
   },
   computed: {
+    private_key: {
+      get(): string { const key = this.data.private_key; return Array.isArray(key) ? key.join('\n') : (key ?? '') },
+      set(v: string) { this.data.private_key = (v ?? '').split('\n') }
+    },
     optionKey: {
       get(): boolean { return this.data.private_key != undefined || this.data.private_key_path != undefined },
       set(v:boolean) {
         this.usePath = 0
         if (v) {
           this.$props.data.private_key_path = ""
-          delete this.$props.data.user
           delete this.$props.data.password
         } else {
           delete this.$props.data.private_key_path
@@ -128,7 +133,7 @@ export default {
     },
     optionHostKey: {
       get(): boolean { return this.data.host_key != undefined },
-      set(v:boolean) { this.data.host_key = v ? '' : undefined }
+      set(v:boolean) { this.data.host_key = v ? [] : undefined }
     },
     optionAlgorithms: {
       get(): boolean { return this.data.host_key_algorithms != undefined },
@@ -139,12 +144,12 @@ export default {
       set(v:boolean) { this.data.client_version = v ? 'SSH-2.0-OpenSSH_7.4p1' : undefined }
     },
     host_key: {
-      get(): string { return this.$props.data.host_key ? this.$props.data.host_key.join('\n') : '' },
-      set(v:string) { this.$props.data.host_key = v.split('\n') }
+      get(): string { return Array.isArray(this.$props.data.host_key) ? this.$props.data.host_key.join('\n') : (this.$props.data.host_key ?? '') },
+      set(v:string) { v ??= ''; this.$props.data.host_key = v.split('\n') }
     },
     algorithms: {
       get() { return this.$props.data.host_key_algorithms ? this.$props.data.host_key_algorithms.join(',') : '' },
-      set(v:string) { this.$props.data.host_key_algorithms = v.length > 0 ? v.split(',') : undefined }
+      set(v:string) { v ??= ''; this.$props.data.host_key_algorithms = v.length > 0 ? v.split(',') : undefined }
     },
   },
 }

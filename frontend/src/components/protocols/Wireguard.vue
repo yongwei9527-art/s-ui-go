@@ -146,7 +146,7 @@ export default {
     },
     getWgPubKey() {
       const privKey = this.$props.data.private_key
-      if (privKey.length == 0) return
+      if (!privKey) return
       this.$emit('getWgPubKey', privKey)
     },
   },
@@ -169,15 +169,15 @@ export default {
     },
     ifName: {
       get() { return this.$props.data.name?? '' },
-      set(v:string) { this.$props.data.name = v.length > 0 ? v : undefined }
+      set(v:string) { v ??= ''; this.$props.data.name = v.length > 0 ? v : undefined }
     },
     address: {
       get() { return this.$props.data.address?.join(',') },
-      set(v:string) { this.$props.data.address = v.length > 0 ? v.split(',') : undefined }
+      set(v:string) { v ??= ''; this.$props.data.address = v.length > 0 ? v.split(',') : undefined }
     },
     reserved: {
       get() { return this.$props.data.reserved?.join(',') },
-      set(v:string) {
+      set(v:string) { v ??= '';
         if(!v.endsWith(',')) {
           this.$props.data.reserved = v.length > 0 ? v.split(',').map(str => parseInt(str, 10)) : []
         }
@@ -189,7 +189,7 @@ export default {
     },
     public_key: {
       get() { return this.$props.data.ext?.public_key?? '' },
-      set(v:string) { this.$props.data.ext.public_key = v }
+      set(v:string) { v ??= ''; this.$props.data.ext ??= {}; this.$props.data.ext.public_key = v }
     }
   },
   components: { Peer }

@@ -1,9 +1,10 @@
 import { createApp, type App } from 'vue'
 import { createVuetify } from 'vuetify'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-const mocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }))
+const mocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), error: vi.fn() }))
 vi.mock('@/plugins/httputil', () => ({ default: mocks }))
 vi.mock('@/store/modules/data', () => ({ default: () => ({ clients: [] }) }))
+vi.mock('notivue', () => ({ push: { error: mocks.error } }))
 import XrayXHTTP from './XrayXHTTP.vue'
 let app: App | undefined
 const settle = async () => { for (let i = 0; i < 10; i++) await Promise.resolve() }
@@ -21,6 +22,17 @@ const mount = async () => {
 }
 afterEach(() => { app?.unmount(); app = undefined; vi.restoreAllMocks(); vi.clearAllMocks(); vi.unstubAllGlobals() })
 describe('Xray form lifecycle', () => {
+  it('does not partially replace an existing Reality key pair', async () => {
+    const state = await mount()
+    state.edit({ ...state.form, id: 7, publicKey: 'existing-public', shortId: '0123456789abcdef' })
+    mocks.get.mockResolvedValue({ success: true, obj: ['PrivateKey: new-private'] })
+    await state.generateRealityCredentials()
+    expect(state.form.privateKey).toBe('')
+    expect(state.form.publicKey).toBe('existing-public')
+    expect(state.form.shortId).toBe('0123456789abcdef')
+    expect(state.loading).toBe(false)
+    expect(mocks.error).toHaveBeenCalled()
+  })
   it('removes the edited id when starting a new node', async () => {
     const state = await mount()
     state.edit({ ...state.form, id: 7 })

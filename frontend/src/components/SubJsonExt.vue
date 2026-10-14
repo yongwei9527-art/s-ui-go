@@ -193,7 +193,7 @@ export default {
           "mtu": 9000,
           "auto_route": true,
           "strict_route": false,
-          "endpoint_independent_nat": false,
+          "udp_mapping": "endpoint_independent",
           "stack": "mixed",
           "exclude_package": [],
           "platform": {
@@ -279,8 +279,8 @@ export default {
         { title: "🇻🇳 Vietnam", value: "geosite-vn" },
       ],
       geoList: [
-        { title: "Site-Private", value: "geoip-private" },
-        { title: "IP-Private", value: "geosite-private" },
+        { title: "Site-Private", value: "geosite-private" },
+        { title: "IP-Private", value: "geoip-private" },
         { title: "Site-Ads", value: "geosite-ads" },
         { title: "🇮🇷 Site-Iran", value: "geosite-ir" },
         { title: "🇮🇷 IP-Iran", value: "geoip-ir" },
@@ -359,7 +359,7 @@ export default {
   computed: {
     enableLog: {
       get() :boolean { return this.subJsonExt?.log != undefined },
-      set(v:boolean) { v ? this.subJsonExt.log = this.defaultLog : delete this.subJsonExt.log }
+      set(v:boolean) { v ? this.subJsonExt.log = this.cloneDefault(this.defaultLog) : delete this.subJsonExt.log }
     },
     enableDns: {
       get() :boolean { return this.subJsonExt?.dns != undefined },
@@ -373,12 +373,12 @@ export default {
       }
     },
     enableInb: {
-      get() :boolean { return this.subJsonExt?.inbounds != undefined },
+      get() :boolean { return this.subJsonExt?.inbounds?.[0]?.type === "tun" },
       set(v:boolean) { v ? this.subJsonExt.inbounds = this.cloneDefault(this.defaultInb) : delete this.subJsonExt.inbounds }
     },
     enableExp: {
       get() :boolean { return this.subJsonExt?.experimental != undefined },
-      set(v:boolean) { v ? this.subJsonExt.experimental = this.defaultExp : delete this.subJsonExt.experimental }
+      set(v:boolean) { v ? this.subJsonExt.experimental = this.cloneDefault(this.defaultExp) : delete this.subJsonExt.experimental }
     },
     dns():any { return this.subJsonExt?.dns?? undefined },
     proxyDns: {
@@ -405,15 +405,18 @@ export default {
     },
     dnsTags() { return this.dns?.servers?.map((d:any) => d.tag) ?? [] },
     final: {
-      get() :string { return this.dns.final?? "" },
-      set(v:string) { this.dns.final = v.length>0 ? v : undefined }
+      get() :string { return this.dns?.final?? "" },
+      set(v:string) { v ??= ''; if (this.dns) this.dns.final = v.length>0 ? v : undefined }
     },
     dnsToDirect: {
       get() :string[] {
         const ruleIndex = this.dns?.rules?.findIndex((r:any) => r.server == "direct-dns" && Object.hasOwn(r,'rule_set'))
-        return ruleIndex >= 0 ? this.dns.rules[ruleIndex].rule_set : []
+        return ruleIndex >= 0 ? this.ruleSetTags(this.dns.rules[ruleIndex].rule_set) : []
       },
       set(v:string[]) {
+        v ??= []
+        if (!this.dns) return
+        this.dns.rules ??= []
         const ruleIndex = this.dns?.rules?.findIndex((r:any) => r.server == "direct-dns" && Object.hasOwn(r,'rule_set'))
         if (v.length>0) {
           if (ruleIndex >= 0){
@@ -422,23 +425,24 @@ export default {
             this.dns.rules.push({ rule_set: v, action: "route", server: "direct-dns" })
           }
         } else {
-          if (ruleIndex != -1) this.dns.rules.splice(ruleIndex,1)
+          if (ruleIndex >= 0) this.dns.rules.splice(ruleIndex,1)
         }
         this.updateRuleSets()
       }
     },
     inbounds():any[] { return this.subJsonExt?.inbounds?? undefined },
     platformProxy: {
-      get() :boolean { return this.inbounds[0]?.platform != undefined },
-      set(v:boolean) { this.subJsonExt.inbounds[0].platform = v ? this.defaultInb[0].platform : undefined }
+      get() :boolean { return this.inbounds?.[0]?.platform != undefined },
+      set(v:boolean) { if (this.inbounds?.[0]) this.inbounds[0].platform = v ? this.cloneDefault(this.defaultInb[0].platform) : undefined }
     },
     rules():any { return this.subJsonExt?.rules?? undefined },
     ruleToDirect: {
       get() :string[] {
         const ruleIndex = this.rules?.findIndex((r:any) => r.outbound == "direct" && Object.hasOwn(r,'rule_set'))
-        return ruleIndex >= 0 ? this.rules[ruleIndex].rule_set : []
+        return ruleIndex >= 0 ? this.ruleSetTags(this.rules[ruleIndex].rule_set) : []
       },
       set(v:string[]) {
+        v ??= []
         const ruleIndex = this.rules?.findIndex((r:any) => r.outbound == "direct" && Object.hasOwn(r,'rule_set'))
         if (v.length>0) {
           if (ruleIndex >= 0){
@@ -448,7 +452,7 @@ export default {
             this.rules.push({ rule_set: v, action: "route", outbound: "direct" })
           }
         } else {
-          if (ruleIndex != -1) this.rules.splice(ruleIndex,1)
+          if (ruleIndex >= 0) this.rules.splice(ruleIndex,1)
         }
         this.updateRuleSets()
       }
@@ -456,9 +460,10 @@ export default {
     ruleToBlock: {
       get() :string[] {
         const ruleIndex = this.rules?.findIndex((r:any) => r.action == "reject" && Object.hasOwn(r,'rule_set'))
-        return ruleIndex >= 0 ? this.rules[ruleIndex].rule_set : []
+        return ruleIndex >= 0 ? this.ruleSetTags(this.rules[ruleIndex].rule_set) : []
       },
       set(v:string[]) {
+        v ??= []
         const ruleIndex = this.rules?.findIndex((r:any) => r.action == "reject" && Object.hasOwn(r,'rule_set'))
         if (v.length>0) {
           if (ruleIndex >= 0){
@@ -468,29 +473,73 @@ export default {
             this.rules.push({ rule_set: v, action: "reject" })
           }
         } else {
-          if (ruleIndex != -1) this.rules.splice(ruleIndex,1)
+          if (ruleIndex >= 0) this.rules.splice(ruleIndex,1)
         }
         this.updateRuleSets()
       }
     }
   },
   methods: {
-    loadData() {
-      if (this.$props.settings?.subJsonExt?.length>0){
-        this.subJsonExt = JSON.parse(this.$props.settings.subJsonExt)
-      } else {
-        this.subJsonExt = <any>{}
+    parseConfig(text: string) {
+      const value = JSON.parse(text)
+      const isObject = (entry:any) => entry !== null && typeof entry === 'object' && !Array.isArray(entry)
+      const objectList = (entries:any) => Array.isArray(entries) && entries.every(isObject)
+      const validateRules = (rules:any[]) => {
+        for (const rule of rules) {
+          if (rule.rule_set !== undefined && !(typeof rule.rule_set === 'string' ||
+              (Array.isArray(rule.rule_set) && rule.rule_set.every((tag:any) => typeof tag === 'string')))) {
+            throw new Error('Expected rule-set tags')
+          }
+          if (rule.rules !== undefined) {
+            if (!objectList(rule.rules)) throw new Error('Expected logical rules')
+            validateRules(rule.rules)
+          }
+        }
       }
+      if (!isObject(value)) throw new Error('Expected object')
+      for (const key of ['dns', 'log', 'experimental']) {
+        if (value[key] !== undefined && !isObject(value[key])) throw new Error('Expected object')
+      }
+      if (value.dns !== undefined) {
+        value.dns.servers ??= []
+        value.dns.rules ??= []
+        if (!objectList(value.dns.servers) || !objectList(value.dns.rules)) throw new Error('Expected DNS lists')
+        validateRules(value.dns.rules)
+        for (const server of this.defaultDns.servers) {
+          if (!value.dns.servers.some((s:any) => s?.tag === server.tag)) value.dns.servers.push(this.cloneDefault(server))
+        }
+      }
+      for (const key of ['rules', 'rule_set', 'inbounds']) {
+        if (value[key] !== undefined && !objectList(value[key])) throw new Error('Expected object list')
+      }
+      if (value.rules) validateRules(value.rules)
+      return value
+    },
+    loadData() {
+      try {
+        const value = this.$props.settings?.subJsonExt
+        this.subJsonExt = this.parseConfig(value?.trim() ? value : '{}')
+      } catch {
+        push.error({ message: i18n.global.t('error.invalidData') })
+      }
+    },
+    ruleSetTags(value:any):string[] {
+      return typeof value === 'string' ? [value] : (value ?? [])
     },
     updateRuleSets(){
       let tags = <string[]>[]
-      if (this.dns?.rules?.length>0) this.dns.rules.forEach((r:any) => { if (r.rule_set) tags.push(...r.rule_set) })
-      if (this.rules?.length>0) this.rules.forEach((r:any) => { if (r.rule_set) tags.push(...r.rule_set) })
-      if (tags.length>0){
-        this.subJsonExt.rule_set = this.geo.filter((g:any) => tags.includes(g.tag))
-      } else {
-        delete this.subJsonExt.rule_set
-      }
+      const collectTags = (rules:any[]) => rules.forEach((r:any) => {
+        tags.push(...this.ruleSetTags(r.rule_set))
+        if (r.rules) collectTags(r.rules)
+      })
+      collectTags(this.dns?.rules ?? [])
+      collectTags(this.rules ?? [])
+      const knownTags = this.geo.map((g:any) => g.tag)
+      const existing = (this.subJsonExt.rule_set ?? []).filter((g:any) => !knownTags.includes(g.tag) || tags.includes(g.tag))
+      const missing = this.geo.filter((g:any) => tags.includes(g.tag) && !existing.some((e:any) => e.tag === g.tag))
+      const ruleSets = [...existing, ...this.cloneDefault(missing)]
+      if (ruleSets.length) this.subJsonExt.rule_set = ruleSets
+      else delete this.subJsonExt.rule_set
       if ((this.rules?.length ?? 0) == 0) delete this.subJsonExt.rules
     },
     cloneDefault(data:any) {
@@ -501,7 +550,7 @@ export default {
     },
     saveEditor(data:string) {
       try {
-        this.subJsonExt = JSON.parse(data)
+        this.subJsonExt = this.parseConfig(data)
       } catch (e) {
         push.error({
           message: i18n.global.t('failed') + ": " + i18n.global.t('error.invalidData'),

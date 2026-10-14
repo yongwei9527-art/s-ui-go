@@ -125,7 +125,7 @@ function Install-Sui {
     Assert-SafePath $source -Tree
     Assert-SafePath $install -Tree
     if ($source -eq $install -or $source.StartsWith($install + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Run from a separate extracted package, not the installation directory.' }
-    $required = @('sui.exe','libcronet.dll','s-ui-windows.xml','s-ui-windows.bat','uninstall-windows.bat')
+    $required = @('sui.exe','libcronet.dll','s-ui-windows.xml','s-ui-windows.bat','uninstall-windows.bat','uninstall-windows.ps1')
     foreach ($file in $required) {
         if (-not (Test-Path -LiteralPath (Join-Path $source $file) -PathType Leaf)) { throw "Missing package file: $file" }
     }

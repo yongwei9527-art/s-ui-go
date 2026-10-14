@@ -160,7 +160,7 @@ export default {
     saveEditor(data:string) {
       try {
         const result = yaml.parse(data)
-        if (typeof result != 'object' || Array.isArray(result)) throw new Error()
+        if (!result || typeof result != 'object' || Array.isArray(result)) throw new Error()
       } catch (e) {
         push.error({
           message: i18n.global.t('failed') + ": " + i18n.global.t('error.invalidData'),
@@ -185,7 +185,7 @@ export default {
     metaJson: {
       get() {
         try {
-          return yaml.parse(this.settings.subClashExt)??{}
+          const value = yaml.parse(this.settings.subClashExt); return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
         } catch (e) {
           return {}
         }
@@ -234,11 +234,11 @@ export default {
     },
     externalController: {
       get() { return this.metaJson['external-controller'] },
-      set(v:string) { this.updateMetaJson(v, 'external-controller') }
+      set(v:string) { v ??= ''; this.updateMetaJson(v, 'external-controller') }
     },
     logLevel: {
       get() { return this.metaJson['log-level'] },
-      set(v:string) { this.updateMetaJson(v, 'log-level') }
+      set(v:string) { v ??= ''; this.updateMetaJson(v, 'log-level') }
     },
     dns: {
       get() { return this.metaJson['dns']?.['enable'] ?? false },
@@ -257,11 +257,9 @@ export default {
       set(v:boolean) { this.updateMetaJson({ ...this.metaJson['tun'], 'dns-hijack': v ? ['any:53'] : [] }, 'tun') }
     },
     rules: {
-      get() { return this.metaJson.rules.length > 0 ? this.metaJson.rules.filter((r:string) => r != "MATCH,Proxy") : [] },
+      get() { return Array.isArray(this.metaJson.rules) ? this.metaJson.rules.filter((r:string) => r != "MATCH,Proxy") : [] },
       set(v:string[]) {
-        let newRules = <string[]>[]
-        v.forEach((r:string) => { newRules.push(r) })
-        this.updateMetaJson([ ...newRules, "MATCH,Proxy" ], 'rules')
+        this.updateMetaJson([ ...(v ?? []), "MATCH,Proxy" ], 'rules')
       }
     }
   },

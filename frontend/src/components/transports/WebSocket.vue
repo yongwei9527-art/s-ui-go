@@ -51,12 +51,19 @@ export default {
     },
     max_early_data: {
       get() { return this.WS.max_early_data ? this.WS.max_early_data : '' },
-      set(newValue:number) { this.$props.transport.max_early_data = newValue != 0 ? newValue : undefined }
+      set(newValue:number) { this.$props.transport.max_early_data = newValue > 0 ? newValue : undefined }
     },
     host: {
-      get() { return this.WS.headers?.Host ? this.WS.headers.Host : '' },
-      set(newValue:string) {
-        this.$props.transport.headers = newValue != "" ? { Host: newValue } : undefined
+      get() {
+        const value = this.WS.headers?.Host ?? this.WS.headers?.host
+        return Array.isArray(value) ? value.join(',') : value ?? ''
+      },
+      set(newValue:string) { newValue ??= '';
+        const headers = { ...this.$props.transport.headers }
+        delete headers.Host
+        delete headers.host
+        if (newValue) headers.Host = newValue
+        this.$props.transport.headers = Object.keys(headers).length ? headers : undefined
       }
     },
   },

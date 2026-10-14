@@ -185,15 +185,15 @@ export default {
     },
     udpTimeout: {
       get() { return this.$props.data?.udp_timeout? this.$props.data.udp_timeout.replace('s','') : '' },
-      set(v: number) { this.$props.data.udp_timeout = v>1 ? v + 's' : '30s' }
+      set(v: number) { this.$props.data.udp_timeout = v>=1 ? v + 's' : '30s' }
     },
     advertise_routes: {
       get() { return this.$props.data?.advertise_routes?.join(',') ?? "" },
-      set(v: string) { this.$props.data.advertise_routes = v.length > 0 ? v.split(',') : [] }
+      set(v: string) { v ??= ''; this.$props.data.advertise_routes = v.length > 0 ? v.split(',') : [] }
     },
     relay_endpoints: {
       get() { return this.$props.data?.relay_server_static_endpoints?.join(',') ?? "" },
-      set(v: string) { this.$props.data.relay_server_static_endpoints = v.length > 0 ? v.split(',') : [] }
+      set(v: string) { v ??= ''; this.$props.data.relay_server_static_endpoints = v.length > 0 ? v.split(',') : [] }
     },
   },
 }

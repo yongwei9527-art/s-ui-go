@@ -1,5 +1,5 @@
 <template>
-  <v-row density="compact">
+  <v-row v-if="data" density="compact">
     <v-col cols="12" class="v-card-subtitle" style="margin-top: -5px;">{{ label }}</v-col>
     <v-col :cols="data.type == 'local' ? 12 : 4">
       <v-select
@@ -9,7 +9,7 @@
         @update:model-value="updateType($event)"
         density="compact"
         :class="data.type != 'local' ? 'noGutters' : ''"
-        v-model="data.type">
+        :model-value="data.type">
       </v-select>
     </v-col>
     <v-col cols="5" v-if="data.type != 'local'">
@@ -42,7 +42,9 @@ export default {
     return {}
   },
   methods: {
-    updateType(t:string) {
+    updateType(t: string | null) {
+      if (!this.data || !['udp', 'tcp', 'local', 'tls', 'quic', 'h3'].includes(t ?? '')) return
+      this.data.type = t
       if (t == 'local') {
         delete this.data.server
         delete this.data.server_port

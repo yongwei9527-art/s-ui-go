@@ -695,9 +695,9 @@ func (s *ConfigService) CurrentChangeRevision() uint64 {
 }
 
 func (s *ConfigService) currentChangeRevision() (uint64, error) {
-	if revision, initialized := loadLastUpdateState(); initialized {
-		return revision, nil
-	}
+	// Database import/recovery can replace the change history without replacing
+	// this process. Read the persisted revision instead of reusing the old DB's
+	// in-memory value; LastUpdate remains an error fallback only.
 	revision, err := latestChangeRevision()
 	if err != nil {
 		return 0, err

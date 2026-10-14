@@ -3,21 +3,29 @@ package database
 import (
 	"encoding/base64"
 	"encoding/hex"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/glebarez/sqlite"
 	"github.com/yongwei9527-art/s-ui-go/database/model"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"gorm.io/gorm"
 )
 
 func TestSeedDefaultXrayRealityTemplatesCreatesDisabledDrafts(t *testing.T) {
+	clearProductionEnv(t)
 	t.Setenv("SUI_AUTOCONFIGURE_XRAY_REALITY", "")
-	testDB, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	testDB, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "xray-fixture.db")), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open in-memory database: %v", err)
 	}
+	sqlDB, err := testDB.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	if err := testDB.AutoMigrate(&model.Tls{}, &model.Inbound{}, &model.Client{}, &model.XrayXHTTPInbound{}, &model.XrayXHTTPClient{}); err != nil {
 		t.Fatalf("migrate models: %v", err)
 	}
@@ -95,6 +103,24 @@ func TestSeedDefaultXrayRealityTemplatesCreatesDisabledDrafts(t *testing.T) {
 	if err := testDB.Where("name = ?", defaultTemplateClientName).First(&client).Error; err != nil {
 		t.Fatalf("load default client: %v", err)
 	}
+	var singBoxConfig map[string]map[string]interface{}
+	if err := json.Unmarshal(client.Config, &singBoxConfig); err != nil {
+		t.Fatal(err)
+	}
+	credentials := map[string]bool{}
+	for _, protocol := range singBoxConfig {
+		for _, field := range []string{"uuid", "password", "auth_str"} {
+			if value, ok := protocol[field].(string); ok {
+				credentials[value] = true
+			}
+		}
+	}
+	var singBoxReality model.Tls
+	if err := testDB.Where("name = ?", "reality-vless").First(&singBoxReality).Error; err != nil {
+		t.Fatal(err)
+	}
+	server := defaultSeedJSONMap(t, singBoxReality.Server, "sing-box Reality")
+	reality := server["reality"].(map[string]interface{})
 	for transport, inbound := range seen {
 		var assignment model.XrayXHTTPClient
 		if err := testDB.Where("inbound_id = ? AND client_id = ?", inbound.Id, client.Id).First(&assignment).Error; err != nil {
@@ -103,15 +129,28 @@ func TestSeedDefaultXrayRealityTemplatesCreatesDisabledDrafts(t *testing.T) {
 		if !assignment.Enable || assignment.UUID == "" {
 			t.Fatalf("invalid %s client assignment: %#v", transport, assignment)
 		}
+		if credentials[assignment.UUID] {
+			t.Fatalf("%s Xray assignment reused another core/node credential", transport)
+		}
+		credentials[assignment.UUID] = true
+		if inbound.PrivateKey == reality["private_key"] || inbound.ShortID == reality["short_id"].([]interface{})[0] {
+			t.Fatalf("%s Xray Reality reused sing-box credentials", transport)
+		}
 	}
 }
 
 func TestSeedDefaultXrayRealityTemplatesAutoEnablesAll(t *testing.T) {
+	clearProductionEnv(t)
 	t.Setenv("SUI_AUTOCONFIGURE_XRAY_REALITY", "true")
-	testDB, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	testDB, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "xray-fixture.db")), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open in-memory database: %v", err)
 	}
+	sqlDB, err := testDB.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	if err := testDB.AutoMigrate(&model.Tls{}, &model.Inbound{}, &model.Client{}, &model.XrayXHTTPInbound{}, &model.XrayXHTTPClient{}); err != nil {
 		t.Fatalf("migrate models: %v", err)
 	}

@@ -82,9 +82,6 @@ export default {
     return {
       inbCngs: [
         { title: 'BBR', value: 'bbr'},
-        { title: 'BBR Standard', value: 'bbr_standard'},
-        { title: 'BBRv2', value: 'bbr2'},
-        { title: 'BBRv2 variant', value: 'bbr2_variant'},
         { title: 'Cubic', value: 'cubic'},
         { title: 'New Reno', value: 'reno'},
       ],
@@ -100,11 +97,11 @@ export default {
     udpOverTcp: {
       get(): boolean {
         const d = this.$props.data
-        return d?.udp_over_tcp === true || (d?.udp_over_tcp && (d.udp_over_tcp as any)?.enabled)
+        return d?.udp_over_tcp === true || d?.udp_over_tcp?.enabled === true
       },
       set(v: boolean) {
         if (v) {
-          this.$props.data.udp_over_tcp = { enabled: true }
+          this.$props.data.udp_over_tcp = { ...((typeof this.$props.data.udp_over_tcp === 'object' && this.$props.data.udp_over_tcp) || {}), enabled: true }
         } else {
           this.$props.data.udp_over_tcp = false
         }
@@ -113,7 +110,8 @@ export default {
     insecure_concurrency: {
       get(): number { return this.$props.data?.insecure_concurrency ?? 0 },
       set(v: number) {
-        this.$props.data.insecure_concurrency = v > 0 ? v : undefined
+        const value = Number(v)
+        this.$props.data.insecure_concurrency = Number.isSafeInteger(value) && value > 0 ? value : undefined
       }
     },
     extra_headers(): any {

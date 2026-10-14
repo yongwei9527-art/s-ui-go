@@ -105,7 +105,7 @@ export default {
     },
     optionTCP: {
       get(): boolean {
-        return this.$props.data.tcp_fast_open != undefined &&
+        return this.$props.data.tcp_fast_open != undefined ||
                this.$props.data.tcp_multi_path != undefined
       },
       set(v:boolean) {
@@ -115,7 +115,7 @@ export default {
     },
     optionUDP: {
       get(): boolean {
-        return this.$props.data.udp_fragment != undefined &&
+        return this.$props.data.udp_fragment != undefined ||
                this.$props.data.udp_timeout != undefined
       },
       set(v:boolean) {
@@ -125,7 +125,7 @@ export default {
     },
     optionDetour: {
       get(): boolean { return this.$props.data.detour != undefined },
-      set(v:boolean) { this.$props.data.detour = v ? this.inTags[0]?? '' : undefined }
+      set(v:boolean) { this.$props.data.detour = v ? this.inTags?.[0]?? '' : undefined }
     },
     optionTcpKeepAlive: {
       get(): boolean {

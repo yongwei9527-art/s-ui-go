@@ -265,7 +265,10 @@ func (s *ServerService) generateRealityKeyPair() []string {
 
 func (s *ServerService) generateWireGuardKey(pk string) []string {
 	if len(pk) > 0 {
-		key, _ := wgtypes.ParseKey(pk)
+		key, err := wgtypes.ParseKey(pk)
+		if err != nil {
+			return []string{"Failed to parse WireGuard private key: ", err.Error()}
+		}
 		return []string{key.PublicKey().String()}
 	}
 	wgKeys, err := wgtypes.GeneratePrivateKey()

@@ -1,5 +1,5 @@
 <template>
-  <v-card>
+  <v-card v-if="data">
     <v-card-text>
       <v-card-subtitle>
         {{ $t('objects.headers') }}
@@ -12,16 +12,16 @@
           <v-text-field
             :label="$t('objects.key')"
             hide-details
-            @input="update_key(index,$event.target.value)"
-            v-model="header.name">
+            @update:model-value="update_key(index,$event)"
+            :model-value="header.name">
           </v-text-field>
         </v-col>
         <v-col cols="12" sm="6" md="4">
           <v-text-field
             :label="$t('objects.value')"
             hide-details
-            @input="update_value(index,$event.target.value)"
-            v-model="header.value">
+            @update:model-value="update_value(index,$event)"
+            :model-value="header.value">
             <template v-slot:append>
               <v-icon @click="del_header(index)" color="error" icon="mdi-delete" />
             </template>
@@ -48,18 +48,21 @@ export default {
       this.hdrs = [...this.hdrs, {name: "Host", value: ""}]
     },
     del_header(i:number) {
-      let h = this.hdrs
+      const h = [...this.hdrs]
+      if (!Number.isInteger(i) || i < 0 || i >= h.length) return
       h.splice(i,1)
       this.hdrs = h
     },
-    update_key(i:number,k:string) {
-      let h = this.hdrs
-      h[i].name = k
+    update_key(i:number,k:string | null) {
+      const h = this.hdrs.map((header: Header) => ({ ...header }))
+      if (!Number.isInteger(i) || i < 0 || !h[i]) return
+      h[i].name = k ?? ''
       this.hdrs = h
     },
-    update_value(i:number,v:string) {
-      let h = this.hdrs
-      h[i].value = v
+    update_value(i:number,v:string | null) {
+      const h = this.hdrs.map((header: Header) => ({ ...header }))
+      if (!Number.isInteger(i) || i < 0 || !h[i]) return
+      h[i].value = v ?? ''
       this.hdrs = h
     },
   },
@@ -67,7 +70,7 @@ export default {
     hdrs: {
       get() :Header[] {
         let headers: Header[] = []
-        const h = this.$props.data.headers
+        const h = this.$props.data?.headers
         if (h) {
           Object.keys(h).forEach(key => {
             if (Array.isArray(h[key])){
@@ -79,21 +82,18 @@ export default {
         }
         return headers
       },
-      set(v:Header[]) {
-        if (v.length>0) {
-          let headers:any = {}
-          v.forEach((h:Header) => {
-            if (headers[h.name]) {
-              if (Array.isArray(headers[h.name])) {
-                headers[h.name].push(h.value)
-              } else {
-                headers[h.name] = [headers[h.name], h.value]
-              }
-            } else {
-              headers[h.name] = h.value
-            }
-          })
-          this.$props.data.headers = headers
+      set(v:Header[] | null) {
+        if (!this.data) return
+        if (v?.length) {
+          const groups = new Map<string, string[]>()
+          for (const header of v) {
+            const values = groups.get(header.name) ?? []
+            values.push(header.value ?? '')
+            groups.set(header.name, values)
+          }
+          // Group by presence, not truthiness; preserve empty first values and
+          // treat __proto__/constructor as ordinary own header names.
+          this.data.headers = Object.fromEntries([...groups].map(([key, values]) => [key, values.length === 1 ? values[0] : values]))
         } else {
           this.$props.data.headers = undefined
         }

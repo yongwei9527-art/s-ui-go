@@ -1,13 +1,13 @@
 <template>
   <v-app class="default-shell">
-    <drawer :isMobile="isMobile" :displayDrawer="displayDrawer" @toggleDrawer="toggleDrawer" />
+    <drawer :isMobile="isMobile" v-model:displayDrawer="displayDrawer" />
     <default-bar :isMobile="isMobile" @toggleDrawer="toggleDrawer" />
     <default-view />
   </v-app>
 </template>
 
 <script lang="ts" setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import DefaultBar from './AppBar.vue'
 import Drawer from './Drawer.vue'
 import DefaultView from './View.vue'
@@ -20,10 +20,8 @@ const toggleDrawer = () => {
   displayDrawer.value = !displayDrawer.value
 }
 
-const isMobile = computed( ():boolean =>{
-  displayDrawer.value = !smAndDown.value
-  return smAndDown.value
-})
+const isMobile = computed(() => smAndDown.value)
+watch(smAndDown, (mobile) => { displayDrawer.value = !mobile }, { immediate: true })
 </script>
 
 <style>

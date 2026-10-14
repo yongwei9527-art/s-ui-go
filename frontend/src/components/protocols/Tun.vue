@@ -39,8 +39,9 @@
           hide-details
         ></v-select>
       </v-col>
-      <v-col cols="12" sm="6" md="4" class="switch-col">
-        <v-switch v-model="data.endpoint_independent_nat" color="primary" label="Independent NAT" hide-details></v-switch>
+      <v-col cols="12" sm="6" md="4">
+        <v-select v-model="data.udp_mapping" label="UDP NAT mapping"
+          :items="['endpoint_independent', 'address_dependent', 'address_and_port_dependent']" hide-details></v-select>
       </v-col>
     </v-row>
     <v-row class="tun-row" align="start">
@@ -84,7 +85,7 @@ export default {
   computed: {
     addrs: {
       get() { return this.$props.data.address?.join(',') },
-      set(v:string) { this.$props.data.address = v.length > 0 ? v.split(',') : undefined }
+      set(v:string) { v ??= ''; this.$props.data.address = v.length > 0 ? v.split(',') : undefined }
     },
     udpTimeout: {
       get() { return this.$props.data.udp_timeout ? parseInt(this.$props.data.udp_timeout.replace('m','')) : 5 },
@@ -106,13 +107,14 @@ export default {
       }
     },
     dnsHijack: {
-      get() { return (this.$props.data.dns_hijack?.length ?? 0) > 0 || (this.$props.data.dns_hijack_address?.length ?? 0) > 0 },
+      get() { return (this.$props.data.dns_mode || (this.$props.data.auto_route ? 'hijack' : 'disabled')) === 'hijack' },
       set(v:boolean) {
+        delete this.$props.data.dns_hijack
+        delete this.$props.data.dns_hijack_address
         if (v) {
-          this.$props.data.dns_hijack = ['any:53']
+          this.$props.data.dns_mode = 'hijack'
         } else {
-          delete this.$props.data.dns_hijack
-          delete this.$props.data.dns_hijack_address
+          this.$props.data.dns_mode = 'disabled'
         }
       }
     }

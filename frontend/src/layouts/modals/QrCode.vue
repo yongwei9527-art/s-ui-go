@@ -15,7 +15,7 @@
           type="text, image, divider, text, image"
           v-if="loading"
         ></v-skeleton-loader>
-      <v-card-text style="overflow-y: auto; padding: 0" :hidden="loading">
+      <v-card-text v-if="clientSub" style="overflow-y: auto; padding: 0" :hidden="loading">
         <v-tabs
           v-model="tab"
           density="compact"
@@ -91,14 +91,28 @@ export default {
       tab: "sub",
       client: <any>{},
       loading: false,
+      loadRequest: 0,
     }
   },
   methods: {
     async load() {
+      const request = ++this.loadRequest
+      const id = this.$props.id
+      // Never leave a previous user's subscription visible during a new load.
+      this.client = {}
       this.loading = true
-      const newData = await Data().loadClients(this.$props.id)
-      this.client = newData
-      this.loading = false
+      try {
+        const newData = await Data().loadClients(id)
+        if (request === this.loadRequest && id === this.$props.id && this.$props.visible) {
+          this.client = newData && typeof newData === 'object' && !Array.isArray(newData) ? newData : {}
+        }
+      } catch (error) {
+        if (request === this.loadRequest && this.$props.visible) {
+          push.error({ message: error instanceof Error ? error.message : String(error) })
+        }
+      } finally {
+        if (request === this.loadRequest) this.loading = false
+      }
     },
     copyToClipboard(txt:string) {
       const hiddenButton = document.createElement('button')
@@ -133,14 +147,15 @@ export default {
   },
   computed: {
     clientSub() {
-      return Data().subURI + this.client.name
+      return this.client.name && Data().subURI ? Data().subURI + this.client.name : ''
     },
     singbox() {
-      const url = Data().subURI + this.client.name + "?format=json"
+      if (!this.clientSub) return ''
+      const url = this.clientSub + "?format=json"
       return "sing-box://import-remote-profile?url=" +  encodeURIComponent(url) + "#" + this.client.name
     },
     clientLinks() {
-      return this.client.links?? []
+      return Array.isArray(this.client.links) ? this.client.links : []
     },
     size() {
       if (window.innerWidth > 380) return 300
@@ -150,10 +165,16 @@ export default {
   },
   watch: {
     visible(v) {
+      ++this.loadRequest
+      this.loading = false
+      this.client = {}
       if (v) {
         this.tab = "sub"
         this.load()
       }
+    },
+    id() {
+      if (this.$props.visible) this.load()
     },
   },
   components: { QrcodeVue }

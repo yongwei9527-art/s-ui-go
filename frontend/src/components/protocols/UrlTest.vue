@@ -14,7 +14,7 @@
     </v-row>
     <v-row>
       <v-col cols="12" sm="6" v-if="optionUrl">
-        <v-text-field v-model="data.url" :label="$t('types.lb.testUrl')" hide-details></v-text-field>
+        <v-text-field v-model="url" :label="$t('types.lb.testUrl')" hide-details></v-text-field>
       </v-col>
     </v-row>
     <v-row>
@@ -80,6 +80,20 @@
 
 <script lang="ts">
 
+// Sing-box durations accept compound Go units, not just an integer followed by s.
+function durationSeconds(value: unknown): number | '' {
+  if (typeof value !== 'string' || value === '') return ''
+  const sign = value.startsWith('-') ? -1 : 1
+  const text = value.replace(/^[+-]/, '')
+  if (text === '') return ''
+  if (text === '0') return 0
+  const parts = [...text.matchAll(/(\d+(?:\.\d*)?|\.\d+)(ns|us|µs|μs|ms|s|m|h|d)/g)]
+  if (parts.map(part => part[0]).join('') !== text) return ''
+  const units: Record<string, number> = { ns: 1e-9, us: 1e-6, 'µs': 1e-6, 'μs': 1e-6, ms: 1e-3, s: 1, m: 60, h: 3600, d: 86400 }
+  const seconds = parts.reduce((sum, part) => sum + Number(part[1]) * units[part[2]], 0)
+  return Number.isFinite(seconds) && seconds <= 9_223_372_036 ? sign * seconds : ''
+}
+
 export default {
   props: ['data', 'tags'],
   data() {
@@ -88,33 +102,49 @@ export default {
     }
   },
   computed: {
+    url: {
+      get() { return this.data.url ?? '' },
+      set(value: string | null) { if (this.optionUrl) this.data.url = value ?? '' }
+    },
     optionUrl: {
       get(): boolean { return this.$props.data.url != undefined },
-      set(v:boolean) { this.$props.data.url = v ? 'https://www.gstatic.com/generate_204' : undefined }
+      set(v:boolean) { if (v !== this.optionUrl) this.data.url = v ? 'https://www.gstatic.com/generate_204' : undefined }
     },
     optionInterval: {
       get(): boolean { return this.$props.data.interval != undefined },
-      set(v:boolean) { this.$props.data.interval = v ? '3s' : undefined }
+      set(v:boolean) { if (v !== this.optionInterval) this.data.interval = v ? '3s' : undefined }
     },
     optionTolerance: {
       get(): boolean { return this.$props.data.tolerance != undefined },
-      set(v:boolean) { this.$props.data.tolerance = v ? 50 : undefined }
+      set(v:boolean) { if (v !== this.optionTolerance) this.data.tolerance = v ? 50 : undefined }
     },
     optionIdle: {
       get(): boolean { return this.$props.data.idle_timeout != undefined },
-      set(v:boolean) { this.$props.data.idle_timeout = v ? '30m' : undefined }
+      set(v:boolean) { if (v !== this.optionIdle) this.data.idle_timeout = v ? '30m' : undefined }
     },
     interval: {
-      get() { return this.$props.data.interval ? parseInt(this.$props.data.interval.replace('s','')) : 3 },
-      set(v:number) { this.$props.data.interval = v > 0 ? v + 's' : '3s' }
+      get() { return durationSeconds(this.data.interval) || 180 },
+      set(v: number | null) {
+        if (!this.optionInterval) return
+        const value = Number(v)
+        if (Number.isFinite(value) && value >= 3 && value <= 9_223_372_036) this.data.interval = value.toFixed(9).replace(/\.?0+$/, '') + 's'
+      }
     },
     tolerance: {
-      get() { return this.$props.data.tolerance ? parseInt(this.$props.data.tolerance) : 0 },
-      set(v:number) { this.$props.data.tolerance = v > 0 ? v : 0 }
+      get() { return this.data.tolerance || 50 },
+      set(v: number | string | null) {
+        if (!this.optionTolerance || v == null || v === '') return
+        const value = Number(v)
+        if (Number.isInteger(value) && value >= 0 && value <= 65535) this.data.tolerance = value
+      }
     },
     idle_timeout: {
-      get() { return this.$props.data.idle_timeout ? parseInt(this.$props.data.idle_timeout.replace('m','')) : 30 },
-      set(v:number) { this.$props.data.idle_timeout = v > 0 ? v + 'm' : '0m' }
+      get() { return (durationSeconds(this.data.idle_timeout) || 1800) / 60 },
+      set(v: number | null) {
+        if (!this.optionIdle) return
+        const value = Number(v)
+        if (Number.isFinite(value) && value * 60 >= 1e-9 && value * 60 <= 9_223_372_036) this.data.idle_timeout = (value * 60).toFixed(9).replace(/\.?0+$/, '') + 's'
+      }
     }
   },
 }

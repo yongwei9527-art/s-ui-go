@@ -159,7 +159,7 @@ export default {
     },
     ifName: {
       get() { return this.$props.data.name?? '' },
-      set(v:string) { this.$props.data.name = v.length > 0 ? v : undefined }
+      set(v:string) { v ??= ''; this.$props.data.name = v.length > 0 ? v : undefined }
     },
     udp_timeout: {
       get() { return this.$props.data.udp_timeout ? parseInt(this.$props.data.udp_timeout.replace('m','')) : 5 },

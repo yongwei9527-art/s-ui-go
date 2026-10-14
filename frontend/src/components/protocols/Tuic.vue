@@ -75,6 +75,20 @@
 <script lang="ts">
 import Network from '@/components/Network.vue'
 
+// Sing-box durations accept compound Go units, not just an integer followed by s.
+function durationSeconds(value: unknown): number | '' {
+  if (typeof value !== 'string' || value === '') return ''
+  const sign = value.startsWith('-') ? -1 : 1
+  const text = value.replace(/^[+-]/, '')
+  if (text === '') return ''
+  if (text === '0') return 0
+  const parts = [...text.matchAll(/(\d+(?:\.\d*)?|\.\d+)(ns|us|µs|μs|ms|s|m|h|d)/g)]
+  if (parts.map(part => part[0]).join('') !== text) return ''
+  const units: Record<string, number> = { ns: 1e-9, us: 1e-6, 'µs': 1e-6, 'μs': 1e-6, ms: 1e-3, s: 1, m: 60, h: 3600, d: 86400 }
+  const seconds = parts.reduce((sum, part) => sum + Number(part[1]) * units[part[2]], 0)
+  return Number.isFinite(seconds) && seconds <= 9_223_372_036 ? sign * seconds : ''
+}
+
 export default {
   props: ['direction', 'data'],
   data() {
@@ -86,12 +100,20 @@ export default {
   },
   computed: {
     auth_timeout: {
-      get() { return this.$props.data.auth_timeout ? parseInt(this.$props.data.auth_timeout.replace('s','')) : '' },
-      set(newValue:number) { this.$props.data.auth_timeout = newValue ? newValue + 's' : '' }
+      get() { return durationSeconds(this.data?.auth_timeout) },
+      set(value: number | null) {
+        if (!this.data) return
+        const seconds = Number(value)
+        this.data.auth_timeout = Number.isFinite(seconds) && seconds >= 1e-9 && seconds <= 9_223_372_036 ? seconds.toFixed(9).replace(/\.?0+$/, '') + 's' : undefined
+      }
     },
     heartbeat: {
-      get() { return this.$props.data.heartbeat ? parseInt(this.$props.data.heartbeat.replace('s','')) : '' },
-      set(newValue:number) { this.$props.data.heartbeat = newValue ? newValue + 's' : '' }
+      get() { return durationSeconds(this.data?.heartbeat) },
+      set(value: number | null) {
+        if (!this.data) return
+        const seconds = Number(value)
+        this.data.heartbeat = Number.isFinite(seconds) && seconds >= 1e-9 && seconds <= 9_223_372_036 ? seconds.toFixed(9).replace(/\.?0+$/, '') + 's' : undefined
+      }
     }
   },
   components: { Network }

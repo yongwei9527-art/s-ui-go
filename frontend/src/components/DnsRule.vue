@@ -106,6 +106,14 @@
         </v-select>
       </v-col>
     </v-row>
+    <v-row v-if="optionSrcIP">
+      <v-col cols="12" sm="6" v-if="rule.source_ip_cidr != undefined">
+        <v-text-field v-model="source_ip_cidr" :label="$t('rule.srcCidr') + ' ' + $t('commaSeparated')" hide-details />
+      </v-col>
+      <v-col cols="12" sm="6" v-if="rule.source_ip_is_private != undefined">
+        <v-switch v-model="rule.source_ip_is_private" :label="$t('rule.srcPrivateIp')" color="primary" hide-details />
+      </v-col>
+    </v-row>
     <v-row v-if="optionSrcPort">
       <v-col cols="12" sm="6" md="4">
         <v-select
@@ -289,27 +297,27 @@ export default {
     },
     domain: {
       get() { return this.$props.rule.domain?.join(',') },
-      set(v:string) { this.$props.rule.domain = v.length>0 ? v.split(',') : [] }
+      set(v:string) { v ??= ''; this.$props.rule.domain = v.length>0 ? v.split(',') : [] }
     },
     domain_suffix: {
       get() { return this.$props.rule.domain_suffix?.join(',') },
-      set(v:string) { this.$props.rule.domain_suffix = v.length>0 ? v.split(',') : [] }
+      set(v:string) { v ??= ''; this.$props.rule.domain_suffix = v.length>0 ? v.split(',') : [] }
     },
     domain_keyword: {
       get() { return this.$props.rule.domain_keyword?.join(',') },
-      set(v:string) { this.$props.rule.domain_keyword = v.length>0 ? v.split(',') : [] }
+      set(v:string) { v ??= ''; this.$props.rule.domain_keyword = v.length>0 ? v.split(',') : [] }
     },
     domain_regex: {
       get() { return this.$props.rule.domain_regex?.join(',') },
-      set(v:string) { this.$props.rule.domain_regex = v.length>0 ? v.split(',') : [] }
+      set(v:string) { v ??= ''; this.$props.rule.domain_regex = v.length>0 ? v.split(',') : [] }
     },
     ip_cidr: {
       get() { return this.$props.rule.ip_cidr?.join(',') },
-      set(v:string) { this.$props.rule.ip_cidr = v.length>0 ? v.split(',') : [] }
+      set(v:string) { v ??= ''; this.$props.rule.ip_cidr = v.length>0 ? v.split(',') : [] }
     },
     port: {
       get() { return this.$props.rule.port?.join(',') },
-      set(v:string) {
+      set(v:string) { v ??= '';
         if(!v.endsWith(',')) {
           this.$props.rule.port = v.length > 0 ? v.split(',').map(str => parseInt(str, 10)) : []
         }
@@ -317,15 +325,15 @@ export default {
     },
     port_range: {
       get() { return this.$props.rule.port_range?.join(',') },
-      set(v:string) { this.$props.rule.port_range = v.length>0 ? v.split(',') : [] }
+      set(v:string) { v ??= ''; this.$props.rule.port_range = v.length>0 ? v.split(',') : [] }
     },
     source_ip_cidr: {
       get() { return this.$props.rule.source_ip_cidr?.join(',') },
-      set(v:string) { this.$props.rule.source_ip_cidr = v.length>0 ? v.split(',') : [] }
+      set(v:string) { v ??= ''; this.$props.rule.source_ip_cidr = v.length>0 ? v.split(',') : [] }
     },
     source_port: {
       get() { return this.$props.rule.source_port?.join(',') },
-      set(v:string) {
+      set(v:string) { v ??= '';
         if(!v.endsWith(',')) {
           this.$props.rule.source_port = v.length > 0 ? v.split(',').map(str => parseInt(str, 10)) : []
         }
@@ -333,7 +341,7 @@ export default {
     },
     source_port_range: {
       get() { return this.$props.rule.source_port_range?.join(',') },
-      set(v:string) { this.$props.rule.source_port_range = v.length>0 ? v.split(',') : [] }
+      set(v:string) { v ??= ''; this.$props.rule.source_port_range = v.length>0 ? v.split(',') : [] }
     },
   },
   mounted() {

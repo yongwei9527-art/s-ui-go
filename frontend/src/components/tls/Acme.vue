@@ -190,7 +190,7 @@ export default {
     },
     domains: {
       get() { return this.acme?.domain ? this.acme.domain.join(',') : "" },
-      set(v: string) {
+      set(v: string) { v ??= '';
         if(!v.endsWith(',')) {
           this.acme.domain = v.length > 0 ? v.split(',') : []
         }
@@ -198,7 +198,7 @@ export default {
     },
     caProvider: {
       get() { return this.acme?.provider && ['letsencrypt','zerossl'].includes(this.acme.provider) ? this.acme?.provider : '' },
-      set(v: string) { this.acme.provider = ['letsencrypt','zerossl'].includes(v) ? v : 'https://' }
+      set(v: string) { v ??= ''; this.acme.provider = ['letsencrypt','zerossl'].includes(v) ? v : 'https://' }
     },
     optionDir: {
       get(): boolean { return this.acme?.data_directory != undefined },

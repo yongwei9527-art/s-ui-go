@@ -68,6 +68,14 @@ jobs:
             git diff-tree --check --root --no-commit-id -r "$GITHUB_SHA"
           fi
           bash -n install.sh install-linux.sh uninstall-linux.sh s-ui.sh install-macos.sh uninstall-macos.sh
+      - name: Run isolated Linux and macOS script regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          for test in tests/certificate-directory-test.sh tests/certificate-wildcard-test.sh tests/certificate-preservation-test.sh tests/install-linux-data-guard-test.sh tests/install-linux-health-test.sh tests/install-linux-rollback-test.sh tests/install-macos-path-test.sh tests/install-macos-transaction-test.sh tests/uninstall-macos-test.sh; do
+            bash "$test"
+          done
+
       - name: Set up Go
         # actions/setup-go v7.0.0, pinned to its immutable commit SHA.
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
@@ -87,3 +95,19 @@ jobs:
 
       - name: Run Go vet
         run: go vet $(go list ./... | grep -v '/frontend/node_modules/')
+
+  windows-scripts:
+    name: Windows installer and uninstaller mock tests
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Run PowerShell 5.1 isolated service/file tests
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/install-windows-test.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/uninstall-windows-test.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

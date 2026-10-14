@@ -1,122 +1,33 @@
-# Contributing to S-UI-Frontend
+# 前端贡献指南
 
-Thank you for your interest in contributing to S-UI-Frontend. This document explains how to set up the project, follow our conventions, and submit changes.
+本目录随 s-ui-go 主仓库维护。先阅读根目录 [贡献说明](../CONTRIBUTING.md) 和本目录 [开发说明](./README.md)，不要使用旧的独立前端仓库占位地址。
 
-## Table of Contents
+## 开发流程
 
-- [Code of Conduct](#code-of-conduct)
-- [Getting Started](#getting-started)
-- [Development Setup](#development-setup)
-- [Project Structure](#project-structure)
-- [Code Style](#code-style)
-- [Submitting Changes](#submitting-changes)
-- [Reporting Issues](#reporting-issues)
+1. Fork s-ui-go 仓库，克隆自己的 Fork，并从当前开发分支创建修复分支。
+2. 进入 `frontend/`，运行 `npm ci` 安装锁定依赖。
+3. 使用 `npm run dev` 开发；默认端口 `3000`，需配合本地后端的 `2095` 端口。
+4. 修改代码并为修复添加 `src/**/*.test.ts` 回归测试。
+5. 依次运行 `npm run lint`、`npm run test:unit`、`npm run build`。
+6. 涉及后端或打包时，等前端构建结束后再运行 Go 检查，最后提交 Pull Request，说明原因、验证结果和未验证项。
 
-## Code of Conduct
+## 目录
 
-Please be respectful and constructive. This project is for personal learning and communication; do not use it for illegal purposes or in production without proper evaluation.
+- `src/components/`：协议、传输、TLS 等共用组件。
+- `src/layouts/`：导航布局与弹窗。
+- `src/views/`：页面。
+- `src/locales/`：多语言翻译。
+- `src/plugins/`：HTTP 等插件与工具。
+- `src/store/`：Pinia 状态。
+- `src/types/`：TypeScript 数据结构及默认配置。
+- `src/styles/`：全局样式。
 
-## Getting Started
+## 提交注意
 
-1. **Fork** the repository on GitHub.
-2. **Clone** your fork locally:
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/s-ui-frontend.git
-   cd s-ui-frontend
-   ```
-3. Add the upstream remote (optional, for syncing):
-   ```bash
-   git remote add upstream https://github.com/ORIGINAL_OWNER/s-ui-frontend.git
-   ```
+- 遵循现有 Vue/TypeScript 风格；`npm run lint` 不会自动改文件，自动修复另用 `npm run lint:fix`。
+- 不提交 `node_modules/`、`dist/`、数据库、令牌、证书私钥或真实用户订阅。
+- 不仅测试成功路径：也应覆盖空值、失败响应和异步请求乱序。
+- UI 文字变化请检查相关翻译，协议变化请检查订阅导出及客户端兼容性。
+- 安装包发布由主仓库统一构建，不能用仅更新源码代替更新 Release 资产。
 
-## Development Setup
-
-### Prerequisites
-
-- Node.js (recommended: LTS)
-- A package manager: npm, yarn, pnpm, or bun
-
-### Install dependencies
-
-```bash
-# npm
-npm install
-
-# yarn
-yarn
-
-# pnpm
-pnpm install
-
-# bun
-bun install
-```
-
-### Run development server
-
-```bash
-npm run dev
-# or: yarn dev | pnpm dev | bun run dev
-```
-
-The app will be available at the URL shown in the terminal (e.g. `http://localhost:5173`).
-
-### Build and lint
-
-```bash
-# Type-check and build
-npm run build
-
-# Lint and auto-fix
-npm run lint
-```
-
-Make sure `npm run build` and `npm run lint` pass before submitting a pull request.
-
-## Project Structure
-
-- `src/` – Application source
-  - `components/` – Reusable Vue components (including `protocols/`, `tiles/`, `tls/`, `transports/`)
-  - `layouts/` – Layouts (`default/`) and modals (`modals/`)
-  - `views/` – Page-level views
-  - `locales/` – i18n translations (en, fa, ru, vi, zhcn, zhtw)
-  - `plugins/` – Vue plugins and utilities
-  - `router/` – Vue Router configuration
-  - `store/` – Pinia store and modules
-  - `types/` – TypeScript type definitions
-  - `styles/` – Global styles (e.g. SCSS)
-
-## Code Style
-
-- **EditorConfig:** The project uses [EditorConfig](https://editorconfig.org). Use 2 spaces for indentation, trim trailing whitespace, and insert a final newline (see `.editorconfig`).
-- **ESLint:** We use ESLint with Vue 3 and TypeScript. Run `npm run lint` to check and fix.
-- **Vue:** Follow Vue 3 Composition API or Options API consistently within a file. Use TypeScript where it improves clarity.
-- **Naming:** Use clear, descriptive names for components, variables, and functions.
-
-## Submitting Changes
-
-1. Create a **branch** from `main` (or the current default branch):
-   ```bash
-   git checkout -b feature/your-feature-name
-   # or: fix/your-bug-description
-   ```
-2. Make your changes. Keep commits focused and messages clear (e.g. `feat: add X`, `fix: resolve Y`).
-3. Run **lint** and **build**:
-   ```bash
-   npm run lint
-   npm run build
-   ```
-4. **Push** to your fork and open a **Pull Request** against the upstream repository.
-5. Describe what you changed and why. Reference any related issues.
-
-## Reporting Issues
-
-- **Bugs:** Use the [Bug report](.github/ISSUE_TEMPLATE/bug_report.md) template. Include steps to reproduce, expected vs actual behavior, and environment (OS, browser, version).
-- **Features:** Use the [Feature request](.github/ISSUE_TEMPLATE/feature_request.md) template.
-- **Questions:** Use the [Question](.github/ISSUE_TEMPLATE/question-template.md) template.
-
-Search existing issues first to avoid duplicates.
-
----
-
-Thank you for contributing.
+报告问题请提供最小复现、操作系统、浏览器/客户端版本及脱敏日志，可参考本目录 `.github/ISSUE_TEMPLATE/` 模板。请尊重他人，并勿将本项目用于违法用途。

@@ -9,10 +9,14 @@ const props = defineProps({
 
 const data = computed(() => {
   const d = props.tilesData
-  if (!d || (!d.mem && !d.cpu)) return { percent: 0, text: '-' }
+  if (!d) return { percent: 0, text: '-' }
   switch (props.type) {
-    case 'g-cpu':
-      return { percent: d.cpu, text: Math.ceil(d.cpu) + "%" }
+    case 'g-cpu': {
+      const cpu = Number(d.cpu)
+      if (d.cpu == null || !Number.isFinite(cpu)) return { percent: 0, text: '-' }
+      const percent = Math.max(0, Math.min(100, cpu))
+      return { percent, text: Math.ceil(percent) + '%' }
+    }
     case 'g-mem':
       return gaugeData(d.mem)
     case 'g-dsk':
@@ -25,14 +29,14 @@ const data = computed(() => {
 
 const gaugeData = (d:any) :any => {
   if (!d) return { percent: 0, text: '-' }
-  const currentValue = Number(d.current) || 0
-  const totalValue = Number(d.total) || 0
-  if (totalValue <= 0) return { percent: 0, text: '-' }
-  const curr = HumanReadable.sizeFormat(currentValue,0).split(' ')
+  const currentValue = Number(d.current)
+  const totalValue = Number(d.total)
+  if (d.current == null || !Number.isFinite(currentValue) || currentValue < 0 || !Number.isFinite(totalValue) || totalValue <= 0) return { percent: 0, text: '-' }
+  const curr = currentValue === 0 ? ['0', ''] : HumanReadable.sizeFormat(currentValue,0).split(' ')
   const total = HumanReadable.sizeFormat(totalValue,0).split(' ')
   if (curr[1] == total[1]) curr[1] = ''
   return {
-    percent: Math.ceil(currentValue*100/totalValue),
+    percent: Math.min(100, Math.ceil(currentValue*100/totalValue)),
     text: `${curr[0]}${curr[1]?? ''}/${total[0]}${total[1]?? ''}`
   }
 }

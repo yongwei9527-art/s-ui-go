@@ -35,11 +35,12 @@ type XrayXHTTPSaveRequest struct {
 }
 
 type xrayXHTTPRuntime struct {
-	mu         sync.Mutex
-	server     *xrayruntime.Server
-	active     []byte
-	lastError  string
-	lastExitAt int64
+	mu              sync.Mutex
+	server          *xrayruntime.Server
+	active          []byte
+	lastError       string
+	lastExitAt      int64
+	reloadSuspended bool
 }
 
 var xrayXHTTPProcess xrayXHTTPRuntime
@@ -186,7 +187,7 @@ func (s *XrayXHTTPService) Save(req XrayXHTTPSaveRequest) error {
 		return err
 	}
 	publishLastUpdate(change.Id)
-	if err := s.restartLocked(); err != nil {
+	if err := s.restartExplicitLocked(); err != nil {
 		restoreErr := restoreXrayInboundDatabase(inb.Id, previousInbound, previousClients, "save")
 		if restoreErr != nil {
 			return errors.Join(err, fmt.Errorf("restore Xray database after failed save: %w", restoreErr))
@@ -230,7 +231,7 @@ func (s *XrayXHTTPService) Delete(id uint) error {
 		return err
 	}
 	publishLastUpdate(change.Id)
-	if err := s.restartLocked(); err != nil {
+	if err := s.restartExplicitLocked(); err != nil {
 		restoreErr := restoreXrayInboundDatabase(id, &previousInbound, previousClients, "delete")
 		if restoreErr != nil {
 			return errors.Join(err, fmt.Errorf("restore Xray database after failed delete: %w", restoreErr))
@@ -273,23 +274,41 @@ func restoreXrayInboundDatabase(id uint, inbound *model.XrayXHTTPInbound, client
 func (s *XrayXHTTPService) Restart() error {
 	xrayXHTTPProcess.mu.Lock()
 	defer xrayXHTTPProcess.mu.Unlock()
-	return s.restartLocked()
+	return s.restartExplicitLocked()
+}
+
+// restartExplicitLocked resumes client-triggered reloads only after an explicit
+// lifecycle/admin start succeeds. xrayXHTTPProcess.mu must be held.
+func (s *XrayXHTTPService) restartExplicitLocked() error {
+	if err := s.restartLocked(); err != nil {
+		return err
+	}
+	xrayXHTTPProcess.reloadSuspended = false
+	return nil
 }
 
 func (s *XrayXHTTPService) StartIfEnabled() error {
+	xrayXHTTPProcess.mu.Lock()
+	defer xrayXHTTPProcess.mu.Unlock()
 	var count int64
 	if err := database.GetDB().Model(&model.XrayXHTTPInbound{}).Where("enable = ?", true).Count(&count).Error; err != nil {
 		return err
 	}
 	if count == 0 {
+		xrayXHTTPProcess.reloadSuspended = false
 		return nil
 	}
-	return s.Restart()
+	return s.restartExplicitLocked()
 }
 
-// ReloadAfterClientChange refreshes the embedded Xray runtime after S-UI client
-// enablement or membership changes, so expired/disabled users lose access.
+// ReloadAfterClientChange uses the current database snapshot, never a cached
+// config. A queued reload must not reopen the runtime after APP.Stop.
 func (s *XrayXHTTPService) ReloadAfterClientChange() error {
+	xrayXHTTPProcess.mu.Lock()
+	defer xrayXHTTPProcess.mu.Unlock()
+	if xrayXHTTPProcess.reloadSuspended {
+		return nil
+	}
 	var count int64
 	if err := database.GetDB().Model(&model.XrayXHTTPInbound{}).Where("enable = ?", true).Count(&count).Error; err != nil {
 		return err
@@ -297,12 +316,13 @@ func (s *XrayXHTTPService) ReloadAfterClientChange() error {
 	if count == 0 {
 		return nil
 	}
-	return s.Restart()
+	return s.restartLocked()
 }
 
 func (s *XrayXHTTPService) Stop() error {
 	xrayXHTTPProcess.mu.Lock()
 	defer xrayXHTTPProcess.mu.Unlock()
+	xrayXHTTPProcess.reloadSuspended = true
 	return stopXrayLocked()
 }
 

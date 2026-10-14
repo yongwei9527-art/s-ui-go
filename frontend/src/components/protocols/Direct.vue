@@ -35,7 +35,7 @@ export default {
   computed: {
     override_port: {
         get() { return this.$props.data.override_port ? this.$props.data.override_port : '' },
-        set(newValue: any) { this.$props.data.override_port = newValue.length == 0 || newValue == 0 ? undefined : parseInt(newValue) }
+        set(newValue: any) { this.$props.data.override_port = Number.isInteger(Number(newValue)) && Number(newValue) > 0 && Number(newValue) <= 65535 ? Number(newValue) : undefined }
     },
   },
   components: { Network }

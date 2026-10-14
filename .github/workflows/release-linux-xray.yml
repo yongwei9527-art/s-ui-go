@@ -142,7 +142,7 @@ jobs:
 
           docs = ("README.md", "RELEASE_NOTES.md", "PROTOCOL_GUIDE.md", "XRAY-CORE-NOTICE.md")
           required = {
-              "windows": {"sui.exe", "libcronet.dll", "s-ui-windows.xml", "install-windows.bat", "install-windows.ps1", "uninstall-windows.bat", "s-ui-windows.bat", *docs},
+              "windows": {"sui.exe", "libcronet.dll", "s-ui-windows.xml", "install-windows.bat", "install-windows.ps1", "uninstall-windows.bat", "uninstall-windows.ps1", "s-ui-windows.bat", *docs},
               "linux": {"sui", "install.sh", "install-linux.sh", "uninstall-linux.sh", "s-ui.sh", *docs},
               "macos": {"sui", "install-macos.sh", "uninstall-macos.sh", "com.s-ui.plist", *docs},
           }

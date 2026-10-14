@@ -11,8 +11,8 @@
         <v-text-field
           :label="$t('transport.path')"
           hide-details
-          @input="update_key(index,$event.target.value)"
-          v-model="server.name">
+          @update:model-value="update_key(index,$event)"
+          :model-value="server.name">
         </v-text-field>
       </v-col>
       <v-col cols="12" sm="6" md="4">
@@ -21,7 +21,7 @@
           hide-details
           :items="ssTags"
           @update:model-value="update_value(index,$event)"
-          v-model="server.value">
+          :model-value="server.value">
         </v-select>
       </v-col>
     </v-row>
@@ -29,6 +29,8 @@
 </template>
 
 <script lang="ts">
+import { push } from 'notivue'
+import { i18n } from '@/locales'
 
 type Server = {
   name: string
@@ -41,58 +43,55 @@ export default {
   },
   methods: {
     add_server() {
-      this.servers = [...this.servers, {name: "/ss" + this.servers.length, value: this.ssTags[0] || ""}]
+      const rows = this.servers
+      let index = 0
+      while (rows.some((row: Server) => row.name === '/ss' + index)) index++
+      this.servers = [...rows, { name: '/ss' + index, value: this.ssTags?.[0] ?? '' }]
     },
-    del_server(i:number) {
-      let h = this.servers
-      h.splice(i,1)
-      this.servers = h
+    del_server(index: number) {
+      const rows = [...this.servers]
+      if (!Number.isInteger(index) || index < 0 || index >= rows.length) return
+      rows.splice(index, 1)
+      this.servers = rows
     },
-    update_key(i:number,k:string) {
-      let h = this.servers
-      h[i].name = k
-      this.servers = h
+    update_key(index: number, name: string | null) {
+      const rows = this.servers.map((row: Server) => ({ ...row }))
+      if (!Number.isInteger(index) || index < 0 || !rows[index]) return
+      rows[index].name = name ?? ''
+      this.servers = rows
     },
-    update_value(i:number,v:string) {
-      let h = this.servers
-      h[i].value = v
-      this.servers = h
+    update_value(index: number, value: string | null) {
+      const rows = this.servers.map((row: Server) => ({ ...row }))
+      if (!Number.isInteger(index) || index < 0 || !rows[index]) return
+      rows[index].value = value ?? ''
+      this.servers = rows
     },
   },
   computed: {
     servers: {
-      get() :Server[] {
-        let servers: Server[] = []
-        const h = this.$props.data.servers
-        if (h) {
-          Object.keys(h).forEach(key => {
-            if (Array.isArray(h[key])){
-              h[key].forEach((v:string) => servers.push({ name: key, value: v }))
-            } else {
-              servers.push({ name: key, value: h[key] })
-            }
+      get(): Server[] {
+        const servers: Server[] = []
+        const source = this.data.servers
+        if (source && typeof source === 'object') {
+          Object.entries(source).forEach(([name, value]) => {
+            // Keep legacy array entries editable, but never save an array-valued map.
+            const values = Array.isArray(value) ? value : [value]
+            values.forEach(value => servers.push({ name, value: typeof value === 'string' ? value : '' }))
           })
         }
         return servers
       },
-      set(v:Server[]) {
-        if (v.length>0) {
-          let servers:any = {}
-          v.forEach((h:Server) => {
-            if (servers[h.name]) {
-              if (Array.isArray(servers[h.name])) {
-                servers[h.name].push(h.value)
-              } else {
-                servers[h.name] = [servers[h.name], h.value]
-              }
-            } else {
-              servers[h.name] = h.value
-            }
-          })
-          this.$props.data.servers = servers
-        } else {
-          this.$props.data.servers = undefined
+      set(rows: Server[] | null) {
+        if (!rows?.length) {
+          this.data.servers = undefined
+          return
         }
+        if (new Set(rows.map(row => row.name)).size !== rows.length) {
+          push.error({ message: i18n.global.t('error.dplData') })
+          return
+        }
+        // Object.fromEntries treats __proto__/constructor as ordinary own keys.
+        this.data.servers = Object.fromEntries(rows.map(row => [row.name, row.value ?? '']))
       }
     }
   },

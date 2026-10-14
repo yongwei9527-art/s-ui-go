@@ -99,6 +99,8 @@ func (s *TlsService) Save(tx *gorm.DB, action string, data json.RawMessage, host
 		if err != nil {
 			return err
 		}
+	default:
+		return common.NewErrorf("unknown action: %s", action)
 	}
 
 	return nil

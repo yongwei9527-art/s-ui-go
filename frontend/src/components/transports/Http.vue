@@ -66,7 +66,7 @@ export default {
     },
     hosts: {
       get() { return this.Http.host ? this.Http.host.join(',') : '' },
-      set(newValue:string) { this.$props.transport.host = newValue.length>0 ? newValue.split(',') : [] }
+      set(newValue:string) { newValue ??= ''; this.$props.transport.host = newValue.length>0 ? newValue.split(',') : [] }
     },
     idle_timeout: {
       get() { return this.Http.idle_timeout ? parseInt(this.Http.idle_timeout.replace('s','')) : '' },

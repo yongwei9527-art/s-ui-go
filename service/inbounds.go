@@ -268,31 +268,6 @@ func (s *InboundService) addUsers(db *gorm.DB, inboundJson []byte, inboundId uin
 	return json.Marshal(inbound)
 }
 
-func (s *InboundService) initUsers(db *gorm.DB, inboundJson []byte, clientIds string, inboundType string) ([]byte, error) {
-	ClientIds := strings.Split(clientIds, ",")
-	if len(ClientIds) == 0 {
-		return inboundJson, nil
-	}
-
-	if !s.hasUser(inboundType) {
-		return inboundJson, nil
-	}
-
-	var inbound map[string]interface{}
-	err := json.Unmarshal(inboundJson, &inbound)
-	if err != nil {
-		return nil, err
-	}
-
-	condition := fmt.Sprintf("id IN (%s)", strings.Join(ClientIds, ","))
-	inbound["users"], err = s.fetchUsers(db, inboundType, condition, inbound)
-	if err != nil {
-		return nil, err
-	}
-
-	return json.Marshal(inbound)
-}
-
 func (s *InboundService) RestartInbounds(tx *gorm.DB, ids []uint) error {
 	// sing-box v1.14.3 removed dynamic component deletion. The caller now
 	// restarts the complete core after the surrounding database transaction commits.

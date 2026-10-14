@@ -9,11 +9,11 @@
           v-model="version">
         </v-select>
       </v-col>
-      <v-col cols="12" sm="6" md="4" v-if="data.version > 1">
+      <v-col cols="12" sm="6" md="4" v-if="version > 1">
         <v-text-field
         :label="$t('types.pw')"
         hide-details
-        v-model="data.password">
+        v-model="password">
         </v-text-field>
       </v-col>
     </v-row>
@@ -28,9 +28,14 @@ export default {
     return {}
   },
   computed: {
+    password: {
+      get() { return this.data.password ?? '' },
+      set(v: string | null) { if (this.version > 1) this.data.password = v ?? '' }
+    },
     version: {
-      get() { return this.$props.data.version ?? 3 },
+      get() { return this.$props.data.version || 1 },
       set(v: number) {
+        if (![1, 2, 3].includes(v)) return
         this.$props.data.version = v
         if (v==1) {
           delete this.$props.data.password

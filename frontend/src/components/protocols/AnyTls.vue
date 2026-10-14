@@ -61,7 +61,7 @@ export default {
   computed: {
     padding_scheme: {
       get() { return this.data.padding_scheme?.length > 0 ? this.data.padding_scheme.join("\n") : '' },
-      set(v:string) { this.data.padding_scheme = v.length > 0 ? v.split("\n") : undefined }
+      set(v:string) { v ??= ''; this.data.padding_scheme = v.length > 0 ? v.split("\n") : undefined }
     },
     idleInterval: {
       get() { return this.data.idle_session_check_interval?.length > 0 ? parseInt(this.data.idle_session_check_interval.replace('s','')) : 30 },

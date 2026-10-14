@@ -72,7 +72,10 @@ export default {
     Input: {
       get() { return this.expDate == 0 ? new Date() : new Date(this.expDate*1000) },
       set(v:string) {
-        this.input = new Date(v)
+        if (!v) return
+        const input = new Date(v)
+        if (!Number.isFinite(input.getTime())) return
+        this.input = input
         this.submit()
       }
     }

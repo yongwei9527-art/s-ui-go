@@ -56,11 +56,14 @@ export default {
   },
   methods: {
     addUser() {
-      if (!this.$props.data.users) this.$props.data.users = []
+      if (!Array.isArray(this.$props.data.users)) this.$props.data.users = []
       this.$props.data.users.push({ name: '', token: '' })
     },
     delUser(i: number | string) {
-      this.$props.data.users?.splice(Number(i), 1)
+      if (typeof i === 'string' && i.trim() === '') return
+      const index = Number(i)
+      const users = this.data.users
+      if (Array.isArray(users) && Number.isInteger(index) && index >= 0 && index < users.length) users.splice(index, 1)
     },
   },
 }

@@ -140,18 +140,13 @@ export default {
     down_mbps: {
       get() { return this.$props.data.down_mbps ? this.$props.data.down_mbps : 0 },
       set(newValue:any) {
-        if (newValue.length != 0 ){
-          this.$props.data.down_mbps = newValue
-          this.$props.data.down = "" + newValue + " Mbps"
-        } else {
-          this.$props.data.down_mbps = 0
-          this.$props.data.down = "0 Mbps"
-        }
+        this.$props.data.down_mbps = Number(newValue) > 0 ? Number(newValue) : 0
+        delete this.$props.data.down
       }
     },
     up_mbps: {
       get() { return this.$props.data.up_mbps ? this.$props.data.up_mbps : 0 },
-      set(newValue:number) { this.$props.data.up_mbps = newValue > 0 ? newValue : 0 }
+      set(newValue:number) { this.$props.data.up_mbps = newValue > 0 ? newValue : 0; delete this.$props.data.up }
     },
   },
   components: { Network }

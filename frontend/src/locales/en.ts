@@ -118,7 +118,7 @@ export default {
       noMonitorCards: "No monitor cards yet. Click tiles to add one.",
       inboundCount: "Inbound Count",
       onlineUsers: "Online Users",
-      todayTraffic: "Today's Traffic",
+      todayTraffic: "Total Traffic",
       systemLoad: "System Load",
       cpuUsage: "CPU Usage",
       memoryUsage: "Memory Usage",

@@ -122,12 +122,22 @@ export default {
     }
   },
   methods: {
-    updateData1(value1: number) {
-      const newData = <number[]>[]
-      if (this.data.datasets){
-        newData.push(...this.data.datasets[0].data,value1)
+    updateRates(value: any, key: string, up: string, down: string) {
+      const current = value?.[key]
+      if (!Number.isFinite(current?.[up]) || !Number.isFinite(current?.[down])) {
+        this.oldValues[key] = {}
+        return
       }
-      if (newData.length>20) newData.shift()
+      const previous = this.oldValues[key]
+      if (Number.isFinite(previous?.[up]) && Number.isFinite(previous?.[down])) {
+        // Counter resets/restarts are not negative traffic. Legacy tiles sample every 2s.
+        this.updateData2(Math.max(0, current[up] - previous[up]) / 2, Math.max(0, current[down] - previous[down]) / 2)
+      }
+      this.oldValues[key] = { ...current }
+    },
+    updateData1(value1: number) {
+      if (!Number.isFinite(value1)) return
+      const newData = [...(this.data.datasets?.[0]?.data ?? []), value1].slice(-20)
       this.data = {
         labels: this.labels,
         datasets: [
@@ -143,14 +153,9 @@ export default {
       this.loaded = true
     },
     updateData2(value1: number, value2:number) {
-      const newData1 = <number[]>[]
-      const newData2 = <number[]>[]
-      if (this.data.datasets){
-        newData1.push(...this.data.datasets[0].data,value1)
-        newData2.push(...this.data.datasets[1].data,value2)
-      }
-      if (newData1.length>20) newData1.shift()
-      if (newData2.length>20) newData2.shift()
+      if (!Number.isFinite(value1) || !Number.isFinite(value2)) return
+      const newData1 = [...(this.data.datasets?.[0]?.data ?? []), value1].slice(-20)
+      const newData2 = [...(this.data.datasets?.[1]?.data ?? []), value2].slice(-20)
       this.data = {
         labels: this.labels,
         datasets: [
@@ -174,38 +179,33 @@ export default {
     }
   },
   watch: {
-    tilesData(v:any) {
-      switch (this.$props.type) {
-        case 'h-cpu':
-          this.updateData1(v.cpu)
-          break
-        case 'h-mem':
-          this.updateData1(v.mem.current*100/v.mem.total)
-          break
-        case 'h-net':
-          if (this.oldValues.net.sent) {
-            const downSpeed = (v.net.recv-this.oldValues.net.recv)/2  // Each 2 sec
-            const upSpeed = (v.net.sent-this.oldValues.net.sent)/2  // Each 2 sec
-            this.updateData2(upSpeed,downSpeed)
-          }
-          this.oldValues.net = v.net
-          break
-        case 'hp-net':
-          if (this.oldValues.net.psent) {
-            const downSpeed = (v.net.precv-this.oldValues.net.precv)/2  // Each 2 sec
-            const upSpeed = (v.net.psent-this.oldValues.net.psent)/2  // Each 2 sec
-            this.updateData2(upSpeed,downSpeed)
-          }
-          this.oldValues.net = v.net
-          break
-        case 'h-dio':
-          if (this.oldValues.dio.read) {
-            const downSpeed = (v.dio.read-this.oldValues.dio.read)/2  // Each 2 sec
-            const upSpeed = (v.dio.write-this.oldValues.dio.write)/2  // Each 2 sec
-            this.updateData2(upSpeed,downSpeed)
-          }
-          this.oldValues.dio = v.dio
-          break
+    type() {
+      this.data = {}
+      this.loaded = false
+      this.oldValues = { net: {}, dio: {} }
+    },
+    tilesData: {
+      immediate: true,
+      handler(value: any) {
+        switch (this.type) {
+          case 'h-cpu':
+            if (Number.isFinite(value?.cpu)) this.updateData1(Math.max(0, Math.min(100, value.cpu)))
+            break
+          case 'h-mem':
+            if (Number.isFinite(value?.mem?.current) && Number.isFinite(value?.mem?.total) && value.mem.total > 0) {
+              this.updateData1(Math.max(0, Math.min(100, value.mem.current * 100 / value.mem.total)))
+            }
+            break
+          case 'h-net':
+            this.updateRates(value, 'net', 'sent', 'recv')
+            break
+          case 'hp-net':
+            this.updateRates(value, 'net', 'psent', 'precv')
+            break
+          case 'h-dio':
+            this.updateRates(value, 'dio', 'write', 'read')
+            break
+        }
       }
     }
   }

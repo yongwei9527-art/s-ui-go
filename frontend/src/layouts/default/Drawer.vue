@@ -5,7 +5,7 @@
     :permanent="!isMobile"
     :width="isMobile ? 240 : 220"
     class="app-drawer"
-    @click="isMobile ? $emit('toggleDrawer') : null"
+    @click="isMobile ? emit('update:displayDrawer', false) : null"
   >
     <div class="drawer-brand">
       <div class="brand-logo">S</div>
@@ -40,11 +40,12 @@ import { computed } from 'vue'
 import router from '@/router'
 import { logout } from '@/plugins/httputil'
 
-defineEmits(['toggleDrawer'])
+const emit = defineEmits(['update:displayDrawer'])
 const props = defineProps(['isMobile','displayDrawer'])
 
-const showDrawer = computed((): boolean => {
-  return props.displayDrawer
+const showDrawer = computed({
+  get: (): boolean => props.displayDrawer,
+  set: (visible: boolean) => { if (visible !== props.displayDrawer) emit('update:displayDrawer', visible) },
 })
 
 const menu = [

@@ -114,16 +114,16 @@ export default {
     down_mbps: {
       get() { return this.mux?.brutal && this.mux.brutal.down_mbps ? this.mux.brutal.down_mbps : 0 },
       set(newValue:any) {
-        if (this.mux.brutal){
-          this.mux.brutal.down_mbps = newValue.length != 0 ? newValue : 0
+        if (this.mux?.brutal){
+          this.mux.brutal.down_mbps = Number(newValue) > 0 ? Number(newValue) : 0
         }
       }
     },
     up_mbps: {
       get() { return this.mux?.brutal && this.mux.brutal.up_mbps ? this.mux.brutal.up_mbps : 0 },
       set(newValue:any) {
-        if (this.mux.brutal){
-          this.mux.brutal.up_mbps = newValue.length != 0 ? newValue : 0
+        if (this.mux?.brutal){
+          this.mux.brutal.up_mbps = Number(newValue) > 0 ? Number(newValue) : 0
         }
       }
     },

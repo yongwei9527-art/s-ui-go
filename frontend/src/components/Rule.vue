@@ -239,11 +239,12 @@
         <v-textarea :label="$t('rule.interfaceAddr')"
           hide-details
           v-model="interface_addr"
+          :placeholder="interfaceOption === 'default_interface_address' ? '' : '{ &quot;eth0&quot;: [&quot;192.168.0.0/16&quot;] }'"
           rows="5"
           no-resize
           density="compact"
-          append-icon="mdi-arrow-expand"
-          @click:append="openExpTextarea($t('rule.interfaceAddr'), 'interface_address')"
+          :append-icon="interfaceOption === 'default_interface_address' ? 'mdi-arrow-expand' : undefined"
+          @click:append="openExpTextarea($t('rule.interfaceAddr'), interfaceOption)"
         />
       </v-col>
     </v-row>
@@ -328,6 +329,7 @@ export default {
       srcPortKeys: ['source_port', 'source_port_range'],
       domainOption: 'domain',
       interfaceOption: 'interface_address',
+      interfaceDraft: { key: '', value: '', source: '' },
       portOption: 'port',
       srcIPOption: 'source_ip_cidr',
       srcPortOption: 'source_port',
@@ -369,10 +371,12 @@ export default {
       this.$props.rule[option] = []
     },
     updateInterfaceOption(option:string) {
+      this.interfaceDraft = { key: '', value: '', source: '' }
       this.interfaceKeys.forEach(k => delete this.$props.rule[k])
-      this.$props.rule[option] = []
+      this.$props.rule[option] = option === 'default_interface_address' ? [] : {}
     },
     openExpTextarea(title:string, object:string) {
+      if (this.interfaceKeys.includes(object) && object !== 'default_interface_address') return
       this.expTextarea.visible = !this.expTextarea.visible
       this.expTextarea.title = title
       this.expTextarea.content = this.$props.rule[object]?.join('\n') ?? ''
@@ -457,7 +461,7 @@ export default {
       get() { return this.interfaceKeys.some(k => this.$props.rule[k] != undefined) },
       set(v:boolean) {
         if (v) {
-          this.$props.rule.interface_address = []
+          this.$props.rule.interface_address = {}
         } else {
           this.interfaceKeys.forEach(k => delete this.$props.rule[k])
         }
@@ -482,27 +486,27 @@ export default {
     },
     domain: {
       get() { return this.$props.rule.domain?.join('\n') ?? '' },
-      set(v:string) { this.$props.rule.domain = v.length > 0 ? v.split('\n').map((s:string) => s.trim()).filter((s:string) => s.length > 0) : [] }
+      set(v:string) { v ??= ''; this.$props.rule.domain = v.length > 0 ? v.split('\n').map((s:string) => s.trim()).filter((s:string) => s.length > 0) : [] }
     },
     domain_suffix: {
       get() { return this.$props.rule.domain_suffix?.join('\n') ?? '' },
-      set(v:string) { this.$props.rule.domain_suffix = v.length > 0 ? v.split('\n').map((s:string) => s.trim()).filter((s:string) => s.length > 0) : [] }
+      set(v:string) { v ??= ''; this.$props.rule.domain_suffix = v.length > 0 ? v.split('\n').map((s:string) => s.trim()).filter((s:string) => s.length > 0) : [] }
     },
     domain_keyword: {
       get() { return this.$props.rule.domain_keyword?.join('\n') ?? '' },
-      set(v:string) { this.$props.rule.domain_keyword = v.length > 0 ? v.split('\n').map((s:string) => s.trim()).filter((s:string) => s.length > 0) : [] }
+      set(v:string) { v ??= ''; this.$props.rule.domain_keyword = v.length > 0 ? v.split('\n').map((s:string) => s.trim()).filter((s:string) => s.length > 0) : [] }
     },
     domain_regex: {
       get() { return this.$props.rule.domain_regex?.join('\n') ?? '' },
-      set(v:string) { this.$props.rule.domain_regex = v.length > 0 ? v.split('\n').map((s:string) => s.trim()).filter((s:string) => s.length > 0) : [] }
+      set(v:string) { v ??= ''; this.$props.rule.domain_regex = v.length > 0 ? v.split('\n').map((s:string) => s.trim()).filter((s:string) => s.length > 0) : [] }
     },
     ip_cidr: {
       get() { return this.$props.rule.ip_cidr?.join('\n') ?? '' },
-      set(v:string) { this.$props.rule.ip_cidr = v.length > 0 ? v.split('\n').map((s:string) => s.trim()).filter((s:string) => s.length > 0) : [] }
+      set(v:string) { v ??= ''; this.$props.rule.ip_cidr = v.length > 0 ? v.split('\n').map((s:string) => s.trim()).filter((s:string) => s.length > 0) : [] }
     },
     port: {
       get() { return this.$props.rule.port?.join('\n') ?? '' },
-      set(v:string) {
+      set(v:string) { v ??= '';
         const lines = v.split('\n').map((s:string) => s.trim()).filter((s:string) => s.length > 0)
         if (!v.endsWith('\n')) {
           this.$props.rule.port = lines.length > 0 ? lines.map((str:string) => parseInt(str, 10)).filter((n:number) => !isNaN(n)) : []
@@ -511,15 +515,15 @@ export default {
     },
     port_range: {
       get() { return this.$props.rule.port_range?.join('\n') ?? '' },
-      set(v:string) { this.$props.rule.port_range = v.length > 0 ? v.split('\n').map((s:string) => s.trim()).filter((s:string) => s.length > 0) : [] }
+      set(v:string) { v ??= ''; this.$props.rule.port_range = v.length > 0 ? v.split('\n').map((s:string) => s.trim()).filter((s:string) => s.length > 0) : [] }
     },
     source_ip_cidr: {
       get() { return this.$props.rule.source_ip_cidr?.join('\n') ?? '' },
-      set(v:string) { this.$props.rule.source_ip_cidr = v.length > 0 ? v.split('\n').map((s:string) => s.trim()).filter((s:string) => s.length > 0) : [] }
+      set(v:string) { v ??= ''; this.$props.rule.source_ip_cidr = v.length > 0 ? v.split('\n').map((s:string) => s.trim()).filter((s:string) => s.length > 0) : [] }
     },
     source_port: {
       get() { return this.$props.rule.source_port?.join('\n') ?? '' },
-      set(v:string) {
+      set(v:string) { v ??= '';
         const lines = v.split('\n').map((s:string) => s.trim()).filter((s:string) => s.length > 0)
         if (!v.endsWith('\n')) {
           this.$props.rule.source_port = lines.length > 0 ? lines.map((str:string) => parseInt(str, 10)).filter((n:number) => !isNaN(n)) : []
@@ -528,16 +532,33 @@ export default {
     },
     source_port_range: {
       get() { return this.$props.rule.source_port_range?.join('\n') ?? '' },
-      set(v:string) { this.$props.rule.source_port_range = v.length > 0 ? v.split('\n').map((s:string) => s.trim()).filter((s:string) => s.length > 0) : [] }
+      set(v:string) { v ??= ''; this.$props.rule.source_port_range = v.length > 0 ? v.split('\n').map((s:string) => s.trim()).filter((s:string) => s.length > 0) : [] }
     },
     interface_addr: {
       get() {
         const k = this.interfaceKeys.find(k => this.$props.rule[k] != undefined)
-        return k ? this.$props.rule[k]?.join('\n') ?? '' : ''
+        if (!k) return ''
+        if (k === 'default_interface_address') return this.$props.rule[k]?.join('\n') ?? ''
+        const source = JSON.stringify(this.$props.rule[k])
+        return this.interfaceDraft.key === k && this.interfaceDraft.source === source
+          ? this.interfaceDraft.value : JSON.stringify(this.$props.rule[k], null, 2)
       },
-      set(v:string) {
+      set(v:string) { v ??= '';
         const k = this.interfaceKeys.find(k => this.$props.rule[k] != undefined)
-        if (k) this.$props.rule[k] = v.length > 0 ? v.split('\n').map((s:string) => s.trim()).filter((s:string) => s.length > 0) : []
+        if (!k) return
+        if (k === 'default_interface_address') {
+          this.$props.rule[k] = v.split('\n').map(s => s.trim()).filter(Boolean)
+        } else {
+          this.interfaceDraft = { key: k, value: v, source: JSON.stringify(this.$props.rule[k]) }
+          try {
+            const value = JSON.parse(v || '{}')
+            if (value && typeof value === 'object' && !Array.isArray(value) &&
+                Object.values(value).every(entry => typeof entry === 'string' || (Array.isArray(entry) && entry.every(item => typeof item === 'string')))) {
+              this.$props.rule[k] = value
+              this.interfaceDraft.source = JSON.stringify(value)
+            }
+          } catch { /* Keep the last valid map while the JSON is being edited. */ }
+        }
       }
     },
   },

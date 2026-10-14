@@ -1038,33 +1038,52 @@ func migrateDefaultProductionTLS(database *gorm.DB, config *defaultProductionTLS
 				}
 				for _, inbound := range inbounds {
 					var outbound map[string]interface{}
-					if err := json.Unmarshal(inbound.OutJson, &outbound); err != nil {
+					if err := decodeTLSMigrationJSON(inbound.OutJson, &outbound); err != nil {
 						return err
 					}
-					host, _ := outbound["server"].(string)
-					if host == "" {
-						host = config.serverName
+					if outbound == nil {
+						return fmt.Errorf("inbound %d has null out_json", inbound.Id)
 					}
-					inbound.Tls = &replacement
+					// Do not regenerate the outbound: ports, transports and extra
+					// TLS options may have been customized independently of the template.
+					var oldTLS, newTLS map[string]interface{}
+					if err := json.Unmarshal(candidate.Client, &oldTLS); err != nil {
+						return err
+					}
+					if err := json.Unmarshal(replacement.Client, &newTLS); err != nil {
+						return err
+					}
+					var oldServer map[string]interface{}
+					if err := json.Unmarshal(candidate.Server, &oldServer); err != nil {
+						return err
+					}
+					// FillOutJson includes the bootstrap certificate in client TLS.
+					oldTLS["certificate"] = oldServer["certificate"]
+					if currentTLS, ok := outbound["tls"].(map[string]interface{}); ok {
+						migrateBootstrapTLSFields(currentTLS, oldTLS, newTLS)
+					}
 					// Address-level overrides participate in subscription exports.
 					// Keep hosts/ports, but do not let stale bootstrap TLS override
 					// the newly verified template (including nested TLS overrides).
 					var addrs []map[string]interface{}
 					if len(inbound.Addrs) > 0 {
-						if err := json.Unmarshal(inbound.Addrs, &addrs); err != nil {
+						if err := decodeTLSMigrationJSON(inbound.Addrs, &addrs); err != nil {
 							return err
 						}
 					}
 					for _, addr := range addrs {
-						addr["insecure"] = false
-						if addr["server_name"] == spec.serverName {
-							addr["server_name"] = config.serverName
+						if addr == nil {
+							return fmt.Errorf("inbound %d has null address", inbound.Id)
 						}
+						// Flat and nested options compose one TLS configuration. A
+						// custom effective SNI protects both layers from migration.
+						effectiveTLS := util.MergeSubscriptionTLS(oldTLS, addr)
+						if effectiveTLS["server_name"] != oldTLS["server_name"] {
+							continue
+						}
+						migrateBootstrapTLSFields(addr, oldTLS, newTLS)
 						if nested, ok := addr["tls"].(map[string]interface{}); ok {
-							nested["insecure"] = false
-							if nested["server_name"] == spec.serverName {
-								nested["server_name"] = config.serverName
-							}
+							migrateBootstrapTLSFields(nested, oldTLS, newTLS)
 						}
 					}
 					if len(inbound.Addrs) > 0 {
@@ -1073,7 +1092,8 @@ func migrateDefaultProductionTLS(database *gorm.DB, config *defaultProductionTLS
 							return err
 						}
 					}
-					if err := util.FillOutJson(&inbound, host); err != nil {
+					inbound.OutJson, err = json.Marshal(outbound)
+					if err != nil {
 						return err
 					}
 					if err := tx.Model(&model.Inbound{}).Where("id = ?", inbound.Id).Updates(map[string]interface{}{"out_json": inbound.OutJson, "addrs": inbound.Addrs}).Error; err != nil {
@@ -1084,4 +1104,34 @@ func migrateDefaultProductionTLS(database *gorm.DB, config *defaultProductionTLS
 		}
 		return nil
 	})
+}
+
+// Unknown outbound/address extensions may contain integers larger than a
+// float64 can represent. Preserve their JSON numbers during targeted updates.
+func decodeTLSMigrationJSON(data []byte, value interface{}) error {
+	if !json.Valid(data) {
+		return fmt.Errorf("invalid TLS migration JSON")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	return decoder.Decode(value)
+}
+
+// Update only inherited values. A custom SNI denotes an independently managed
+// TLS override; leave it (including its verification policy) entirely untouched.
+func migrateBootstrapTLSFields(current, oldTLS, newTLS map[string]interface{}) {
+	if name, present := current["server_name"]; present && name != oldTLS["server_name"] {
+		return
+	}
+	for key, oldValue := range oldTLS {
+		value, present := current[key]
+		if !present || !reflect.DeepEqual(value, oldValue) {
+			continue
+		}
+		if replacement, present := newTLS[key]; present {
+			current[key] = replacement
+		} else {
+			delete(current, key)
+		}
+	}
 }

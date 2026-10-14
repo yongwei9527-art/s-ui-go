@@ -109,19 +109,18 @@ export default {
   },
   methods: {
     addHandshakeServer() {
-      this.data.handshake_for_server_name[this.handshake_server] = {}
+      const name = this.handshake_server?.trim()
+      if (!name) return
+      this.data.handshake_for_server_name ??= {}
+      this.data.handshake_for_server_name[name] = { server: '', server_port: 443 }
       // Clear the input field after adding the server
       this.handshake_server = ''
     }
   },
-  mounted() {
-    this.version = this.Inbound.version
-  },
   computed: {
     version: {
       get() {
-        this.version = this.Inbound.version
-        return this.Inbound.version
+        return this.Inbound.version ?? 1
       },
       set(newValue: any) {
         switch (newValue) {
@@ -157,7 +156,7 @@ export default {
     },
     server_port: {
       get() { return this.Inbound.handshake.server_port ? this.Inbound.handshake.server_port : 443 },
-      set(newValue: any) { this.Inbound.handshake.server_port = newValue.length == 0 || newValue == 0 ? 443 : parseInt(newValue) }
+      set(newValue: any) { this.Inbound.handshake.server_port = Number.isInteger(Number(newValue)) && Number(newValue) > 0 && Number(newValue) <= 65535 ? Number(newValue) : 443 }
     },
   },
   components: { Dial }

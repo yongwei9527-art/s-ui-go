@@ -10,6 +10,9 @@ export type TrspType = typeof TrspTypes[keyof typeof TrspTypes]
 
 export type Transport = HTTP|WebSocket|QUIC|gRPC|HTTPUpgrade
 
+// The core accepts arbitrary header names and either single or repeated values.
+export type HTTPHeaders = Record<string, string | string[]>
+
 interface TransportBasics {
   type: TrspType
 }
@@ -18,16 +21,14 @@ export interface HTTP extends TransportBasics {
   host?: string[]
   path?: string
   method?: string
-  headers?: {}
+  headers?: HTTPHeaders
   idle_timeout?: string
   ping_timeout?: string
 }
 
 export interface WebSocket extends TransportBasics {
   path: string
-  headers?: {
-    Host: string
-  }
+  headers?: HTTPHeaders
   max_early_data?: number
   early_data_header_name?: string
 }
@@ -44,5 +45,5 @@ export interface gRPC extends TransportBasics {
 export interface HTTPUpgrade extends TransportBasics {
   host?: string
   path?: string
-  headers?: {}
+  headers?: HTTPHeaders
 }

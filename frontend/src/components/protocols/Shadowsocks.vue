@@ -62,7 +62,8 @@ export default {
     }
   },
   methods: {
-    changeMethod(ssMethod :string) {
+    changeMethod(ssMethod: string | null) {
+      if (!this.data || typeof ssMethod !== 'string' || !this.ssMethods.includes(ssMethod)) return
       if (ssMethod.startsWith('2022')) {
         this.$props.data.password = ssMethod == "2022-blake3-aes-128-gcm" ? RandomUtil.randomShadowsocksPassword(16) : RandomUtil.randomShadowsocksPassword(32)
       } else if (ssMethod == 'none') {

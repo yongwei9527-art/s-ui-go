@@ -180,21 +180,21 @@ const backupModal = ref({ visible: false })
 const usageStatsModal = ref({ visible: false })
 
 const percent = (current?: number, total?: number) => {
-  if (!current || !total) return 0
-  return Math.min(100, Math.round((current / total) * 100))
+  if (!Number.isFinite(current) || !Number.isFinite(total) || !total || total < 0) return 0
+  return Math.max(0, Math.min(100, Math.round(((current ?? 0) / total) * 100)))
 }
 
 const formatPercent = (value?: number) => `${Math.round(Number(value) || 0)}%`
 
 const isSingboxRunning = computed(() => Boolean(tilesData.value.sbd?.running))
-const onlineUsersCount = computed(() => dataStore.onlines.user?.length ?? 0)
-const onlineInboundCount = computed(() => dataStore.onlines.inbound?.length ?? 0)
-const onlineOutboundCount = computed(() => dataStore.onlines.outbound?.length ?? 0)
+const onlineUsersCount = computed(() => dataStore.onlines?.user?.length ?? 0)
+const onlineInboundCount = computed(() => dataStore.onlines?.inbound?.length ?? 0)
+const onlineOutboundCount = computed(() => dataStore.onlines?.outbound?.length ?? 0)
 const inboundCount = computed(() => tilesData.value.db?.inbounds ?? dataStore.inbounds.length)
 const outboundCount = computed(() => tilesData.value.db?.outbounds ?? dataStore.outbounds.length)
 const clientCount = computed(() => tilesData.value.db?.clients ?? dataStore.clients.length)
 const totalUsage = computed(() => HumanReadable.sizeFormat((tilesData.value.db?.clientUp ?? 0) + (tilesData.value.db?.clientDown ?? 0)))
-const cpuPercent = computed(() => Math.round(Number(tilesData.value.cpu) || 0))
+const cpuPercent = computed(() => percent(Number(tilesData.value.cpu), 100))
 const memoryPercent = computed(() => percent(tilesData.value.mem?.current, tilesData.value.mem?.total))
 const diskPercent = computed(() => percent(tilesData.value.dsk?.current, tilesData.value.dsk?.total))
 const appVersion = computed(() => tilesData.value.sys?.appVersion ?? '-')
@@ -252,43 +252,67 @@ const resourceRows = computed(() => [
 
 const statusRequests = ['sys', 'sbd', 'db', 'cpu', 'mem', 'dsk']
 
+let disposed = false
+let statusRequest = 0
+let logsRequest = 0
+
 const reloadData = async () => {
-  const data = await HttpUtils.get('api/status', { r: statusRequests.join(',') })
-  if (data.success) {
-    tilesData.value = { ...tilesData.value, ...data.obj }
+  if (disposed) return
+  const request = ++statusRequest
+  try {
+    const data = await HttpUtils.get('api/status', { r: statusRequests.join(',') })
+    if (!disposed && request === statusRequest && data?.success && data.obj && typeof data.obj === 'object' && !Array.isArray(data.obj)) {
+      tilesData.value = { ...tilesData.value, ...data.obj }
+    }
+  } catch {
+    // HttpUtils normally reports transport errors; keep polling recoverable if it rejects.
   }
 }
 
 const loadRecentLogs = async () => {
+  if (disposed) return
+  const request = ++logsRequest
   recentLogsLoading.value = true
-  const data = await HttpUtils.get('api/logs', { c: 5, l: 'info' })
-  if (data.success) {
-    recentLogs.value = data.obj ?? []
+  try {
+    const data = await HttpUtils.get('api/logs', { c: 5, l: 'info' })
+    if (!disposed && request === logsRequest && data?.success && Array.isArray(data.obj)) {
+      recentLogs.value = data.obj.filter((line: unknown): line is string => typeof line === 'string')
+    }
+  } catch {
+    // Preserve the last successful log list on transport failures.
+  } finally {
+    if (!disposed && request === logsRequest) recentLogsLoading.value = false
   }
-  recentLogsLoading.value = false
 }
 
 let intervalId: ReturnType<typeof setInterval> | null = null
 
 const startTimer = () => {
-  if (intervalId) return
+  if (disposed || intervalId !== null) return
   intervalId = setInterval(() => {
     reloadData()
   }, 4000)
 }
 
 const stopTimer = () => {
-  if (intervalId) {
+  if (intervalId !== null) {
     clearInterval(intervalId)
     intervalId = null
   }
 }
 
 const restartSingbox = async () => {
+  if (disposed || loading.value) return
   loading.value = true
-  await HttpUtils.post('api/restartSb', {})
-  await reloadData()
-  loading.value = false
+  ++statusRequest // A pre-restart response must not overwrite the refreshed status.
+  try {
+    await HttpUtils.post('api/restartSb', {})
+    if (!disposed) await reloadData()
+  } catch {
+    // HttpUtils owns user-facing error reporting.
+  } finally {
+    if (!disposed) loading.value = false
+  }
 }
 
 onMounted(async () => {
@@ -299,6 +323,9 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  disposed = true
+  ++statusRequest
+  ++logsRequest
   stopTimer()
 })
 </script>

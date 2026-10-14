@@ -56,7 +56,7 @@ export default {
         "none",
         "zero",
         "aes-128-gcm",
-        "aes-128-ctr",
+        "aes-128-cfb",
         "chacha20-poly1305",
       ]
     }
@@ -64,7 +64,7 @@ export default {
   computed: {
     packet_encoding: {
       get() { return this.$props.data.packet_encoding != undefined ? this.$props.data.packet_encoding : 'none' },
-      set(newValue:string) { this.$props.data.packet_encoding = newValue != "none" ? newValue : undefined }
+      set(newValue:string) { newValue ??= ''; this.$props.data.packet_encoding = newValue != "none" ? newValue : undefined }
     },
   },
   components: { Network }

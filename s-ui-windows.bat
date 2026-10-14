@@ -139,7 +139,7 @@ echo 正在安装 Windows 服务...
 if exist "%INSTALL_DIR%\s-ui-service.exe" (
     cd /d "%INSTALL_DIR%"
     s-ui-service.exe install
-    if %errorLevel% equ 0 (echo 服务安装成功。) else (echo 服务安装失败，错误代码：%errorLevel%)
+    if errorlevel 1 (echo 服务安装失败，错误代码：!errorlevel!) else (echo 服务安装成功。)
 ) else (
     echo 未找到服务组件，请先运行 install-windows.bat。
 )
@@ -148,17 +148,14 @@ goto service_management
 
 :uninstall_service
 echo 正在卸载 Windows 服务...
-if exist "%INSTALL_DIR%\s-ui-service.exe" (
-    cd /d "%INSTALL_DIR%"
-    net stop %SERVICE_NAME% >nul 2>&1
-    s-ui-service.exe uninstall
-    if %errorLevel% equ 0 (echo 服务卸载成功。) else (echo 服务卸载失败，错误代码：%errorLevel%)
+if exist "%~dp0uninstall-windows.ps1" (
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0uninstall-windows.ps1" -InstallDir "%INSTALL_DIR%" -ServiceOnly -NonInteractive
+    if errorlevel 1 (echo 服务卸载失败；没有删除数据。) else (echo 服务卸载成功。)
 ) else (
-    echo 未找到服务组件。
+    echo 缺少安全卸载器；为保护数据，已拒绝继续。
 )
 pause
 goto service_management
-
 :open_directory
 if exist "%INSTALL_DIR%" (start "" "%INSTALL_DIR%") else (echo 未找到安装目录：%INSTALL_DIR%)
 pause

@@ -112,7 +112,7 @@ export default {
         "none",
         "zero",
         "aes-128-gcm",
-        "aes-128-ctr",
+        "aes-128-cfb",
         "chacha20-poly1305",
       ],
       haveNetwork: [
@@ -135,12 +135,12 @@ export default {
     needNetwork():boolean { return this.haveNetwork.includes(this.$props.type) },
     needUot():boolean { return this.havUoT.includes(this.$props.type) },
     packet_encoding: {
-      get() { return this.$props.inData.out_json.packet_encoding != undefined ? this.$props.inData.out_json.packet_encoding : 'none' },
-      set(v:string) { this.$props.inData.out_json.packet_encoding = v != "none" ? v : undefined }
+      get() { const value = this.$props.inData.out_json.packet_encoding; return value === '' ? 'none' : (value ?? (this.type === InTypes.VLESS ? 'xudp' : 'none')) },
+      set(v:string) { v ??= ''; this.$props.inData.out_json.packet_encoding = v != "none" ? v : (this.type === InTypes.VLESS ? "" : undefined) }
     },
     server_ports: {
-      get() { return this.$props.inData.out_json.server_ports?.join(',')?? [] },
-      set(v:string) { this.$props.inData.out_json.server_ports = v.length > 0 ? v.split(',') : undefined }
+      get() { return this.$props.inData.out_json.server_ports?.join(',')?? '' },
+      set(v:string) { v ??= ''; this.$props.inData.out_json.server_ports = v.length > 0 ? v.split(',') : undefined }
     },
     hop_interval: {
       get() { return this.$props.inData.out_json.hop_interval? parseInt(this.$props.inData.out_json.hop_interval.replace('s','')) : 0 },

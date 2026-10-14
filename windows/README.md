@@ -1,6 +1,6 @@
 # Windows Reference Files
 
-This directory keeps Windows-specific files for legacy-path compatibility and reference.
+This directory keeps legacy entry points for compatibility. The BAT files now delegate to the canonical root scripts rather than maintaining independent installers or uninstallers.
 
 ## Recommended source of truth
 
@@ -13,7 +13,7 @@ Use the scripts in the repository root as the canonical versions:
 - `uninstall-windows.bat`: Windows uninstallation script
 - `s-ui-windows.xml`: Windows service configuration
 
-If a root script and a file in this directory differ, update and run the root script first. The copies in this directory are retained only for older references or manual comparison.
+If a root script and a file in this directory differ, update and run the root script first. The BAT wrappers refuse to run if the canonical root script is missing. Use the root PowerShell installer/uninstaller so safety checks and private data permissions cannot diverge.
 
 ## Install on Windows
 

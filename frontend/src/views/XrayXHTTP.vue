@@ -86,6 +86,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import HttpUtils from '@/plugins/httputil'
 import Data from '@/store/modules/data'
+import { push } from 'notivue'
 import { createXrayDefaults, xrayPresetOptions, type XrayPreset } from '@/plugins/xrayDefaults'
 
 interface XHTTPInbound {
@@ -157,14 +158,25 @@ const generateRealityCredentials = async () => {
   loading.value = true
   try {
     const msg = await HttpUtils.get('api/keypairs', { k: 'reality' })
-    if (!msg.success || !Array.isArray(msg.obj)) return
-    for (const line of msg.obj as string[]) {
-      if (line.startsWith('PrivateKey:')) form.privateKey = line.slice('PrivateKey:'.length).trim()
-      if (line.startsWith('PublicKey:')) form.publicKey = line.slice('PublicKey:'.length).trim()
+    if (!msg.success) return
+    let privateKey = '', publicKey = ''
+    for (const line of Array.isArray(msg.obj) ? msg.obj : []) {
+      if (typeof line !== 'string') continue
+      if (line.startsWith('PrivateKey:')) privateKey = line.slice('PrivateKey:'.length).trim()
+      if (line.startsWith('PublicKey:')) publicKey = line.slice('PublicKey:'.length).trim()
+    }
+    if (!privateKey || !publicKey) {
+      push.error({ message: 'Reality 密钥生成结果不完整，原配置未更改，请重试。' })
+      return
     }
     const shortId = new Uint8Array(8)
     crypto.getRandomValues(shortId)
-    form.shortId = Array.from(shortId, value => value.toString(16).padStart(2, '0')).join('')
+    // Apply the complete replacement atomically, never mix a new private key
+    // with the previous node's public key on an incomplete response.
+    Object.assign(form, {
+      privateKey, publicKey,
+      shortId: Array.from(shortId, value => value.toString(16).padStart(2, '0')).join(''),
+    })
   } finally {
     loading.value = false
   }

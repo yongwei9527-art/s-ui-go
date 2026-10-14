@@ -50,7 +50,10 @@ func (s *WarpService) getWarpInfo(deviceId string, accessToken string) ([]byte, 
 
 func (s *WarpService) RegisterWarp(ep *model.Endpoint) error {
 	tos := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
-	privateKey, _ := wgtypes.GenerateKey()
+	privateKey, err := wgtypes.GenerateKey()
+	if err != nil {
+		return fmt.Errorf("generate WARP private key: %w", err)
+	}
 	publicKey := privateKey.PublicKey().String()
 	hostName, _ := os.Hostname()
 

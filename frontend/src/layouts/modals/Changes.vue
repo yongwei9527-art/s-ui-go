@@ -83,12 +83,14 @@
 <script lang="ts">
 import { i18n } from '@/locales'
 import HttpUtils from '@/plugins/httputil'
+import { push } from 'notivue'
 
 export default {
   props: ['admins', 'actor', 'visible'],
   data() {
     return {
       loading: false,
+      loadRequest: 0,
       changes: <any[]>[],
       user: '',
       key: '',
@@ -105,11 +107,19 @@ export default {
   },
   methods: {
     async loadData() {
+      const request = ++this.loadRequest
       this.loading = true
-      const data = await HttpUtils.get('api/changes',{ a: this.user, k: this.key, c: this.chngCount })
-      if (data.success) {
-        this.changes = data.obj?? []
-        this.loading = false
+      try {
+        const data = await HttpUtils.get('api/changes', { a: this.user, k: this.key, c: this.chngCount })
+        if (request === this.loadRequest && this.$props.visible && data.success) {
+          this.changes = Array.isArray(data.obj) ? data.obj : []
+        }
+      } catch (error) {
+        if (request === this.loadRequest && this.$props.visible) {
+          push.error({ message: error instanceof Error ? error.message : String(error) })
+        }
+      } finally {
+        if (request === this.loadRequest) this.loading = false
       }
     },
     dateFormatted(dt: number): string {
@@ -130,6 +140,8 @@ export default {
   },
   watch: {
     visible(newValue) {
+      ++this.loadRequest
+      this.loading = false
       this.changes = []
       this.user = this.$props.actor
       this.key = ''

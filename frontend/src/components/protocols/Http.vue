@@ -38,11 +38,11 @@ export default {
   computed: {
     username: {
       get(): string { return this.data.username?.length > 0 ? this.data.username : '' },
-      set(v:string) { this.data.username = v.length > 0 ? v : undefined },
+      set(v:string) { v ??= ''; this.data.username = v.length > 0 ? v : undefined },
     },
     password: {
       get(): string { return this.data.password?.length > 0 ? this.data.password : '' },
-      set(v:string) { this.data.password = v.length > 0 ? v : undefined },
+      set(v:string) { v ??= ''; this.data.password = v.length > 0 ? v : undefined },
     },
   },
   components: { Headers }

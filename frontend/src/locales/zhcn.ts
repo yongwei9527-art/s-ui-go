@@ -118,7 +118,7 @@ export default {
       noMonitorCards: "暂无监控卡片，点击信息卡添加",
       inboundCount: "入站数量",
       onlineUsers: "在线用户",
-      todayTraffic: "今日流量",
+      todayTraffic: "累计流量",
       systemLoad: "系统负载",
       cpuUsage: "CPU 使用率",
       memoryUsage: "内存使用率",
