@@ -4,7 +4,7 @@
 >
 > **版本约定：** 用户可见名称为 **s-ui-go 0.1**；当前更新包包含 sing-box `v1.14.3` 和 Xray-core `v26.3.27`，包含默认节点 TLS 与订阅兼容性修复。本次发布为 `s-ui-go-v0.1.3`；旧 Release 保留，请使用下方新发布安装包。文档中的 `sui` 是程序文件名，`s-ui` 是 Linux 服务/管理命令。
 
-> **审计状态（2026-10-15）：** 开发分支正在逐文件复核，新增数据库恢复排空、启动就绪检查、会话失效及前端竞态修复，尚未打包发布。下方安装/更新命令固定下载 `s-ui-go-v0.1.3`，不包含这些未发布修复；不能把源码更新视为 ZIP 已更新。进度与未验证项见 [审计报告](AUDIT_REPORT.md)。
+> **审计状态（2026-10-15）：** 开发分支正在逐文件复核，新增数据库恢复排空、启动就绪检查、会话失效、前端竞态、多语言及打包许可证校验修复，尚未打包发布。下方安装/更新命令固定下载 `s-ui-go-v0.1.3`，不包含这些未发布修复；不能把源码更新视为 ZIP 已更新。进度与未验证项见 [审计报告](AUDIT_REPORT.md)。
 
 [![Release](https://img.shields.io/badge/release-s--ui--go%200.1-blue)](https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.3)
 [![License](https://img.shields.io/badge/license-GPL--3.0-green)](LICENSE)

@@ -191,7 +191,8 @@ function Test-LinuxPackageArchive([string]$ArchivePath, [string]$Architecture) {
             'README.md',
             'PROTOCOL_GUIDE.md',
             'RELEASE_NOTES.md',
-            'XRAY-CORE-NOTICE.md'
+            'XRAY-CORE-NOTICE.md',
+            'LICENSE'
         )
         foreach ($requiredFile in $requiredFiles) {
             if (@($fileNames | Where-Object { $_ -ceq $requiredFile }).Count -ne 1) {
@@ -235,7 +236,7 @@ function Test-Sha256Sidecar([string]$ArchivePath) {
 
 function Test-PackageArchive([string]$ArchivePath, [string]$System, [string]$Architecture) {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
-    $allDocs = @('README.md','RELEASE_NOTES.md','PROTOCOL_GUIDE.md','XRAY-CORE-NOTICE.md')
+    $allDocs = @('README.md','RELEASE_NOTES.md','PROTOCOL_GUIDE.md','XRAY-CORE-NOTICE.md','LICENSE')
     $definitions = @{
         windows = [pscustomobject]@{ Required = @('sui.exe','libcronet.dll','s-ui-windows.xml','install-windows.bat','install-windows.ps1','uninstall-windows.bat','uninstall-windows.ps1','s-ui-windows.bat') + $allDocs; Optional = @(); Binary = 'sui.exe' }
         linux = [pscustomobject]@{ Required = @('sui','install.sh','install-linux.sh','uninstall-linux.sh','s-ui.sh') + $allDocs; Optional = @(); Binary = 'sui' }
@@ -509,7 +510,7 @@ if ($Package) {
     $archivePath = "dist\s-ui-$packageSystem-$Architecture.zip"
 
     if ($System -eq "windows") {
-        foreach ($document in @('RELEASE_NOTES.md', 'PROTOCOL_GUIDE.md', 'XRAY-CORE-NOTICE.md', 'README.md')) {
+        foreach ($document in @('RELEASE_NOTES.md', 'PROTOCOL_GUIDE.md', 'XRAY-CORE-NOTICE.md', 'README.md', 'LICENSE')) {
             Copy-RequiredPackageFile $document $packageDir $document
         }
         foreach ($script in @('s-ui-windows.xml', 'install-windows.bat', 'install-windows.ps1', 'uninstall-windows.bat', 'uninstall-windows.ps1', 's-ui-windows.bat')) {
@@ -532,7 +533,8 @@ if ($Package) {
             'README.md',
             'PROTOCOL_GUIDE.md',
             'RELEASE_NOTES.md',
-            'XRAY-CORE-NOTICE.md'
+            'XRAY-CORE-NOTICE.md',
+            'LICENSE'
         )) {
             Copy-RequiredPackageFile $requiredFile $packageDir $requiredFile
         }
@@ -545,7 +547,7 @@ if ($Package) {
         Test-Sha256Sidecar $archivePath
         Write-Host "已生成压缩包 / Package generated: $archivePath" -ForegroundColor Green
     } else {
-        foreach ($document in @('RELEASE_NOTES.md', 'PROTOCOL_GUIDE.md', 'XRAY-CORE-NOTICE.md', 'README.md')) {
+        foreach ($document in @('RELEASE_NOTES.md', 'PROTOCOL_GUIDE.md', 'XRAY-CORE-NOTICE.md', 'README.md', 'LICENSE')) {
             Copy-RequiredPackageFile $document $packageDir $document
         }
         foreach ($script in @('install-macos.sh', 'uninstall-macos.sh', 'com.s-ui.plist')) {

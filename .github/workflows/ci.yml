@@ -111,3 +111,5 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/uninstall-windows-test.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/package-license-test.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
