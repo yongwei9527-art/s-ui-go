@@ -1,7 +1,7 @@
 # s-ui-go 0.1 在 Ubuntu VPS 的部署指南
 
 > **用户可见名称：** s-ui-go 0.1
-> **发布标签：** [`s-ui-go-v0.1.3`](https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.3)
+> **发布标签：** [`s-ui-go-v0.1.4`](https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.4)
 
 本文说明 Ubuntu VPS 的非容器化安装。受支持的包内安装方式要求 **systemd**；默认安装目录为 `/usr/local/s-ui`。本文中的 `sui` 是程序文件名，`s-ui` 是 systemd 服务与管理命令。
 
@@ -34,7 +34,7 @@ sudo apt install -y ca-certificates curl unzip openssl iproute2 coreutils
 ```bash
 (
   set -eu
-  TAG='s-ui-go-v0.1.3'
+  TAG='s-ui-go-v0.1.4'
   ASSET='s-ui-linux-amd64.zip'
   BASE="https://github.com/yongwei9527-art/s-ui-go/releases/download/${TAG}"
   workdir="$(mktemp -d)"
@@ -137,7 +137,7 @@ Reality 私钥、数据库和安装状态应视为敏感凭据。仅给 root 或
 
 ## 8. 官方参考
 
-- s-ui-go 0.1 Release：<https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.3>
+- s-ui-go 0.1 Release：<https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.4>
 - Xray-core `v26.3.27`：<https://github.com/XTLS/Xray-core/releases/tag/v26.3.27>
 - Xray Reality/传输文档：<https://xtls.github.io/en/config/transport.html>
 - Mihomo VLESS：<https://wiki.metacubex.one/en/config/proxies/vless/>

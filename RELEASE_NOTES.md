@@ -1,7 +1,15 @@
 # s-ui-go 0.1 发布说明
 
 > **用户可见名称：** s-ui-go 0.1
-> **发布标签：** [`s-ui-go-v0.1.3`](https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.3)
+> **发布标签：** [`s-ui-go-v0.1.4`](https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.4)
+
+## 0.1.4 审计修复
+
+- 数据库恢复排空、启动就绪门禁、会话失效及配置重启并发保护。
+- 前端请求乱序、表单状态及多语言词条修复。
+- 三平台安装包补充 LICENSE，并校验文档内容与源码一致。
+- 20 个前端测试文件、526 项测试，以及 Go 普通/生产标签回归通过。
+- 尚未完成三平台原生安装全流程、公网全部节点端到端和 Go race detector；升级前请备份数据库与证书。
 
 ## 本次发布的交付与校验
 
@@ -48,7 +56,7 @@ XHTTP 的实际支持范围比 TCP Vision 窄；无法确认 `type=xhttp` 时应
 
 ## Official references
 
-- Release: <https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.3>
+- Release: <https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.4>
 - Xray-core v26.3.27: <https://github.com/XTLS/Xray-core/releases/tag/v26.3.27>
 - Xray transport / Reality: <https://xtls.github.io/en/config/transport.html>
 - Mihomo VLESS: <https://wiki.metacubex.one/en/config/proxies/vless/>

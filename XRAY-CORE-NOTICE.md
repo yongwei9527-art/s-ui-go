@@ -1,7 +1,7 @@
 # s-ui-go 0.1：内置 Xray-core 源码依赖声明
 
 > **用户可见版本：** s-ui-go 0.1
-> **发布标签：** `s-ui-go-v0.1.3`
+> **发布标签：** `s-ui-go-v0.1.4`
 
 s-ui-go 将来自 [XTLS/Xray-core](https://github.com/XTLS/Xray-core) 的所需 Go 源码包直接编译进 `sui`，用于提供 VLESS Reality TCP Vision 与 XHTTP 能力。
 

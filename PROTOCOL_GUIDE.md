@@ -2,7 +2,7 @@
 
 本文说明 s-ui-go 0.1 面板中常见代理协议的组合方式、适用场景、TLS / Reality / ECH / Transport / Mux / DNS 配置要点，以及常见配置问题。
 
-> **版本约定：** 用户可见名称为 **s-ui-go 0.1**；发布标签为 [`s-ui-go-v0.1.3`](https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.3)。本文中的 `sui` 是程序文件名。
+> **版本约定：** 用户可见名称为 **s-ui-go 0.1**；发布标签为 [`s-ui-go-v0.1.4`](https://github.com/yongwei9527-art/s-ui-go/releases/tag/s-ui-go-v0.1.4)。本文中的 `sui` 是程序文件名。
 
 > 快速建议：无域名自建 VPS 可优先评估 `VLESS + Reality + TCP`；CDN 场景可评估 `VLESS/Trojan + TLS + WebSocket`；弱网和 UDP 场景可评估 `Hysteria2/TUIC`；本地代理入口使用 `Mixed`；桌面全局代理使用 `Tun`；软路由或网关透明代理使用 `TProxy`。
 
