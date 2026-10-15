@@ -126,7 +126,7 @@ XHTTP 的支持范围比 TCP Vision 更窄。不能确认 `type=xhttp` 时，优
 
 ## 7. 更新、恢复与敏感数据
 
-已有安装请使用 [README 的完整升级命令](README.md#linuxubuntu--systemd)：校验 ZIP 后调用包内 `install-linux.sh --lang zh --upgrade --install-dir /usr/local/s-ui`。自定义安装目录须替换为原目录；升级不会覆盖现有管理员、面板设置和节点配置。不要用“下载一个裸 `sui` 并校验它”的方式替代发布流程。升级失败时先查看：
+已有安装请使用 [README 的完整升级命令](../README.md#linux-安装与更新)：校验 ZIP 后调用包内 `install-linux.sh --lang zh --upgrade --install-dir /usr/local/s-ui`。自定义安装目录须替换为原目录；升级不会覆盖现有管理员、面板设置和节点配置。不要用“下载一个裸 `sui` 并校验它”的方式替代发布流程。升级失败时先查看：
 
 ```bash
 sudo journalctl -u s-ui -n 200 --no-pager
