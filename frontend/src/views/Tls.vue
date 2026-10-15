@@ -34,19 +34,19 @@
           <v-row>
             <v-col>ACME</v-col>
             <v-col>
-              {{ $t(item.server?.acme == undefined ? 'no' : 'yes') }}
+              {{ $t(item.server?.enabled && item.server?.acme != null ? 'yes' : 'no') }}
             </v-col>
           </v-row>
           <v-row>
             <v-col>ECH</v-col>
             <v-col>
-              {{ $t(item.server?.ech == undefined ? 'no' : 'yes') }}
+              {{ $t(item.server?.enabled && item.server?.ech?.enabled ? 'yes' : 'no') }}
             </v-col>
           </v-row>
           <v-row>
             <v-col>Reality</v-col>
             <v-col>
-              {{ $t(item.server?.reality == undefined ? 'no' : 'yes') }}
+              {{ $t(item.server?.enabled && item.server?.reality?.enabled ? 'yes' : 'no') }}
             </v-col>
           </v-row>
         </v-card-text>
@@ -56,7 +56,7 @@
             <v-icon />
             <v-tooltip activator="parent" location="top" :text="$t('actions.edit')"></v-tooltip>
           </v-btn>
-          <v-btn v-if="tlsInbounds(item.id).length == 0" icon="mdi-file-remove" style="margin-inline-start:0;" color="warning" @click="delOverlay[index] = true">
+          <v-btn v-if="!tlsInUse(item.id)" icon="mdi-file-remove" style="margin-inline-start:0;" color="warning" @click="delOverlay[index] = true">
             <v-icon />
             <v-tooltip activator="parent" location="top" :text="$t('actions.del')"></v-tooltip>
           </v-btn>
@@ -87,7 +87,9 @@
 <script lang="ts" setup>
 import TlsVue from '@/layouts/modals/Tls.vue'
 import Data from '@/store/modules/data'
-import { computed, ref } from 'vue'
+import { computed, ref, watch, onBeforeUnmount } from 'vue'
+import { i18n } from '@/locales'
+import { push } from 'notivue'
 import { Inbound } from '@/types/inbounds'
 import { tls } from '@/types/tls'
 
@@ -103,6 +105,12 @@ const tlsInbounds = (id: number): string[] => {
   return inbounds.value.filter(i => i.tls_id == id).map(i => i.tag)
 }
 
+const tlsInUse = (id: number) => tlsInbounds(id).length > 0 || Data().services.some(s => s.tls_id === id)
+let active = true
+let modalSession = 0
+let saving = false
+onBeforeUnmount(() => { active = false; modalSession++ })
+
 const modal = ref({
   visible: false,
   id: 0,
@@ -110,10 +118,14 @@ const modal = ref({
 })
 
 const delOverlay = ref(new Array<boolean>(tlsConfigs.value.length).fill(false))
+watch(() => tlsConfigs.value.map(t => t.id), () => { delOverlay.value = [] }, { flush: 'sync' })
 
 const showModal = (id: number) => {
+  const item = tlsConfigs.value.findLast(t => t.id === id)
+  if (id !== 0 && !item) return
+  modalSession++
   modal.value.id = id
-  modal.value.data = id == 0 ? '{}' : JSON.stringify(tlsConfigs.value.findLast(t => t.id == id))
+  modal.value.data = id === 0 ? '{}' : JSON.stringify(item)
   modal.value.visible = true
 }
 const clone = (obj: any) => {
@@ -122,20 +134,30 @@ const clone = (obj: any) => {
   while (tlsConfigs.value.findIndex(t => t.name == data.name) != -1){
     data.name += "-copy"
   }
-  saveModal(data)
+  void saveModal(data, false)
 }
 const closeModal = () => {
+  modalSession++
   modal.value.visible = false
 }
-const saveModal = async (data:tls) => {
-  const success = await Data().save("tls", data.id > 0 ? "edit" : "new", data)
-  if (success) modal.value.visible = false
+const saveModal = async (data:tls, closeEditor = true) => {
+  if (!active || saving) return
+  saving = true
+  const session = modalSession
+  try {
+    const success = await Data().save('tls', data.id > 0 ? 'edit' : 'new', JSON.parse(JSON.stringify(data)))
+    if (success && active && closeEditor && session === modalSession) closeModal()
+  } catch {
+    if (active) push.error({ title: i18n.global.t('failed') })
+  } finally {
+    saving = false
+  }
 }
 
 const delTls = async (id: number) => {
-  const index = tlsConfigs.value.findIndex(t => t.id == id)
-  const success = await Data().save("tls", "del", id)
-  if (success) delOverlay.value[index] = false
+  if (!tlsConfigs.value.some(t => t.id === id) || tlsInUse(id)) return
+  const success = await Data().save('tls', 'del', id)
+  if (success) delOverlay.value = []
 }
 
 </script>

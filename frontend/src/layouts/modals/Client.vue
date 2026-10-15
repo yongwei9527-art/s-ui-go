@@ -242,6 +242,8 @@ export default {
   emits: ['close'],
   data() {
     return {
+      requestId: 0,
+      closed: false,
       client: createClient(),
       title: "add",
       loading: false,
@@ -254,53 +256,74 @@ export default {
   },
   methods: {
     async updateData(id: number) {
-      if (id > 0) {
-        this.loading = true
-        const newData = await Data().loadClients(id)
-        this.client = createClient(newData)
-        this.title = "edit"
-        this.clientConfig = this.client.config
-        this.loading = false
-      }
-      else {
-        this.client = createClient()
-        this.title = "add"
-        this.clientConfig = randomConfigs('client')
-      }
-      this.links = this.client.links?.filter(l => l.type == 'local')?? []
-      this.extLinks = this.client.links?.filter(l => l.type == 'external')?? []
-      this.subLinks = this.client.links?.filter(l => l.type == 'sub')?? []
+      const requestId = ++this.requestId
+      this.client = createClient()
+      this.clientConfig = this.client.config
+      this.links = []
+      this.extLinks = []
+      this.subLinks = []
       this.tab = "t1"
-      this.loading = false
+      this.title = id > 0 ? "edit" : "add"
+      this.loading = id > 0
+      if (id <= 0) {
+        this.clientConfig = randomConfigs('client')
+        return
+      }
+      try {
+        const data = await Data().loadClients(id)
+        if (requestId !== this.requestId || this.closed || !this.$props.visible || id !== this.$props.id) return
+        if (!data?.name) { this.closeModal(); return }
+        this.client = createClient(JSON.parse(JSON.stringify(data)))
+        this.client.inbounds = Array.isArray(this.client.inbounds) ? this.client.inbounds : []
+        this.client.links = Array.isArray(this.client.links) ? this.client.links : []
+        this.clientConfig = Object.fromEntries(Object.entries(this.client.config ?? {}).filter(([, value]) => value && typeof value === 'object'))
+        this.links = this.client.links.filter(l => l?.type === 'local')
+        this.extLinks = this.client.links.filter(l => l?.type === 'external')
+        this.subLinks = this.client.links.filter(l => l?.type === 'sub')
+      } catch {
+        if (requestId === this.requestId && !this.closed && this.$props.visible) {
+          push.error({ message: this.$t('failed') })
+          this.closeModal()
+        }
+      } finally {
+        if (requestId === this.requestId) this.loading = false
+      }
     },
     closeModal() {
-      this.updateData(0) // reset
+      ++this.requestId
+      this.closed = true
+      this.loading = false
+      this.client = createClient()
+      this.clientConfig = this.client.config
+      this.links = []
+      this.extLinks = []
+      this.subLinks = []
       this.$emit('close')
     },
     async saveChanges() {
-      if (!this.$props.visible) return
-      // check duplicate name
-      const isDuplicateName = Data().checkClientName(this.$props.id, this.client.name)
-      if (isDuplicateName) return
-
-      // check if delayStart is true and autoReset is false, set expiry to 0
-      if (this.client.delayStart && !this.client.autoReset) this.client.expiry = 0
-
-      // save data
+      if (!this.$props.visible || this.closed || this.loading) return
+      const id = this.$props.id
+      if (Data().checkClientName(id, this.client.name)) return
+      const requestId = ++this.requestId
+      const client = JSON.parse(JSON.stringify(this.client))
+      if (client.delayStart && !client.autoReset) client.expiry = 0
+      client.config = updateConfigs(JSON.parse(JSON.stringify(this.clientConfig)), client.name)
+      client.links = JSON.parse(JSON.stringify([...this.extLinks, ...this.subLinks].filter(l => l?.uri?.trim())))
       this.loading = true
-      this.client.config = updateConfigs(this.clientConfig, this.client.name)
-      this.client.links = [
-                        ...this.extLinks.filter(l => l.uri != ''),
-                        ...this.subLinks.filter(l => l.uri != '')]
-      const success = await Data().save("clients", this.$props.id == 0 ? "new" : "edit", this.client)
-      if (success) this.closeModal()
-      this.loading = false
+      try {
+        const success = await Data().save("clients", id == 0 ? "new" : "edit", client)
+        if (requestId === this.requestId && !this.closed && this.$props.visible && id === this.$props.id && success) this.closeModal()
+      } catch {
+        if (requestId === this.requestId && !this.closed && this.$props.visible) push.error({ message: this.$t('failed') })
+      } finally {
+        if (requestId === this.requestId) this.loading = false
+      }
     },
     setDate(newDate:number){
-      this.client.expiry = newDate
+      if (this.$props.visible && !this.closed && !this.loading) this.client.expiry = newDate
     },
     setAllInbounds(){
-      this.client.inbounds = this.inboundTags.map((i:any) => i.value).sort()
+      this.client.inbounds = (this.inboundTags ?? []).map((i:any) => i.value).sort((a:number,b:number) => a-b)
     },
     shuffle(k?:string) {
       shuffleConfigs(this.clientConfig, k)
@@ -342,8 +365,8 @@ export default {
   },
   computed: {
     clientInbounds: {
-      get() { return this.client.inbounds.length>0 ? this.client.inbounds.sort() : [] },
-      set(v:number[]) { this.client.inbounds = v.length == 0 ?  [] : v.sort() }
+      get() { return [...(this.client.inbounds ?? [])].sort((a,b) => a-b) },
+      set(v:number[] | null) { this.client.inbounds = [...(v ?? [])].sort((a,b) => a-b) }
     },
     expDate: {
       get() { return this.client.expiry},
@@ -357,7 +380,7 @@ export default {
       get() { return this.client.delayStart?? false },
       set(v:boolean) {
         this.client.delayStart = v
-        this.client.resetDays = v ? 1 : 0
+        this.client.resetDays = (this.client.delayStart || this.client.autoReset) ? Math.max(1, this.client.resetDays ?? 1) : 0
         if (v && !this.autoReset) this.client.expiry = 0
       }
     },
@@ -365,14 +388,15 @@ export default {
       get() { return this.client.autoReset?? false },
       set(v:boolean) {
         this.client.autoReset = v
-        this.client.resetDays = v ? 1 : 0
+        this.client.resetDays = (this.client.delayStart || this.client.autoReset) ? Math.max(1, this.client.resetDays ?? 1) : 0
         if (!v) this.client.nextReset = 0
       }
     },
     resetDays: {
       get() { return this.client.resetDays?? 1 },
       set(v:number|null) {
-        if (!v) v = 1
+        if (v == null || !Number.isFinite(Number(v)) || Number(v) < 1) v = 1
+        v = Math.trunc(Number(v))
         if (this.client.nextReset && this.client.nextReset > 0) {
           this.client.nextReset += (v-(this.client.resetDays?? 0))*24*60*60
         }
@@ -393,12 +417,17 @@ export default {
     percent() :number { return this.client.volume>0 ? Math.round((this.client.up + this.client.down) *100 / this.client.volume) : 0 },
     percentColor() :string { return (this.client.up+this.client.down) >= this.client.volume ? 'error' : this.percent>90 ? 'warning' : 'success' },
   },
+  beforeUnmount() { ++this.requestId; this.closed = true },
   watch: {
-    visible(newValue) {
-      if (newValue) {
-        this.updateData(this.$props.id)
-      }
+    visible: {
+      immediate: true,
+      handler(v: boolean) {
+        this.closed = !v
+        if (v) this.updateData(this.$props.id)
+        else { ++this.requestId; this.loading = false }
+      },
     },
+    id() { if (this.$props.visible && !this.closed) this.updateData(this.$props.id) },
   },
   components: { DatePick },
 }

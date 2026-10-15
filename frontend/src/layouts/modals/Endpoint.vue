@@ -70,157 +70,187 @@ export default {
   emits: ['close'],
   data() {
     return {
-      endpoint: createEndpoint("wireguard",{ "tag": "" }),
-      title: "add",
-      tab: "t1",
-      loading: false,
+      endpoint: createEndpoint("wireguard", { tag: "", peers: [], ext: { keys: [] } }),
+      title: "add", tab: "t1", loading: false, saving: false,
+      requestId: 0, keyRequestId: 0, pendingRequests: 0, closed: false,
+      peerRequests: new Map<any, number>(),
       epTypes: EpTypes,
     }
   },
   methods: {
-    async updateData(id: number) {
-      if (id > 0) {
-        const newData = JSON.parse(this.$props.data)
-        this.endpoint = createEndpoint(newData.type, newData)
-        this.title = "edit"
-      }
-      else {
-        this.endpoint.type = "wireguard"
-        this.endpoint.listen_port = RandomUtil.randomIntRange(10000, 60000)
-        this.changeType()
-        this.title = "add"
-      }
+    updateData(id: number) {
+      this.saving = false
+      ++this.requestId
+      this.pendingRequests = 0
+      this.loading = false
+      this.peerRequests.clear()
       this.tab = "t1"
+      this.title = id > 0 ? "edit" : "add"
+      if (id > 0) {
+        try {
+          const data = JSON.parse(this.$props.data)
+          if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Invalid endpoint')
+          this.endpoint = createEndpoint(data.type, data)
+          if (this.endpoint.type === EpTypes.Wireguard) {
+            if (!Array.isArray(this.endpoint.peers)) this.endpoint.peers = []
+            this.endpoint.ext = { ...this.endpoint.ext, keys: Array.isArray(this.endpoint.ext?.keys) ? this.endpoint.ext.keys : [] }
+          }
+        } catch { this.closeModal() }
+      } else {
+        this.endpoint = createEndpoint(EpTypes.Wireguard, { tag: "", peers: [], ext: { keys: [] } })
+        this.changeType()
+      }
     },
     async changeType() {
-      // Tag change only in add endpoint
-      const tag = this.endpoint.type + "-" + RandomUtil.randomSeq(3)
-
-      // Use previous data
-      let prevConfig = {}
-      switch (this.endpoint.type) {
-        case EpTypes.Wireguard:
-          const wgKeys = (await this.genWgKey())
-          const randomIPoctet = RandomUtil.randomIntRange(1, 255)
-          prevConfig = {
-            tag: tag,
-            listen_port: this.endpoint.listen_port ?? RandomUtil.randomIntRange(10000, 60000),
-            address: ['10.0.0.'+ randomIPoctet.toString() +'/32','fe80::'+ randomIPoctet.toString(16) +'/128'],
-            private_key: wgKeys.private_key,
-            peers: [],
-            ext: {
-              public_key: wgKeys.public_key,
-              keys: []
-            }
-          }
-          break
-        case EpTypes.Warp:
-          prevConfig = {
-            tag: tag,
-          }
-          break
-        case EpTypes.Tailscale:
-          prevConfig = { tag: tag }
-          break
+      if (!this.$props.visible || this.closed || this.saving) return
+      ++this.requestId
+      this.pendingRequests = 0
+      this.loading = false
+      this.peerRequests.clear()
+      const type = this.endpoint.type
+      const tag = type + "-" + RandomUtil.randomSeq(3)
+      const config: any = { tag }
+      if (type === EpTypes.Wireguard) {
+        const octet = RandomUtil.randomIntRange(1, 255)
+        Object.assign(config, {
+          listen_port: this.endpoint.listen_port > 0 ? this.endpoint.listen_port : RandomUtil.randomIntRange(10000, 60000),
+          address: ['10.0.0.' + octet + '/32', 'fe80::' + octet.toString(16) + '/128'],
+          peers: [], ext: { keys: [] },
+        })
       }
-      this.endpoint = createEndpoint(this.endpoint.type, prevConfig)
+      this.endpoint = createEndpoint(type, config)
+      if (type === EpTypes.Wireguard) await this.newWgKey()
     },
     closeModal() {
-      this.updateData(0) // reset
+      this.saving = false
+      ++this.requestId
+      this.closed = true
+      this.pendingRequests = 0
+      this.loading = false
+      this.peerRequests.clear()
+      this.endpoint = createEndpoint(EpTypes.Wireguard, { tag: "", peers: [], ext: { keys: [] } })
       this.$emit('close')
     },
     async saveChanges() {
-      if (!this.$props.visible) return
-
-      // check duplicate tag
-      const isDuplicatedTag = Data().checkTag("endpoint",this.endpoint.id, this.endpoint.tag)
-      if (isDuplicatedTag) return
-
-      // save data
+      if (!this.$props.visible || this.closed || this.loading) return
+      if (Data().checkTag("endpoint", this.endpoint.id, this.endpoint.tag)) return
+      const requestId = this.requestId
+      const id = this.$props.id
+      this.saving = true
       this.loading = true
-      const success = await Data().save("endpoints", this.$props.id == 0 ? "new" : "edit", this.endpoint)
-      if (success) this.closeModal()
-      this.loading = false
-    },
-    async genWgKey(){
-      this.loading = true
-      const msg = await HttpUtils.get('api/keypairs', { k: "wireguard" })
-      this.loading = false
-      let result = { private_key: "", public_key: "" }
-      if (msg.success) {
-        msg.obj.forEach((line:string) => {
-          if (line.startsWith("PrivateKey")){
-            result.private_key = line.substring(12)
-          }
-          if (line.startsWith("PublicKey")){
-            result.public_key = line.substring(11)
-          }
-        })
-      } else {
-        push.error({
-          message: i18n.global.t('error') + ": " + msg.obj
-        })
+      try {
+        const success = await Data().save("endpoints", id == 0 ? "new" : "edit", JSON.parse(JSON.stringify(this.endpoint)))
+        if (requestId === this.requestId && !this.closed && this.$props.visible && id === this.$props.id && success) this.closeModal()
+      } catch {
+        if (requestId === this.requestId && !this.closed && this.$props.visible) push.error({ message: i18n.global.t('failed') })
+      } finally {
+        if (requestId === this.requestId) {
+          this.saving = false
+          this.loading = this.pendingRequests > 0
+        }
       }
+    },
+    async genWgKey() {
+      const msg = await HttpUtils.get('api/keypairs', { k: "wireguard" })
+      if (!msg?.success || !Array.isArray(msg.obj)) throw new Error('Key generation failed')
+      const result = { private_key: "", public_key: "" }
+      for (const line of msg.obj) {
+        if (typeof line !== 'string') continue
+        if (line.startsWith("PrivateKey:")) result.private_key = line.slice(11).trim()
+        if (line.startsWith("PublicKey:")) result.public_key = line.slice(10).trim()
+      }
+      if (!result.private_key || !result.public_key) throw new Error('Incomplete key pair')
       return result
     },
-    async newWgKey(){
+    async withWgRequest(work: (endpoint: any, isCurrent: () => boolean) => Promise<void>) {
+      if (!this.$props.visible || this.closed || this.saving || this.endpoint.type !== EpTypes.Wireguard) return
+      const requestId = this.requestId
+      const endpoint = this.endpoint
+      const isCurrent = () => requestId === this.requestId && !this.closed && this.$props.visible && endpoint === this.endpoint
+      ++this.pendingRequests
       this.loading = true
-      const newKeys = await this.genWgKey()
-      this.endpoint.private_key = newKeys.private_key
-      if (!this.endpoint.ext) this.endpoint.ext = {keys: []}
-      this.endpoint.ext.public_key = newKeys.public_key
-      this.loading = false
+      try { await work(endpoint, isCurrent) }
+      catch { if (isCurrent()) push.error({ message: i18n.global.t('failed') }) }
+      finally {
+        if (isCurrent()) {
+          --this.pendingRequests
+          this.loading = this.pendingRequests > 0
+        }
+      }
+    },
+    async newWgKey() {
+      const keyRequestId = ++this.keyRequestId
+      await this.withWgRequest(async (endpoint, isCurrent) => {
+        const privateKey = endpoint.private_key
+        const publicKey = endpoint.ext?.public_key
+        const keys = await this.genWgKey()
+        if (!isCurrent() || keyRequestId !== this.keyRequestId || endpoint.private_key !== privateKey || endpoint.ext?.public_key !== publicKey) return
+        endpoint.private_key = keys.private_key
+        endpoint.ext = { ...endpoint.ext, public_key: keys.public_key, keys: endpoint.ext?.keys ?? [] }
+      })
     },
     async getWgPubKey(private_key: string) {
-      if (!this.endpoint.ext) this.endpoint.ext = {keys: []}
-      this.loading = true
-      const msg = await HttpUtils.get('api/keypairs', { k: "wireguard", o: private_key })
-      if (msg.success) {
-        this.endpoint.ext.public_key = msg.obj[0]
-      }
-      this.loading = false
-    },
-    async addWgPeer(){
-      if (this.endpoint.type != EpTypes.Wireguard) return
-      this.loading = true
-      const newKeys = await this.genWgKey()
-      if (!this.endpoint.ext) this.endpoint.ext = {keys: []}
-      this.endpoint.ext.keys.push(newKeys)
-      this.endpoint.peers.push({
-        public_key: newKeys.public_key,
-        allowed_ips: [this.findFreeIP()]
+      const keyRequestId = ++this.keyRequestId
+      await this.withWgRequest(async (endpoint, isCurrent) => {
+        const msg = await HttpUtils.get('api/keypairs', { k: "wireguard", o: private_key })
+        if (!isCurrent() || keyRequestId !== this.keyRequestId || endpoint.private_key !== private_key) return
+        if (!msg?.success || !Array.isArray(msg.obj) || typeof msg.obj[0] !== 'string' || !msg.obj[0]) throw new Error('Public key derivation failed')
+        endpoint.ext = { ...endpoint.ext, keys: endpoint.ext?.keys ?? [], public_key: msg.obj[0] }
       })
-      this.loading = false
     },
-    findFreeIP(): string{
-      const peerAllowedIPs = this.endpoint.peers.map((peer: any) => peer.allowed_ips).flat()
+    async addWgPeer() {
+      await this.withWgRequest(async (endpoint, isCurrent) => {
+        const keys = await this.genWgKey()
+        if (!isCurrent()) return
+        endpoint.ext = { ...endpoint.ext, keys: endpoint.ext?.keys ?? [] }
+        const address = this.findFreeIP()
+        endpoint.ext.keys.push(keys)
+        endpoint.peers.push({ public_key: keys.public_key, allowed_ips: [address] })
+      })
+    },
+    findFreeIP(): string {
+      const used = (this.endpoint.peers ?? []).flatMap((peer: any) => peer?.allowed_ips ?? [])
       for (let i = 2; i < 255; i++) {
-        const newIP = '10.0.1.'+ i.toString() +'/32'
-        if (!peerAllowedIPs.includes(newIP)) return newIP
+        const ip = '10.0.1.' + i + '/32'
+        if (!used.includes(ip)) return ip
       }
-      return '0.0.0.0/0'
+      throw new Error('No free peer address')
     },
-    delWgPeer(index: number){
-      if (this.endpoint.type != EpTypes.Wireguard) return
-      this.endpoint.ext.keys = this.endpoint.ext.keys.filter((key: any) => key.public_key != this.endpoint.peers[index].public_key)
+    delWgPeer(index: number) {
+      if (!this.$props.visible || this.closed || this.endpoint.type !== EpTypes.Wireguard) return
+      const peer = this.endpoint.peers?.[index]
+      if (!peer) return
+      this.peerRequests.delete(peer)
+      if (this.endpoint.ext) this.endpoint.ext.keys = (this.endpoint.ext.keys ?? []).filter((key: any) => key.public_key !== peer.public_key)
       this.endpoint.peers.splice(index, 1)
     },
     async refreshWgPeerKey(index: number) {
-      this.loading = true
-      const newKeys = await this.genWgKey()
-      if (!this.endpoint.ext) this.endpoint.ext = {keys: []}
-      const indexKeys = this.endpoint.ext.keys.findIndex((key: any) => key.public_key == this.endpoint.peers[index].public_key)
-      this.endpoint.ext.keys[indexKeys == -1 ? this.endpoint.ext.keys.length : indexKeys] = newKeys
-      this.endpoint.peers[index].public_key = newKeys.public_key
-      this.loading = false
+      const peer = this.endpoint.peers?.[index]
+      if (!peer) return
+      const publicKey = peer.public_key
+      const version = (this.peerRequests.get(peer) ?? 0) + 1
+      this.peerRequests.set(peer, version)
+      await this.withWgRequest(async (endpoint, isCurrent) => {
+        const keys = await this.genWgKey()
+        if (!isCurrent() || !endpoint.peers.includes(peer) || this.peerRequests.get(peer) !== version || peer.public_key !== publicKey) return
+        endpoint.ext = { ...endpoint.ext, keys: endpoint.ext?.keys ?? [] }
+        const keyIndex = endpoint.ext.keys.findIndex((key: any) => key.public_key === publicKey)
+        endpoint.ext.keys[keyIndex < 0 ? endpoint.ext.keys.length : keyIndex] = keys
+        peer.public_key = keys.public_key
+      })
     },
   },
+  beforeUnmount() { ++this.requestId; this.closed = true },
   watch: {
-    visible(v) {
-      if (v) {
-        this.updateData(this.$props.id)
-      }
+    visible: {
+      immediate: true,
+      handler(v: boolean) {
+        this.closed = !v
+        if (v) this.updateData(this.$props.id)
+        else { ++this.requestId; this.loading = false; this.saving = false; this.pendingRequests = 0 }
+      },
     },
+    id() { if (this.$props.visible && !this.closed) this.updateData(this.$props.id) },
   },
   components: { Dial, Wireguard, Warp, TailscaleVue }
 }

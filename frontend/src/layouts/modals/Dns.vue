@@ -114,6 +114,7 @@ export default {
   emits: ['close', 'save'],
   data() {
     return {
+      closed: false,
       title: "add",
       dnsServer: createDnsServer("local",{tag: "dns-" + RandomUtil.randomSeq(3)}),
       dnsTypes: Object.keys(DnsTypes).map((key,index) => ({title: key, value: Object.values(DnsTypes)[index]})),
@@ -125,23 +126,31 @@ export default {
   },
   methods: {
     updateData() {
-      if (this.$props.index != -1) {
-        this.dnsServer = JSON.parse(this.$props.data)
-        this.title = 'edit'
-      }
-      else {
-        this.dnsServer = createDnsServer("local",{tag: "dns-" + RandomUtil.randomSeq(3)})
-        this.title = 'add'
+      try {
+        if (this.$props.index != -1) {
+          const data = JSON.parse(this.$props.data)
+          if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Invalid DNS server')
+          this.dnsServer = createDnsServer(data.type, data)
+          this.title = 'edit'
+        }
+        else {
+          this.dnsServer = createDnsServer("local",{tag: "dns-" + RandomUtil.randomSeq(3)})
+          this.title = 'add'
+        }
+      } catch {
+        this.close()
       }
     },
     changeType(dnsType: string) {
       this.dnsServer = createDnsServer(dnsType,{tag: this.dnsServer.tag})
     },
     close() {
+      this.closed = true
       this.$emit('close')
     },
     save() {
-      this.$emit('save', this.dnsServer)
+      if (!this.$props.visible || this.closed) return
+      this.$emit('save', JSON.parse(JSON.stringify(this.dnsServer)))
     },
     addHostsPredefined() {
       const newPredefined = { name:'localhost', value: '127.0.0.1,::1' }
@@ -154,20 +163,23 @@ export default {
     },
     update_pds_key(i:number,k:string) {
       let pds = this.hostsPredefined
+      if (!this.$props.visible || this.closed || !pds[i]) return
       pds[i].name = k
       this.hostsPredefined = pds
     },
     update_pds_value(i:number,v:string) {
       let pds = this.hostsPredefined
+      if (!this.$props.visible || this.closed || !pds[i]) return
       pds[i].value = v
       this.hostsPredefined = pds
     },
   },
   computed:{
     hostsPath: {
-      get() { return this.dnsServer.path },
+      get() { return Array.isArray(this.dnsServer.path) ? this.dnsServer.path.join(',') : this.dnsServer.path ?? '' },
       set(v: string) {
-        this.dnsServer.path = v.length > 0 ? v.split(',').map((item: string) => item.trim()) : undefined
+        const paths = (v ?? '').split(',').map((item: string) => item.trim()).filter(Boolean)
+        this.dnsServer.path = paths.length ? paths : undefined
       }
     },
     hostsPredefined: {
@@ -186,10 +198,10 @@ export default {
         return pds
        },
       set(v: any[]) {
-        if (v.length>0) {
-          let pds:any = {}
+        if (v?.length>0) {
+          let pds:any = Object.create(null)
           v.forEach((pd:any) => {
-            pds[pd.name] = pd.value.split(',').map((item: string) => item.trim())
+            pds[pd.name] = String(pd.value ?? '').split(',').map((item: string) => item.trim()).filter(Boolean)
           })
           this.dnsServer.predefined = pds
         } else {
@@ -198,11 +210,14 @@ export default {
       }
     },
   },
+  beforeUnmount() { this.closed = true },
   watch: {
-    visible(v) {
-      if (v) {
-        this.updateData()
-      }
+    visible: {
+      immediate: true,
+      handler(v: boolean) {
+        this.closed = !v
+        if (v) this.updateData()
+      },
     },
   },
   components: { DialVue, oTlsVue, Headers }

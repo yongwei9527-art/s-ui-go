@@ -153,7 +153,7 @@ import OutboundVue from '@/layouts/modals/Outbound.vue'
 import OutboundBulk from '@/layouts/modals/OutboundBulk.vue'
 import Stats from '@/layouts/modals/Stats.vue'
 import { Outbound } from '@/types/outbounds'
-import { computed, ref } from 'vue'
+import { computed, ref, watch, onBeforeUnmount } from 'vue'
 
 interface CheckResult {
   loading?: boolean
@@ -164,29 +164,46 @@ interface CheckResult {
 
 const checkResults = ref<Record<string, CheckResult>>({})
 
-const checkOutbound = async (tag: string) => {
+let active = true
+const pendingChecks = new Map<string, Promise<void>>()
+onBeforeUnmount(() => { active = false; testingAll.value = false })
+const checkOutbound = (tag: string): Promise<void> => {
+  if (!active) return Promise.resolve()
+  const pending = pendingChecks.get(tag)
+  if (pending) return pending
   checkResults.value = { ...checkResults.value, [tag]: { loading: true, success: false } }
-  const msg = await HttpUtils.get('api/checkOutbound', { tag })
-  const success = msg.success && msg.obj?.OK
-  const errorMessage = success ? undefined : (msg.obj?.Error ?? msg.msg ?? '')
-  checkResults.value = {
-    ...checkResults.value,
-    [tag]: { loading: false, success, data: msg.obj ?? null, errorMessage }
-  }
+  const request = (async () => {
+    try {
+      const msg = await HttpUtils.get('api/checkOutbound', { tag })
+      if (!active) return
+      const success = !!(msg.success && msg.obj?.OK)
+      const errorMessage = success ? undefined : (msg.obj?.Error ?? msg.msg ?? '')
+      checkResults.value = {
+        ...checkResults.value,
+        [tag]: { loading: false, success, data: msg.obj ?? null, errorMessage },
+      }
+    } catch {
+      if (active) checkResults.value = { ...checkResults.value, [tag]: { loading: false, success: false } }
+    }
+  })()
+  pendingChecks.set(tag, request)
+  void request.then(() => { if (pendingChecks.get(tag) === request) pendingChecks.delete(tag) })
+  return request
 }
 
 const testingAll = ref(false)
 const maxConcurrentOutboundChecks = 8
 
 const checkAllOutbounds = async () => {
-  const list = outbounds.value
+  if (!active || testingAll.value) return
+  const list = outbounds.value.slice()
   if (list.length === 0) return
 
   testingAll.value = true
   try {
     let nextIndex = 0
     const worker = async () => {
-      while (nextIndex < list.length) {
+      while (active && nextIndex < list.length) {
         const outbound = list[nextIndex++]
         await checkOutbound(outbound.tag)
       }
@@ -210,7 +227,7 @@ const outboundTags = computed((): string[] => {
 })
 
 const onlines = computed(() => {
-  return Data().onlines.outbound?? []
+  return Data().onlines?.outbound?? []
 })
 
 const modal = ref({
@@ -220,10 +237,16 @@ const modal = ref({
 })
 
 let delOverlay = ref(new Array<boolean>)
+// Index-based confirmations cannot survive a row deletion/reorder.
+watch(() => outbounds.value.map(item => [item.id, item.tag]), () => {
+  delOverlay.value = []
+}, { flush: 'sync' })
 
 const showModal = (id: number) => {
+  const item = outbounds.value.findLast(o => o.id === id)
+  if (id !== 0 && !item) return
   modal.value.id = id
-  modal.value.data = id == 0 ? '' : JSON.stringify(outbounds.value.findLast(o => o.id == id))
+  modal.value.data = id === 0 ? '' : JSON.stringify(item)
   modal.value.visible = true
 }
 
@@ -248,9 +271,10 @@ const stats = ref({
 })
 
 const delOutbound = async (tag: string) => {
-  const index = outbounds.value.findIndex(i => i.tag == tag)
-  const success = await Data().save("outbounds", "del", tag)
-  if (success) delOverlay.value[index] = false
+  const item = outbounds.value.find(item => item.tag === tag)
+  if (!item) return
+  const success = await Data().save('outbounds', 'del', item.tag)
+  if (success) delOverlay.value = []
 }
 
 const showStats = (tag: string) => {

@@ -87,11 +87,20 @@ func (a *APP) Init() error {
 
 	a.configService = service.NewConfigService(a.core)
 	a.xrayXHTTPService = &service.XrayXHTTPService{}
+	database.RegisterRecoveryHooks(database.RecoveryHooks{
+		Quiesce: a.quiesceForDatabaseRecovery, ResumeAfterAbort: a.resumeAfterRecoveryAbort,
+	})
 
 	return nil
 }
 
 func (a *APP) Start() error {
+	finish, err := database.BeginApplicationStart()
+	if err != nil {
+		return err
+	}
+	startupComplete := false
+	defer func() { finish(startupComplete) }()
 	loc, err := a.getTimeLocation()
 	if err != nil {
 		return err
@@ -143,6 +152,7 @@ func (a *APP) Start() error {
 		started.xray = true
 	}
 
+	startupComplete = true
 	return nil
 }
 
@@ -294,6 +304,36 @@ func (a *APP) Stop() {
 	if err := a.stopCore(); err != nil {
 		logger.Warning("stop Core err:", err)
 	}
+}
+
+// The import HTTP handler is still serving its response. Do not stop web/sub
+// listeners here: their DB operations have drained under the recovery gate.
+func (a *APP) quiesceForDatabaseRecovery() error {
+	a.stopCron()
+	if err := errors.Join(a.stopXray(), a.stopCore()); err != nil {
+		return err
+	}
+	if a.configService != nil {
+		a.configService.DiscardQueuedConfigForRecovery()
+	}
+	return nil
+}
+
+// Used only if quiescing fails before any database close/replacement. After
+// replacement errors access stays paused for explicit recovery/service restart.
+func (a *APP) resumeAfterRecoveryAbort() error {
+	if err := errors.Join(a.startCore(), a.startXray()); err != nil {
+		return err
+	}
+	loc, err := a.getTimeLocation()
+	if err != nil {
+		return err
+	}
+	trafficAge, err := a.getTrafficAge()
+	if err != nil {
+		return err
+	}
+	return a.startCron(loc, trafficAge)
 }
 
 func (a *APP) initLog() {

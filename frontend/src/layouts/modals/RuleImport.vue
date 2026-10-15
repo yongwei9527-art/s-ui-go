@@ -112,7 +112,7 @@
             </thead>
             <tbody>
               <tr v-for="(rs, i) in parsed.rule_set" :key="i"
-                :style="mode === 'merge' && existingRulesetTags.includes(rs.tag) ? 'opacity:0.4' : ''">
+                :style="mode === 'merge' && (existingRulesetTags ?? []).includes(rs.tag) ? 'opacity:0.4' : ''">
                 <td style="font-family: monospace;">{{ rs.tag }}</td>
                 <td>{{ rs.format }}</td>
                 <td>{{ rs.type }}</td>
@@ -128,7 +128,7 @@
           @click="parseJson"
           variant="tonal"
           color="success"
-          :disabled="rawJson.trim().length === 0"
+          :disabled="(rawJson ?? '').trim().length === 0"
           >
           {{ $t('rule.import.parse') }}
           <v-icon icon="mdi-magnify" />
@@ -149,6 +149,8 @@ export default {
   emits: ['save', 'close'],
   data() {
     return {
+      requestId: 0,
+      closed: false,
       tab: 'json',
       rawJson: '',
       fetchUrl: '',
@@ -171,6 +173,8 @@ export default {
   },
   methods: {
     tabChanged() {
+      ++this.requestId
+      this.fetching = false
       this.rawJson = ''
       this.fetchUrl = ''
       this.error = ''
@@ -179,12 +183,18 @@ export default {
       this.applyFinal = false
     },
     extractRouteBlock(obj: any): any {
-      if (obj?.route && (obj.route.rules || obj.route.rule_set)) return obj.route
-      if (obj?.rules || obj?.rule_set) return obj
-      return null
+      const block = obj?.route ?? obj
+      if (!block || typeof block !== 'object' || Array.isArray(block)) return null
+      if (!Array.isArray(block.rules) && !Array.isArray(block.rule_set)) return null
+      const object = (value: any) => value && typeof value === 'object' && !Array.isArray(value)
+      const rule = (value: any): boolean => object(value) && (value.type !== 'logical' || (Array.isArray(value.rules) && value.rules.length > 0 && value.rules.every(rule)))
+      if (block.rules != null && (!Array.isArray(block.rules) || !block.rules.every(rule))) return null
+      if (block.rule_set != null && (!Array.isArray(block.rule_set) || !block.rule_set.every((rs: any) => object(rs) && typeof rs.tag === 'string' && rs.tag.length > 0))) return null
+      if (block.final != null && typeof block.final !== 'string') return null
+      return block
     },
     setParsed(block: any) {
-      this.parsed = block
+      this.parsed = JSON.parse(JSON.stringify(block))
       this.mode = this.hasConflicts ? 'merge' : 'replace'
       this.applyFinal = false
     },
@@ -193,6 +203,9 @@ export default {
       this.tabChanged()
     },
     parseJson() {
+      if (!this.$props.visible || this.closed) return
+      ++this.requestId
+      this.fetching = false
       this.error = ''
       this.parsed = null
       try {
@@ -207,52 +220,75 @@ export default {
       }
     },
     async fetchFromUrl() {
+      if (!this.$props.visible || this.closed) return
+      const requestId = ++this.requestId
+      const url = this.fetchUrl
       this.error = ''
       this.parsed = null
       this.fetching = true
       try {
-        const resp = await fetch(this.fetchUrl)
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-        const block = this.extractRouteBlock(await resp.json())
+        const resp = await fetch(url)
+        if (!resp.ok) throw new Error('HTTP ' + resp.status)
+        const obj = await resp.json()
+        if (requestId !== this.requestId || this.closed || !this.$props.visible) return
+        const block = this.extractRouteBlock(obj)
         if (!block) this.error = this.$t('rule.import.errNoArraysFetched')
         else this.setParsed(block)
       } catch (e: any) {
-        this.error = this.$t('rule.import.errFetch', { message: e.message })
+        if (requestId === this.requestId && !this.closed && this.$props.visible) this.error = this.$t('rule.import.errFetch', { message: e.message })
       } finally {
-        this.fetching = false
+        if (requestId === this.requestId) this.fetching = false
       }
     },
     async onFileUpload(files: File | File[] | null) {
+      if (!this.$props.visible || this.closed) return
+      const requestId = ++this.requestId
+      this.fetching = false
       this.error = ''
       this.parsed = null
       const file = Array.isArray(files) ? files[0] : files
-      if (!file) {
-        this.error = this.$t('rule.import.errNoFile')
-        return
-      }
+      if (!file) return
       try {
-        const block = this.extractRouteBlock(JSON.parse(await file.text()))
-        if (!block) {
-          this.error = this.$t('rule.import.errNoArraysInFile')
-          return
-        }
-        this.setParsed(block)
+        const text = await file.text()
+        if (requestId !== this.requestId || this.closed || !this.$props.visible) return
+        const block = this.extractRouteBlock(JSON.parse(text))
+        if (!block) this.error = this.$t('rule.import.errNoArraysInFile')
+        else this.setParsed(block)
       } catch (e: any) {
-        this.error = this.$t('rule.import.errJsonParse', { message: e.message })
-        return
+        if (requestId === this.requestId && !this.closed && this.$props.visible) this.error = this.$t('rule.import.errJsonParse', { message: e.message })
       }
     },
     save() {
-      if (!this.parsed) return
-      this.$emit('save', this.parsed, this.mode, this.applyFinal)
+      if (!this.$props.visible || this.closed || this.fetching || !this.parsed) return
+      this.$emit('save', JSON.parse(JSON.stringify(this.parsed)), this.mode, this.applyFinal)
     },
     close() {
+      this.closed = true
+      ++this.requestId
+      this.fetching = false
+      this.parsed = null
       this.$emit('close')
     },
   },
+  beforeUnmount() { ++this.requestId; this.closed = true },
   watch: {
-    visible(v: boolean) {
-      if (v) this.reset()
+    visible: {
+      immediate: true,
+      handler(v: boolean) {
+        this.closed = !v
+        ++this.requestId
+        this.fetching = false
+        if (v) this.reset()
+        else this.parsed = null
+      },
+    },
+    rawJson: {
+      flush: 'sync' as const,
+      handler() { ++this.requestId; this.parsed = null; this.fetching = false },
+    },
+    fetchUrl: {
+      flush: 'sync' as const,
+      handler() { ++this.requestId; this.parsed = null; this.fetching = false },
     },
   },
 }

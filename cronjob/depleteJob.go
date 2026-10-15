@@ -26,6 +26,8 @@ func (s *DepleteJob) Run() {
 		}
 	}
 	if xrayAuthorizationChanged {
+		// Run inside databaseJob's existing lease, before recovery can replace
+		// the database; do not detach or request a second lease during drain.
 		if err := (&service.XrayXHTTPService{}).ReloadAfterClientChange(); err != nil {
 			logger.Error("unable to refresh Xray XHTTP clients: ", err)
 		}

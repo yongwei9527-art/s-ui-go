@@ -1,4 +1,5 @@
 <template>
+  <template v-if="ready">
   <DnsVue
     v-model="dnsModal.visible"
     :visible="dnsModal.visible"
@@ -25,7 +26,7 @@
     <v-col cols="12" justify="center" align="center">
       <v-btn color="primary" @click="showDnsModal(-1)" style="margin: 0 5px;">{{ $t('dns.add') }}</v-btn>
       <v-btn color="primary" @click="showDnsRuleModal(-1)" style="margin: 0 5px;">{{ $t('dns.rule.add') }}</v-btn>
-      <v-btn variant="outlined" color="warning" @click="saveConfig" :loading="loading" :disabled="stateChange">
+      <v-btn variant="outlined" color="warning" @click="saveConfig" :loading="loading" :disabled="!ready || stateChange">
         {{ $t('actions.save') }}
       </v-btn>
     </v-col>
@@ -105,7 +106,7 @@
           <v-row>
             <v-col>{{ $t('objects.tls') }}</v-col>
             <v-col>
-              {{ Object.hasOwn(item,'tls') ? $t(item.type == 'tls' || item.tls?.enabled ? 'enable' : 'disable') : '-'  }}
+              {{ dnsTlsStatus(item) }}
             </v-col>
           </v-row>
         </v-card-text>
@@ -142,7 +143,7 @@
     <v-col class="dns-server-card-col" cols="12" sm="6" md="4" lg="3" xl="2" v-for="(item, index) in <any[]>dnsRules"
       :key="`${index}-${item.server ?? item.action ?? 'rule'}`"
       :draggable="true"
-      @dragstart="onDragStart(index)"
+      @dragstart="onDragStart(index)" @dragend="onDragEnd"
       @dragover.prevent
       @drop="onDrop(index)"
       >
@@ -206,35 +207,42 @@
       </v-card>
     </v-col>
   </v-row>
+  </template>
 </template>
 
 <script lang="ts" setup>
 import Data from '@/store/modules/data'
-import { computed, ref, onBeforeMount } from 'vue'
+import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import DnsVue from '@/layouts/modals/Dns.vue'
 import DnsRuleVue from '@/layouts/modals/DnsRule.vue'
 import { Config } from '@/types/config'
 import { actionDnsRuleKeys, dnsRule } from '@/types/dns'
 import { FindDiff } from '@/plugins/utils'
+import { i18n } from '@/locales'
+import { push } from 'notivue'
 
-const oldConfig = ref(<any>{})
+const oldConfig = ref<any>({})
 const loading = ref(false)
-const appConfig = computed((): Config => {
-  return <Config> Data().config
-})
+const appConfig = ref<Config>({} as Config)
+const ready = ref(false)
+let active = true
+onBeforeUnmount(() => { active = false })
 
-onBeforeMount( async () => {
-  // fix old configs
-  if (!appConfig.value.dns) appConfig.value.dns = { servers: [], rules: [] }
-  if (!appConfig.value.dns.servers) appConfig.value.dns.servers = []
-  if (!appConfig.value.dns.rules) appConfig.value.dns.rules = []
-  loading.value = true
-  while (Data().lastLoad === "") {
-    await new Promise(resolve => setTimeout(resolve, 100))
-  }
-  oldConfig.value = JSON.parse(JSON.stringify(Data().config))
-  loading.value = false
-})
+const copyConfig = (config: any): Config => {
+  const copy = JSON.parse(JSON.stringify(config))
+  copy.dns ??= {}
+  copy.dns.servers ??= []
+  copy.dns.rules ??= []
+  return copy
+}
+
+// Take one local draft; background store refreshes must not erase unsaved edits.
+watch(() => [Data().lastLoad, Data().config], () => {
+  if (ready.value || !Data().lastLoad || !Object.keys(Data().config).length) return
+  appConfig.value = copyConfig(Data().config)
+  oldConfig.value = copyConfig(appConfig.value)
+  ready.value = true
+}, { immediate: true })
 
 const tsTags = computed((): string[] => {
   return Data().endpoints?.filter((e:any) => e.type == "tailscale").map((e:any) => e.tag)
@@ -253,15 +261,45 @@ const stateChange = computed(() => {
     && FindDiff.deepCompare(appConfig.value.route,oldConfig.value.route)
 })
 
+const editableSections = ['dns', 'route'] as const
 const saveConfig = async () => {
-  loading.value = true
-  const dnsChanged = !FindDiff.deepCompare(appConfig.value.dns,oldConfig.value.dns)
-  const routeChanged = !FindDiff.deepCompare(appConfig.value.route,oldConfig.value.route)
-  if (dnsChanged || routeChanged) {
-    const success = await Data().save("config", "set", appConfig.value)
-    if (success) oldConfig.value = JSON.parse(JSON.stringify(Data().config))
+  if (!active || !ready.value || loading.value) return
+  const draft = copyConfig(appConfig.value)
+  const latest = copyConfig(Data().config)
+  const changed = editableSections.filter(key => !FindDiff.deepCompare(draft[key], oldConfig.value[key]))
+  if (changed.length === 0) return
+  // Do not overwrite a concurrently changed section with an older local draft.
+  if (changed.some(key => !FindDiff.deepCompare(latest[key], oldConfig.value[key]))) {
+    push.error({ title: i18n.global.t('failed'), message: 'Configuration changed elsewhere; reload before saving this section.' })
+    return
   }
-  loading.value = false
+  const submitted: any = latest
+  for (const key of changed) submitted[key] = draft[key]
+  loading.value = true
+  try {
+    const success = await Data().save('config', 'set', submitted)
+    if (success && active) {
+      const saved = copyConfig(Data().config)
+      // Rebase untouched sections even if another section was edited in flight.
+      // Otherwise the next save could mistake stale data for a new local edit.
+      const rebased: any = copyConfig(saved)
+      const baseline: any = copyConfig(saved)
+      for (const key of editableSections) {
+        if (!FindDiff.deepCompare(appConfig.value[key], draft[key])) {
+          rebased[key] = appConfig.value[key]
+          // A section edited only after submission may contain an unseen external
+          // update. Keep its original baseline so retry detects that conflict.
+          if (!FindDiff.deepCompare(draft[key], submitted[key])) baseline[key] = draft[key]
+        }
+      }
+      appConfig.value = rebased
+      oldConfig.value = baseline
+    }
+  } catch {
+    if (active) push.error({ title: i18n.global.t('failed') })
+  } finally {
+    loading.value = false
+  }
 }
 
 const inboundTags = computed((): string[] => {
@@ -275,6 +313,11 @@ const dns = computed((): any => {
   return appConfig.value.dns
 })
 
+const dnsTlsStatus = (server: any) => {
+  if (['tls', 'https', 'quic', 'h3'].includes(server.type)) return i18n.global.t('enable')
+  return Object.hasOwn(server, 'tls') ? i18n.global.t(server.tls?.enabled ? 'enable' : 'disable') : '-'
+}
+
 const dnsServerTags = computed((): string[] => {
   return dns.value?.servers?.filter((s:any) => s.tag && s.tag != "")?.map((s:any) => s.tag) ?? []
 })
@@ -286,7 +329,7 @@ const finalDns = computed({
 
 
 const dnsRules = computed((): dnsRule[] => {
-  return <dnsRule[]>dns.value.rules
+  return <dnsRule[]>(dns.value?.rules ?? [])
 })
 
 const ruleSets = computed((): string[] => {
@@ -295,6 +338,11 @@ const ruleSets = computed((): string[] => {
 
 let delDnsOverlay = ref(new Array<boolean>)
 let delDnsRuleOverlay = ref(new Array<boolean>)
+// Confirmations refer to positions; invalidate them before those positions move.
+watch(() => dns.value?.servers?.slice(), () => { delDnsOverlay.value = [] }, { flush: 'sync' })
+watch(() => dnsRules.value.slice(), () => { delDnsRuleOverlay.value = [] }, { flush: 'sync' })
+let dnsEditTarget: any = null
+let dnsRuleEditTarget: dnsRule | null = null
 
 const dnsModal = ref({
   visible: false,
@@ -303,6 +351,8 @@ const dnsModal = ref({
 })
 
 const showDnsModal = (index: number) => {
+  if (!Number.isInteger(index) || index < -1 || (index >= 0 && !dns.value.servers[index])) return
+  dnsEditTarget = index === -1 ? null : dns.value.servers[index]
   dnsModal.value.index = index
   dnsModal.value.data = index == -1 ? '' : JSON.stringify(dns.value.servers[index])
   dnsModal.value.visible = true
@@ -317,7 +367,9 @@ const saveDnsModal = (data:any) => {
   if (dnsModal.value.index == -1) {
     dns.value.servers.push(data)
   } else {
-    dns.value.servers[dnsModal.value.index] = data
+    const index = dns.value.servers.indexOf(dnsEditTarget)
+    if (index < 0) { closeDnsModal(); return }
+    dns.value.servers[index] = data
   }
   dnsModal.value.visible = false
 }
@@ -334,6 +386,8 @@ const dnsRuleModal = ref({
 })
 
 const showDnsRuleModal = (index: number) => {
+  if (!Number.isInteger(index) || index < -1 || (index >= 0 && !dnsRules.value[index])) return
+  dnsRuleEditTarget = index === -1 ? null : dnsRules.value[index]
   dnsRuleModal.value.index = index
   dnsRuleModal.value.data = index == -1 ? '' : JSON.stringify(dnsRules.value[index])
   dnsRuleModal.value.visible = true
@@ -348,7 +402,9 @@ const saveDnsRuleModal = (data:dnsRule) => {
   if (dnsRuleModal.value.index == -1) {
     dnsRules.value.push(data)
   } else {
-    dnsRules.value[dnsRuleModal.value.index] = data
+    const index = dnsRuleEditTarget === null ? -1 : dnsRules.value.indexOf(dnsRuleEditTarget)
+    if (index < 0) { closeDnsRuleModal(); return }
+    dnsRules.value[index] = data
   }
   dnsRuleModal.value.visible = false
 }
@@ -358,21 +414,19 @@ const delDnsRule = (index: number) => {
   delDnsRuleOverlay.value[index] = false
 }
 
-const draggedItemIndex = ref(null)
-
-const onDragStart = (index: any) => {
-  draggedItemIndex.value = index
+let draggedRule: any = null
+const onDragStart = (index: number) => {
+  draggedRule = Number.isInteger(index) ? dnsRules.value[index] ?? null : null
+}
+const onDragEnd = () => { draggedRule = null }
+const onDrop = (index: number) => {
+  const source = dnsRules.value.indexOf(draggedRule)
+  onDragEnd()
+  if (source < 0 || !Number.isInteger(index) || index < 0 || index >= dnsRules.value.length) return
+  const [rule] = dnsRules.value.splice(source, 1)
+  dnsRules.value.splice(index, 0, rule)
 }
 
-const onDrop = (index: any) => {
-  if (draggedItemIndex.value !== null) {
-    // Swap the dragged item with the dropped one
-    const draggedItem = dnsRules.value[draggedItemIndex.value]
-    dnsRules.value.splice(draggedItemIndex.value, 1)
-    dnsRules.value.splice(index, 0, draggedItem)
-    draggedItemIndex.value = null
-  }
-}
 </script>
 
 <style scoped>

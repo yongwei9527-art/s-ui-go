@@ -14,17 +14,20 @@
   <v-card-text>
     <v-row align="center" justify="center" style="margin-bottom: 10px;">
       <v-col cols="auto">
-        <v-btn color="primary" @click="save" :loading="loading" :disabled="!stateChange">
+        <v-btn color="primary" @click="save" :loading="loading" :disabled="!ready || !stateChange">
           {{ $t('actions.save') }}
         </v-btn>
       </v-col>
       <v-col cols="auto">
-        <v-btn variant="outlined" color="warning" @click="restartApp" :loading="loading" :disabled="stateChange">
+        <v-btn variant="outlined" color="warning" @click="restartApp" :loading="loading" :disabled="!ready || stateChange">
           {{ $t('actions.restartApp') }}
         </v-btn>
       </v-col>
+      <v-col cols="auto" v-if="!ready && !loading">
+        <v-btn variant="outlined" @click="loadData">{{ $t('actions.update') }}</v-btn>
+      </v-col>
     </v-row>
-    <v-window v-model="tab">
+    <v-window v-if="ready" v-model="tab">
       <v-window-item value="t1">
         <v-row>
           <v-col cols="12" sm="6" md="4">
@@ -142,7 +145,7 @@
 
 <script lang="ts" setup>
 import { i18n } from '@/locales'
-import { Ref, computed, inject, onMounted, ref } from 'vue'
+import { Ref, computed, inject, onMounted, onBeforeUnmount, ref } from 'vue'
 import HttpUtils from '@/plugins/httputil'
 import { FindDiff } from '@/plugins/utils'
 import SubJsonExtVue from '@/components/SubJsonExt.vue'
@@ -150,7 +153,19 @@ import SubClashExtVue from '@/components/SubClashExt.vue'
 import { push } from 'notivue'
 const tab = ref("t1")
 const loading:Ref = inject('loading')?? ref(false)
-const oldSettings = ref({})
+const oldSettings = ref<any>({})
+const ready = ref(false)
+let active = true
+let loadRequest = 0
+let restartTimer: ReturnType<typeof setTimeout> | undefined
+let finishRestartWait: (() => void) | undefined
+onBeforeUnmount(() => {
+  active = false
+  loadRequest++
+  if (restartTimer !== undefined) clearTimeout(restartTimer)
+  finishRestartWait?.()
+  loading.value = false
+})
 
 const settings = ref({
   webListen: "",
@@ -177,70 +192,96 @@ const settings = ref({
   subClashExt: "",
 })
 
-onMounted(async () => {
-  loading.value = true
-  await loadData()
-  loading.value = false
-})
+onMounted(() => { void loadData() })
 
+const copy = (data: any) => JSON.parse(JSON.stringify(data))
 const loadData = async () => {
+  if (!active) return
+  const request = ++loadRequest
+  const draft = copy(settings.value)
   loading.value = true
-  const msg = await HttpUtils.get('api/settings')
-  loading.value = false
-  if (msg.success) {
-    setData(msg.obj)
+  try {
+    const msg = await HttpUtils.get('api/settings')
+    if (!active || request !== loadRequest || !msg.success) return
+    if (FindDiff.deepCompare(settings.value, draft)) setData(msg.obj)
+  } catch {
+    if (active && request === loadRequest) push.error({ title: i18n.global.t('failed') })
+  } finally {
+    if (active && request === loadRequest) loading.value = false
   }
 }
 
 const setData = (data: any) => {
-  settings.value = data
-  oldSettings.value = { ...data }
+  if (!data || typeof data !== 'object' || Array.isArray(data) || Object.keys(data).length === 0) return
+  settings.value = copy(data)
+  oldSettings.value = copy(data)
+  ready.value = true
 }
 
 const save = async () => {
+  if (!active || !ready.value || loading.value) return
+  const submitted = copy(settings.value)
   loading.value = true
-  const msg = await HttpUtils.post('api/save', { object: 'settings', action: 'set', data: JSON.stringify(settings.value) })
-  if (msg.success) {
-    push.success({
-      title: i18n.global.t('success'),
-      duration: 5000,
-      message: i18n.global.t('actions.set') + " " + i18n.global.t('pages.settings')
-    })
-    setData(msg.obj.settings)
+  try {
+    const msg = await HttpUtils.post('api/save', { object: 'settings', action: 'set', data: JSON.stringify(submitted) })
+    if (active && msg.success && msg.obj?.settings) {
+      push.success({
+        title: i18n.global.t('success'), duration: 5000,
+        message: i18n.global.t('actions.set') + ' ' + i18n.global.t('pages.settings'),
+      })
+      const saved = copy(msg.obj.settings)
+      // A response acknowledges the submitted snapshot, not edits made afterwards.
+      if (FindDiff.deepCompare(settings.value, submitted)) settings.value = copy(saved)
+      oldSettings.value = saved
+    }
+  } catch {
+    if (active) push.error({ title: i18n.global.t('failed') })
+  } finally {
+    if (active) loading.value = false
   }
-  loading.value = false
 }
 
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+const sleep = (ms: number) => new Promise<void>(resolve => {
+  finishRestartWait = resolve
+  restartTimer = setTimeout(() => {
+    restartTimer = undefined
+    finishRestartWait = undefined
+    resolve()
+  }, ms)
+})
 
 const restartApp = async () => {
+  if (!active || !ready.value || loading.value || stateChange.value) return
   loading.value = true
-  const msg = await HttpUtils.post('api/restartApp',{})
-  if (msg.success) {
-    let url = settings.value.webURI
-    if (url === "") {
-      const isTLS = settings.value.webCertFile !== "" && settings.value.webKeyFile !== ""
-      url = buildURL(settings.value.webDomain,settings.value.webPort.toString(),isTLS, settings.value.webPath)
+  try {
+    // Use saved settings and reject active-content URLs before restarting.
+    const saved = copy(oldSettings.value)
+    const isTLS = !!saved.webCertFile && !!saved.webKeyFile
+    const target = saved.webURI || buildURL(saved.webDomain, String(saved.webPort), isTLS, saved.webPath)
+    const url = new URL(target, window.location.href)
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('Invalid panel URL')
+    const msg = await HttpUtils.post('api/restartApp', {})
+    if (msg.success && active) {
+      await sleep(3000)
+      if (active) window.location.replace(url.href)
     }
-    await sleep(3000)
-    window.location.replace(url)
+  } catch {
+    if (active) push.error({ title: i18n.global.t('failed') })
+  } finally {
+    if (active) loading.value = false
   }
-  loading.value = false
 }
 
 const buildURL = (host: string, port: string, isTLS: boolean, path: string) => {
-  if (!host || host.length == 0) host = window.location.hostname
-  if (!port || port.length == 0) port = window.location.port
-
-  const protocol = isTLS ? "https:" : "http:"
-
-  if (port === "" || (isTLS && port === "443") || (!isTLS && port === "80")) {
-      port = ""
-  } else {
-      port = `:${port}`
-  }
-
-  return `${protocol}//${host}${port}${path}settings`
+  host = host || window.location.hostname
+  port = port || window.location.port
+  // URL requires brackets around literal IPv6 hosts.
+  if (host.includes(':') && !host.startsWith('[')) host = '[' + host + ']'
+  const protocol = isTLS ? 'https:' : 'http:'
+  const portPart = !port || (isTLS && port === '443') || (!isTLS && port === '80') ? '' : ':' + port
+  const basePath = '/' + (path || '').replace(/^\/+|\/+$/g, '')
+  const normalizedPath = basePath === '/' ? '/' : basePath + '/'
+  return new URL(protocol + '//' + host + portPart + normalizedPath + 'settings').href
 }
 
 const subEncode = computed({
@@ -275,7 +316,7 @@ const subPort = computed({
 
 const subUpdates = computed({
   get: () => { return settings.value.subUpdates.length>0 ? parseInt(settings.value.subUpdates) : 12 },
-  set: (v:number) => { settings.value.subUpdates = v>0 ? v.toString() : "12" }
+  set: (v:number) => { if (Number.isInteger(v) && v >= 0) settings.value.subUpdates = v.toString() }
 })
 
 const stateChange = computed(() => {

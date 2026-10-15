@@ -1,4 +1,5 @@
 <template>
+  <template v-if="ready">
   <RuleVue
     v-model="ruleModal.visible"
     :visible="ruleModal.visible"
@@ -62,7 +63,7 @@
           </v-list-item>
         </v-list>
       </v-menu>
-      <v-btn variant="outlined" color="warning" @click="saveConfig" :loading="loading" :disabled="stateChange">
+      <v-btn variant="outlined" color="warning" @click="saveConfig" :loading="loading" :disabled="!ready || stateChange">
         {{ $t('actions.save') }}
       </v-btn>
     </v-col>
@@ -73,7 +74,7 @@
       <v-row>
         <v-col cols="12" sm="6" md="3" lg="2">
           <v-select hide-details :label="$t('basic.routing.defaultOut')" clearable
-            @click:clear="delete route.final" :items="outboundTags" v-model="route.final"></v-select>
+            @click:clear="delete route.final" :items="outboundTags" v-model="finalOutbound"></v-select>
         </v-col>
         <v-col cols="12" sm="6" md="3" lg="2">
           <v-text-field v-model="route.default_interface" hide-details clearable
@@ -126,7 +127,7 @@
     <v-col class="v-card-subtitle route-section-title" cols="12">{{ $t('pages.rules') }}</v-col>
     <v-col class="route-card-col" cols="12" sm="6" md="4" lg="3" xl="2" v-for="(item, index) in <any[]>rules"
         :key="item.id" :draggable="true"
-        @dragstart="onDragStart(index)" @dragover.prevent @drop="onDrop(index)">
+        @dragstart="onDragStart(index)" @dragend="onDragEnd" @dragover.prevent @drop="onDrop(index)">
       <v-card class="route-card" rounded="xl" elevation="5" :title="index+1">
         <v-card-subtitle style="margin-top: -15px;">
           <v-row><v-col>{{ item.type != undefined ? $t('rule.logical') + ' (' + item.mode + ')' : $t('rule.simple') }}</v-col></v-row>
@@ -159,11 +160,12 @@
       </v-card>
     </v-col>
   </v-row>
+  </template>
 </template>
 
 <script lang="ts" setup>
 import Data from '@/store/modules/data'
-import { computed, ref, onBeforeMount } from 'vue'
+import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import RuleVue from '@/layouts/modals/Rule.vue'
 import RulesetVue from '@/layouts/modals/Ruleset.vue'
 import RulesetImport from '@/layouts/modals/RulesetImport.vue'
@@ -171,21 +173,39 @@ import RuleImport from '@/layouts/modals/RuleImport.vue'
 import { Config } from '@/types/config'
 import { actionKeys, ruleset } from '@/types/rules'
 import { FindDiff } from '@/plugins/utils'
+import { i18n } from '@/locales'
+import { push } from 'notivue'
 
-const oldConfig = ref({})
+const oldConfig = ref<any>({})
 const loading = ref(false)
 const actionMenu = ref(false)
-const appConfig = computed((): Config => {
-  return <Config> Data().config
-})
+const appConfig = ref<Config>({} as Config)
+const ready = ref(false)
+let active = true
+onBeforeUnmount(() => { active = false })
 
-onBeforeMount(async () => {
-  loading.value = true
-  while (Data().lastLoad === "") {
-    await new Promise(resolve => setTimeout(resolve, 100))
-  }
-  oldConfig.value = JSON.parse(JSON.stringify(Data().config))
-  loading.value = false
+const copyConfig = (config: any): Config => {
+  const copy = JSON.parse(JSON.stringify(config))
+  copy.route ??= {}
+  copy.route.rules ??= []
+  copy.route.rule_set ??= []
+  return copy
+}
+
+// Take one local draft; background store refreshes must not erase unsaved edits.
+watch(() => [Data().lastLoad, Data().config], () => {
+  if (ready.value || !Data().lastLoad || !Object.keys(Data().config).length) return
+  appConfig.value = copyConfig(Data().config)
+  oldConfig.value = copyConfig(appConfig.value)
+  ready.value = true
+}, { immediate: true })
+
+const finalOutbound = computed({
+  get: () => appConfig.value.route?.final ?? '',
+  set: (value: string | null | undefined) => {
+    if (typeof value === 'string' && value.length > 0) appConfig.value.route.final = value
+    else delete appConfig.value.route.final
+  },
 })
 
 const routeMark = computed({
@@ -195,17 +215,49 @@ const routeMark = computed({
 
 const stateChange = computed(() => FindDiff.deepCompare(appConfig.value, oldConfig.value))
 
+const editableSections = ['route'] as const
 const saveConfig = async () => {
+  if (!active || !ready.value || loading.value) return
+  const draft = copyConfig(appConfig.value)
+  const latest = copyConfig(Data().config)
+  const changed = editableSections.filter(key => !FindDiff.deepCompare(draft[key], oldConfig.value[key]))
+  if (changed.length === 0) return
+  // Do not overwrite a concurrently changed section with an older local draft.
+  if (changed.some(key => !FindDiff.deepCompare(latest[key], oldConfig.value[key]))) {
+    push.error({ title: i18n.global.t('failed'), message: 'Configuration changed elsewhere; reload before saving this section.' })
+    return
+  }
+  const submitted: any = latest
+  for (const key of changed) submitted[key] = draft[key]
   loading.value = true
-  const success = await Data().save("config", "set", appConfig.value)
-  if (success) {
-    oldConfig.value = JSON.parse(JSON.stringify(Data().config))
+  try {
+    const success = await Data().save('config', 'set', submitted)
+    if (success && active) {
+      const saved = copyConfig(Data().config)
+      // Rebase untouched sections even if another section was edited in flight.
+      // Otherwise the next save could mistake stale data for a new local edit.
+      const rebased: any = copyConfig(saved)
+      const baseline: any = copyConfig(saved)
+      for (const key of editableSections) {
+        if (!FindDiff.deepCompare(appConfig.value[key], draft[key])) {
+          rebased[key] = appConfig.value[key]
+          // A section edited only after submission may contain an unseen external
+          // update. Keep its original baseline so retry detects that conflict.
+          if (!FindDiff.deepCompare(draft[key], submitted[key])) baseline[key] = draft[key]
+        }
+      }
+      appConfig.value = rebased
+      oldConfig.value = baseline
+    }
+  } catch {
+    if (active) push.error({ title: i18n.global.t('failed') })
+  } finally {
     loading.value = false
   }
 }
 
 const clients = computed((): string[] => Data().clients.map((c:any) => c.name))
-const route = computed((): any => appConfig.value.route ?? {})
+const route = computed((): any => appConfig.value.route)
 
 const rules = computed((): any[] => {
   const data = route.value
@@ -235,9 +287,16 @@ const inboundTags = computed((): string[] => [
 
 let delRuleOverlay = ref(new Array<boolean>)
 let delRulesetOverlay = ref(new Array<boolean>)
+// Confirmations refer to positions; invalidate them before those positions move.
+watch(() => rules.value.slice(), () => { delRuleOverlay.value = [] }, { flush: 'sync' })
+watch(() => rulesets.value.slice(), () => { delRulesetOverlay.value = [] }, { flush: 'sync' })
+let ruleEditTarget: any = null
+let rulesetEditTarget: ruleset | null = null
 
 const ruleModal = ref({ visible: false, index: -1, data: "" })
 const showRuleModal = (index: number) => {
+  if (!Number.isInteger(index) || index < -1 || (index >= 0 && !rules.value[index])) return
+  ruleEditTarget = index === -1 ? null : rules.value[index]
   ruleModal.value.index = index
   ruleModal.value.data = index == -1 ? '' : JSON.stringify(rules.value[index])
   ruleModal.value.visible = true
@@ -245,13 +304,19 @@ const showRuleModal = (index: number) => {
 const closeRuleModal = () => { ruleModal.value.visible = false }
 const saveRuleModal = (data:any) => {
   if (ruleModal.value.index == -1) rules.value.push(data)
-  else rules.value[ruleModal.value.index] = data
+  else {
+    const index = rules.value.indexOf(ruleEditTarget)
+    if (index < 0) { closeRuleModal(); return }
+    rules.value[index] = data
+  }
   ruleModal.value.visible = false
 }
 const delRule = (index: number) => { rules.value.splice(index, 1); delRuleOverlay.value[index] = false }
 
 const rulesetModal = ref({ visible: false, index: -1, data: "" })
 const showRulesetModal = (index: number) => {
+  if (!Number.isInteger(index) || index < -1 || (index >= 0 && !rulesets.value[index])) return
+  rulesetEditTarget = index === -1 ? null : rulesets.value[index]
   rulesetModal.value.index = index
   rulesetModal.value.data = index == -1 ? '' : JSON.stringify(rulesets.value[index])
   rulesetModal.value.visible = true
@@ -259,20 +324,26 @@ const showRulesetModal = (index: number) => {
 const closeRulesetModal = () => { rulesetModal.value.visible = false }
 const saveRulesetModal = (data:ruleset) => {
   if (rulesetModal.value.index == -1) rulesets.value.push(data)
-  else rulesets.value[rulesetModal.value.index] = data
+  else {
+    const index = rulesets.value.indexOf(rulesetEditTarget)
+    if (index < 0) { closeRulesetModal(); return }
+    rulesets.value[index] = data
+  }
   rulesetModal.value.visible = false
 }
 const delRuleset = (index: number) => { rulesets.value.splice(index, 1); delRulesetOverlay.value[index] = false }
 
-const draggedItemIndex = ref(null)
-const onDragStart = (index: any) => { draggedItemIndex.value = index }
-const onDrop = (index: any) => {
-  if (draggedItemIndex.value !== null) {
-    const draggedItem = rules.value[draggedItemIndex.value]
-    rules.value.splice(draggedItemIndex.value, 1)
-    rules.value.splice(index, 0, draggedItem)
-    draggedItemIndex.value = null
-  }
+let draggedRule: any = null
+const onDragStart = (index: number) => {
+  draggedRule = Number.isInteger(index) ? rules.value[index] ?? null : null
+}
+const onDragEnd = () => { draggedRule = null }
+const onDrop = (index: number) => {
+  const source = rules.value.indexOf(draggedRule)
+  onDragEnd()
+  if (source < 0 || !Number.isInteger(index) || index < 0 || index >= rules.value.length) return
+  const [rule] = rules.value.splice(source, 1)
+  rules.value.splice(index, 0, rule)
 }
 
 const importRulesModal = ref({ visible: false })
@@ -294,7 +365,7 @@ function saveImportRule(block: any, mode: 'merge' | 'replace', applyFinal: boole
     if (block.rules) rules.value.push(...block.rules)
     if (block.rule_set) {
       for (const rs of block.rule_set) {
-        if (!existingTags.has(rs.tag)) rulesets.value.push(rs)
+        if (!existingTags.has(rs.tag)) { rulesets.value.push(rs); existingTags.add(rs.tag) }
       }
     }
   }

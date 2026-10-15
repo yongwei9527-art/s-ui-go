@@ -39,7 +39,7 @@
           <v-row>
             <v-col>{{ $t('objects.tls') }}</v-col>
             <v-col>
-              {{ item.tls_id > 0 ? $t('enable') : $t('disable') }}
+              {{ tlsEnabled(item.tls_id) ? $t('enable') : $t('disable') }}
             </v-col>
           </v-row>
         </v-card-text>
@@ -76,7 +76,7 @@
 <script lang="ts" setup>
 import Data from '@/store/modules/data'
 import { Srv } from '@/types/services'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import ServiceVue from '@/layouts/modals/Service.vue'
 
 const services = computed((): Srv[] => {
@@ -102,6 +102,7 @@ const inTags = computed((): any[] => {
 const tlsConfigs = computed((): any[] => {
   return <any[]> Data().tlsConfigs
 })
+const tlsEnabled = (id: number) => id > 0 && !!tlsConfigs.value.find(t => t.id === id)?.server?.enabled
 
 const modal = ref({
   visible: false,
@@ -110,10 +111,16 @@ const modal = ref({
 })
 
 let delOverlay = ref(new Array<boolean>)
+// Index-based confirmations cannot survive a row deletion/reorder.
+watch(() => services.value.map(item => [item.id, item.tag]), () => {
+  delOverlay.value = []
+}, { flush: 'sync' })
 
 const showModal = (id: number) => {
+  const item = services.value.findLast(o => o.id === id)
+  if (id !== 0 && !item) return
   modal.value.id = id
-  modal.value.data = id == 0 ? '' : JSON.stringify(services.value.findLast(o => o.id == id))
+  modal.value.data = id === 0 ? '' : JSON.stringify(item)
   modal.value.visible = true
 }
 
@@ -122,10 +129,9 @@ const closeModal = () => {
 }
 
 const delSrv = async (id: number) => {
-  const index = services.value.findIndex(i => i.id == id)
-  const tag = services.value[index].tag
-
-  const success = await Data().save("services", "del", tag)
-  if (success) delOverlay.value[index] = false
+  const item = services.value.find(item => item.id === id)
+  if (!item) return
+  const success = await Data().save('services', 'del', item.tag)
+  if (success) delOverlay.value = []
 }
 </script>

@@ -398,7 +398,7 @@ func (a *ApiService) ImportDb(c *gin.Context) {
 		return
 	}
 	defer file.Close()
-	err = database.ImportDB(file)
+	err = database.ImportDBContext(c.Request.Context(), file)
 	jsonMsg(c, "", err)
 }
 

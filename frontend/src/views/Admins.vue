@@ -72,42 +72,47 @@ import ChangeModal  from '@/layouts/modals/Changes.vue'
 import TokenModal from '@/layouts/modals/Token.vue'
 import { i18n } from '@/locales'
 import HttpUtils from '@/plugins/httputil'
-import { Ref, ref, inject, onMounted } from 'vue'
+import { push } from 'notivue'
+import { Ref, ref, inject, onMounted, onBeforeUnmount } from 'vue'
 
 const loading:Ref = inject('loading')?? ref(false)
 
 const users = ref(<any[]>[])
 
-onMounted(async () => {
-  loading.value = true
-  await loadData()
-  loading.value = false
-})
+let active = true
+let loadRequest = 0
+let pendingRequests = 0
+let saving = false
+onBeforeUnmount(() => { active = false; loadRequest++; loading.value = false })
+const beginRequest = () => { pendingRequests++; loading.value = true }
+const endRequest = () => { pendingRequests--; if (active) loading.value = pendingRequests > 0 }
+onMounted(() => { void loadData() })
 
 const loadData = async () => {
-  loading.value = true
-  const msg = await HttpUtils.get('api/users')
-  loading.value = false
-  if (msg.success) {
-    msg.obj.forEach((u:any) => {
-      const lastLogin = u.lastLogin.split(" ")
-      const localLastLogin = lastLogin.length > 2 ? dateFormatted(Date.parse(lastLogin[0] + " " + lastLogin[1])) : "- -"
-      const loginDateTime = localLastLogin.split(" ")
-      users.value.push({
-        id: u.id,
-        username: u.username,
-        loginDate: loginDateTime[0],
-        loginTime: loginDateTime[1],
-        ip: lastLogin[2]?? "-",
+  if (!active) return
+  const request = ++loadRequest
+  beginRequest()
+  try {
+    const msg = await HttpUtils.get('api/users')
+    if (active && request === loadRequest && msg.success && Array.isArray(msg.obj)) {
+      const locale = i18n.global.locale.value.replace('zh', 'zh-')
+      users.value = msg.obj.map((u: any) => {
+        const lastLogin = (typeof u.lastLogin === 'string' ? u.lastLogin : '').split(' ')
+        const date = new Date(lastLogin[0] + ' ' + lastLogin[1])
+        const valid = lastLogin.length > 2 && Number.isFinite(date.getTime())
+        return {
+          id: u.id, username: u.username,
+          loginDate: valid ? date.toLocaleDateString(locale) : '-',
+          loginTime: valid ? date.toLocaleTimeString(locale) : '-',
+          ip: lastLogin[2] || '-',
+        }
       })
-    })
+    }
+  } catch {
+    if (active && request === loadRequest) push.error({ title: i18n.global.t('failed') })
+  } finally {
+    endRequest()
   }
-}
-
-const dateFormatted = (dt: number): string => {
-  const locale = i18n.global.locale.value.replace('zh', 'zh-')
-  const date = new Date(dt)
-  return date.toLocaleString(locale)
 }
 
 const editModal = ref({
@@ -115,24 +120,35 @@ const editModal = ref({
   user: {},
 })
 
+let editSession = 0
 const showEditModal = (user: any) => {
+  editSession++
   editModal.value.user = user
   editModal.value.visible = true
 }
 const closeEditModal = () => {
+  editSession++
   editModal.value.visible = false
   editModal.value.user = {}
 }
 const saveEditModal = async (data:any) => {
-  loading.value=true
-  const response = await HttpUtils.post('api/changePass',data)
-  if(response.success){
-    setTimeout(() => {
-      loading.value=false
-      editModal.value.visible = false
-    }, 500)
-  } else {
-    loading.value=false
+  if (!active || saving) return
+  saving = true
+  const session = editSession
+  const submitted = JSON.parse(JSON.stringify(data))
+  beginRequest()
+  try {
+    const response = await HttpUtils.post('api/changePass', submitted)
+    if (response.success && active) {
+      const user = users.value.find(user => user.id === submitted.id)
+      if (user) user.username = submitted.newUsername
+      if (session === editSession) closeEditModal()
+    }
+  } catch {
+    if (active) push.error({ title: i18n.global.t('failed') })
+  } finally {
+    saving = false
+    endRequest()
   }
 }
 

@@ -61,7 +61,7 @@
           <v-row>
             <v-col>{{ $t('objects.tls') }}</v-col>
             <v-col>
-              {{ item.tls_id > 0 ? $t('enable') : $t('disable') }}
+              {{ tlsEnabled(item.tls_id) ? $t('enable') : $t('disable') }}
             </v-col>
           </v-row>
           <v-row>
@@ -129,10 +129,12 @@ import Data from '@/store/modules/data'
 import InboundVue from '@/layouts/modals/Inbound.vue'
 import Stats from '@/layouts/modals/Stats.vue'
 import { Config } from '@/types/config'
-import { computed, ref } from 'vue'
+import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import { createInbound, Inbound } from '@/types/inbounds'
 import RandomUtil from '@/plugins/randomUtil'
 import { useOneTimeNotice } from '@/composables/useOneTimeNotice'
+import { push } from 'notivue'
+import { i18n } from '@/locales'
 
 const { visible: defaultProtocolNoticeVisible, show: showDefaultProtocolNotice } = useOneTimeNotice(
   's-ui.inbound-default-protocol-notice.v1'
@@ -149,13 +151,14 @@ const inbounds = computed((): Inbound[] => {
 const tlsConfigs = computed((): any[] => {
   return <any[]> Data().tlsConfigs
 })
+const tlsEnabled = (id: number) => id > 0 && !!tlsConfigs.value.find(t => t.id === id)?.server?.enabled
 
 const inTags = computed((): string[] => {
   return [...inbounds.value?.map(i => i.tag), ...Data().endpoints?.filter((e:any) => e.listen_port > 0).map((e:any) => e.tag)]
 })
 
 const onlines = computed(() => {
-  return Data().onlines.inbound?? []
+  return Data().onlines?.inbound?? []
 })
 
 const modal = ref({
@@ -164,6 +167,10 @@ const modal = ref({
 })
 
 let delOverlay = ref(new Array<boolean>)
+// Index-based confirmations cannot survive a row deletion/reorder.
+watch(() => inbounds.value.map(item => [item.id, item.tag]), () => {
+  delOverlay.value = []
+}, { flush: 'sync' })
 
 const showModal = (id: number) => {
   modal.value.id = id
@@ -174,27 +181,33 @@ const closeModal = () => {
 }
 
 const delInbound = async (id: number) => {
-  const index = inbounds.value.findIndex(i => i.id == id)
-  const tag = inbounds.value[index].tag
-
-  const success = await Data().save("inbounds", "del", tag)
-  if (success) delOverlay.value[index] = false
+  const item = inbounds.value.find(item => item.id === id)
+  if (!item) return
+  const success = await Data().save('inbounds', 'del', item.tag)
+  if (success) delOverlay.value = []
 }
 
 let cloneLoading = ref(false)
 
+let active = true
+onBeforeUnmount(() => { active = false; cloneLoading.value = false })
 const clone = async (id: number) => {
+  if (!active || cloneLoading.value) return
   cloneLoading.value = true
-  const inboundArray = await Data().loadInbounds([id])
-  const inbound = inboundArray[0]
-  let newTag = inbound.type + "-" + RandomUtil.randomSeq(3)
-  const newInbound = createInbound(inbound.type, { ...inbound,
-    id: 0,
-    tag: newTag,
-    listen_port: RandomUtil.randomIntRange(10000, 60000),
-  })
-  await Data().save("inbounds", "new", newInbound)
-  cloneLoading.value = false
+  try {
+    const inboundArray = await Data().loadInbounds([id])
+    const inbound = inboundArray?.[0]
+    if (!active || !inbound?.type) return
+    const newInbound = createInbound(inbound.type, {
+      ...inbound, id: 0, tag: inbound.type + '-' + RandomUtil.randomSeq(3),
+      listen_port: RandomUtil.randomIntRange(10000, 60000),
+    })
+    await Data().save('inbounds', 'new', newInbound)
+  } catch {
+    if (active) push.error({ title: i18n.global.t('failed') })
+  } finally {
+    cloneLoading.value = false
+  }
 }
 
 const stats = ref({

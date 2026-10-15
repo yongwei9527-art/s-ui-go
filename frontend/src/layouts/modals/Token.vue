@@ -5,7 +5,7 @@
         <v-row>
           <v-col>{{ $t('admin.api.title') }}</v-col>
           <v-spacer></v-spacer>
-          <v-col cols="auto"><v-icon icon="mdi-close-box" @click="$emit('close')" /></v-col>
+          <v-col cols="auto"><v-icon icon="mdi-close-box" @click="closeModal" /></v-col>
         </v-row>
       </v-card-title>
       <v-divider></v-divider>
@@ -137,8 +137,14 @@ import { push } from 'notivue';
 
 export default {
   props: ['visible', 'user'],
+  emits: ['close'],
   data() {
     return {
+      requestId: 0,
+      loadRequestId: 0,
+      fetching: false,
+      mutating: false,
+      closed: false,
       loading: false,
       tokens: <any[]>[],
       showNewToken: false,
@@ -163,13 +169,26 @@ export default {
   },
   methods: {
     async loadData() {
+      if (!this.$props.visible || this.closed) return
+      const requestId = this.requestId
+      const loadRequestId = ++this.loadRequestId
+      this.fetching = true
       this.loading = true
-      const data = await HttpUtils.get('api/tokens')
-      if (data.success) {
-        this.tokens = data.obj ?? []
-        this.delOverlay = new Array<boolean>(this.tokens.length).fill(false)
+      try {
+        const data = await HttpUtils.get('api/tokens')
+        if (requestId !== this.requestId || loadRequestId !== this.loadRequestId || this.closed || !this.$props.visible) return
+        if (data?.success) {
+          this.tokens = Array.isArray(data.obj) ? data.obj.filter((token: any) => token && typeof token === 'object') : []
+          this.delOverlay = new Array<boolean>(this.tokens.length).fill(false)
+        }
+      } catch {
+        if (requestId === this.requestId && loadRequestId === this.loadRequestId && !this.closed && this.$props.visible) push.error({ message: i18n.global.t('failed') })
+      } finally {
+        if (requestId === this.requestId && loadRequestId === this.loadRequestId) {
+          this.fetching = false
+          this.loading = this.mutating
+        }
       }
-      this.loading = false
     },
     resetNewToken() {
       this.newToken={
@@ -179,27 +198,56 @@ export default {
         }
     },
     showAddToken() {
+      if (!this.$props.visible || this.closed || this.mutating) return
       this.resetNewToken()
       this.showNewToken = true
     },
     async addToken() {
-      this.loading = true
-      this.newToken.expiry = this.newToken.expiry>0 ? this.newToken.expiry : 0
-      const response = await HttpUtils.post('api/addToken', { desc: this.newToken.desc, expiry: this.newToken.expiry })
-      if (response.success) {
-        this.newToken.token = response.obj
-        this.loadData()
-        this.showNewToken = false
+      if (!this.$props.visible || this.closed || this.mutating || !this.showNewToken) return
+      const expiry = Number(this.newToken.expiry)
+      if (!Number.isInteger(expiry) || expiry < 0) {
+        push.error({ message: i18n.global.t('failed') })
+        return
       }
-      this.loading = false
+      const requestId = this.requestId
+      const draft = this.newToken
+      this.mutating = true
+      this.loading = true
+      try {
+        const response = await HttpUtils.post('api/addToken', { desc: draft.desc ?? '', expiry })
+        if (requestId !== this.requestId || this.closed || !this.$props.visible) return
+        if (response?.success) {
+          if (draft === this.newToken && typeof response.obj === 'string') {
+            draft.token = response.obj
+            this.showNewToken = false
+          }
+          await this.loadData()
+        }
+      } catch {
+        if (requestId === this.requestId && !this.closed && this.$props.visible) push.error({ message: i18n.global.t('failed') })
+      } finally {
+        if (requestId === this.requestId) {
+          this.mutating = false
+          this.loading = this.fetching
+        }
+      }
     },
     async deleteToken(id: number) {
+      if (!this.$props.visible || this.closed || this.mutating) return
+      const requestId = this.requestId
+      this.mutating = true
       this.loading = true
-      const response = await HttpUtils.post('api/deleteToken', { id: id })
-      if (response.success) {
-        this.loadData()
+      try {
+        const response = await HttpUtils.post('api/deleteToken', { id })
+        if (requestId === this.requestId && !this.closed && this.$props.visible && response?.success) await this.loadData()
+      } catch {
+        if (requestId === this.requestId && !this.closed && this.$props.visible) push.error({ message: i18n.global.t('failed') })
+      } finally {
+        if (requestId === this.requestId) {
+          this.mutating = false
+          this.loading = this.fetching
+        }
       }
-      this.loading = false
     },
     dateFormatted(expiry: number) {
       if (expiry == 0) return i18n.global.t('unlimited')
@@ -240,16 +288,36 @@ export default {
       hiddenButton.click()
       document.body.removeChild(hiddenButton)
     },
+    invalidate() {
+      ++this.requestId
+      ++this.loadRequestId
+      this.fetching = false
+      this.mutating = false
+      this.loading = false
+      this.tokens = []
+      this.delOverlay = []
+      this.showNewToken = false
+      this.resetNewToken()
+    },
     closeModal() {
+      this.closed = true
+      this.invalidate()
       this.$emit('close')
     },
   },
+  beforeUnmount() { this.closed = true; this.invalidate() },
   watch: {
-    visible(v) {
-      if (v) {
-        this.resetNewToken()
-        this.loadData()
-      }
+    visible: {
+      immediate: true,
+      handler(v: boolean) {
+        this.closed = !v
+        this.invalidate()
+        if (v) this.loadData()
+      },
+    },
+    user() {
+      this.invalidate()
+      if (this.$props.visible && !this.closed) this.loadData()
     },
   },
 }

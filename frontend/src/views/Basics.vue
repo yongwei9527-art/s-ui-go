@@ -1,12 +1,12 @@
 <template>
   <v-row class="basics-save-row">
     <v-col cols="12" justify="center" align="center">
-      <v-btn class="basics-save-action" variant="outlined" color="warning" @click="saveConfig" :loading="loading" :disabled="stateChange">
+      <v-btn class="basics-save-action" variant="outlined" color="warning" @click="saveConfig" :loading="loading" :disabled="!ready || stateChange">
         {{ $t('actions.save') }}
       </v-btn>
     </v-col>
   </v-row>
-  <v-expansion-panels class="basics-panels">
+  <v-expansion-panels v-if="ready" class="basics-panels">
     <v-expansion-panel>
       <v-expansion-panel-title>
         <v-icon class="basics-panel-icon" icon="mdi-text-box-outline" />
@@ -244,35 +244,76 @@
 <script lang="ts" setup>
 import Data from '@/store/modules/data'
 import Dial from '@/components/Dial.vue'
-import { computed, ref, onBeforeMount } from 'vue'
+import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import { Config, Ntp } from '@/types/config'
 import { FindDiff } from '@/plugins/utils'
+import { i18n } from '@/locales'
+import { push } from 'notivue'
 
-const oldConfig = ref({})
+const oldConfig = ref<any>({})
 const loading = ref(false)
 
-const appConfig = computed((): Config => {
-  return <Config> Data().config
-})
+const appConfig = ref<Config>({} as Config)
+const ready = ref(false)
+let active = true
+onBeforeUnmount(() => { active = false })
 
-onBeforeMount(async () => {
-  loading.value = true
-  while (Data().lastLoad === "") {
-    await new Promise(resolve => setTimeout(resolve, 100))
-  }
-  oldConfig.value = JSON.parse(JSON.stringify(Data().config))
-  loading.value = false
-})
+const copyConfig = (config: any): Config => {
+  const copy = JSON.parse(JSON.stringify(config))
+  copy.log ??= {}
+  copy.experimental ??= {}
+  return copy
+}
+
+// Take one local draft; background store refreshes must not erase unsaved edits.
+watch(() => [Data().lastLoad, Data().config], () => {
+  if (ready.value || !Data().lastLoad || !Object.keys(Data().config).length) return
+  appConfig.value = copyConfig(Data().config)
+  oldConfig.value = copyConfig(appConfig.value)
+  ready.value = true
+}, { immediate: true })
 
 const stateChange = computed(() => {
   return FindDiff.deepCompare(appConfig.value,oldConfig.value)
 })
 
+const editableSections = ['log', 'ntp', 'experimental'] as const
 const saveConfig = async () => {
+  if (!active || !ready.value || loading.value) return
+  const draft = copyConfig(appConfig.value)
+  const latest = copyConfig(Data().config)
+  const changed = editableSections.filter(key => !FindDiff.deepCompare(draft[key], oldConfig.value[key]))
+  if (changed.length === 0) return
+  // Do not overwrite a concurrently changed section with an older local draft.
+  if (changed.some(key => !FindDiff.deepCompare(latest[key], oldConfig.value[key]))) {
+    push.error({ title: i18n.global.t('failed'), message: 'Configuration changed elsewhere; reload before saving this section.' })
+    return
+  }
+  const submitted: any = latest
+  for (const key of changed) submitted[key] = draft[key]
   loading.value = true
-  const success = await Data().save("config", "set", appConfig.value)
-  if (success) {
-    oldConfig.value = JSON.parse(JSON.stringify(Data().config))
+  try {
+    const success = await Data().save('config', 'set', submitted)
+    if (success && active) {
+      const saved = copyConfig(Data().config)
+      // Rebase untouched sections even if another section was edited in flight.
+      // Otherwise the next save could mistake stale data for a new local edit.
+      const rebased: any = copyConfig(saved)
+      const baseline: any = copyConfig(saved)
+      for (const key of editableSections) {
+        if (!FindDiff.deepCompare(appConfig.value[key], draft[key])) {
+          rebased[key] = appConfig.value[key]
+          // A section edited only after submission may contain an unseen external
+          // update. Keep its original baseline so retry detects that conflict.
+          if (!FindDiff.deepCompare(draft[key], submitted[key])) baseline[key] = draft[key]
+        }
+      }
+      appConfig.value = rebased
+      oldConfig.value = baseline
+    }
+  } catch {
+    if (active) push.error({ title: i18n.global.t('failed') })
+  } finally {
     loading.value = false
   }
 }
@@ -296,41 +337,63 @@ const enableNtp = computed({
   get() { return appConfig.value.ntp?.enabled?? false },
   set(v:boolean) {
     if (v){
-      appConfig.value.ntp = <Ntp>{ enabled: true, server: 'time.apple.com', server_port: 123, interval: '30m'}
+      appConfig.value.ntp = <Ntp>{ server: 'time.apple.com', server_port: 123, interval: '30m', ...appConfig.value.ntp, enabled: true }
     } else { appConfig.value.ntp = <Ntp>{}  }
   }
 })
 
 const ntpInterval = computed({
-  get():any { return appConfig.value.ntp?.interval? parseInt(appConfig.value.ntp?.interval.replace('m','')) : null },
-  set(v:number) { if (appConfig.value.ntp) v>0 ? appConfig.value.ntp.interval =  v + 'm' : delete appConfig.value.ntp.interval }
+  get(): number | null {
+    const value = appConfig.value.ntp?.interval
+    if (!value) return null
+    const text = value.replace(/^\+/, '')
+    if (text === '0') return 0
+    const parts = [...text.matchAll(/(\d+(?:\.\d*)?|\.\d+)(ns|us|µs|μs|ms|s|m|h|d)/g)]
+    if (parts.map(part => part[0]).join('') !== text) return null
+    const units: Record<string, number> = { ns: 1e-9, us: 1e-6, 'µs': 1e-6, 'μs': 1e-6, ms: 1e-3, s: 1, m: 60, h: 3600, d: 86400 }
+    const seconds = parts.reduce((sum, part) => sum + Number(part[1]) * units[part[2]], 0)
+    return Number.isFinite(seconds) && seconds <= 9_223_372_036 ? seconds / 60 : null
+  },
+  set(value: number | string | null) {
+    if (!appConfig.value.ntp) return
+    const seconds = Number(value) * 60
+    if (Number.isFinite(seconds) && seconds >= 1e-9 && seconds <= 9_223_372_036) {
+      appConfig.value.ntp.interval = seconds.toFixed(9).replace(/\.?0+$/, '') + 's'
+    } else delete appConfig.value.ntp.interval
+  },
 })
 
 const enableCacheFile = computed({
   get() { return appConfig.value.experimental.cache_file?.enabled?? false },
   set(v:boolean) {
     if (v){
-      appConfig.value.experimental.cache_file = { enabled: true }
+      appConfig.value.experimental.cache_file = { ...appConfig.value.experimental.cache_file, enabled: true }
     } else { delete appConfig.value.experimental.cache_file  }
   }
 })
 
 const enableClashApi = computed({
   get() { return appConfig.value.experimental.clash_api != undefined },
-  set(v:boolean) { appConfig.value.experimental.clash_api = v ? { external_controller: '127.0.0.1:9090' } : undefined }
+  set(v:boolean) {
+    if (v) appConfig.value.experimental.clash_api ??= { external_controller: '127.0.0.1:9090' }
+    else delete appConfig.value.experimental.clash_api
+  }
 })
 
 const enableV2rayApi = computed({
   get() { return appConfig.value.experimental.v2ray_api != undefined },
-  set(v:boolean) { appConfig.value.experimental.v2ray_api = v ? { listen: '127.0.0.1:8080', stats: { enabled: false, inbounds: [], outbounds: [], users: [] }} : undefined }
+  set(v:boolean) {
+    if (v) appConfig.value.experimental.v2ray_api ??= { listen: '127.0.0.1:8080', stats: { enabled: false, inbounds: [], outbounds: [], users: [] }}
+    else delete appConfig.value.experimental.v2ray_api
+  }
 })
 
 const origin = computed({
   get() { return appConfig.value.experimental.clash_api?.access_control_allow_origin &&
     appConfig.value.experimental.clash_api.access_control_allow_origin.length>0 ? appConfig.value.experimental.clash_api.access_control_allow_origin.join(',') : '' },
   set(v:string) {
-    if (appConfig.value.experimental.clash_api?.access_control_allow_origin)
-      appConfig.value.experimental.clash_api.access_control_allow_origin = v.length> 0 ? v.split(',') : undefined
+    if (appConfig.value.experimental.clash_api)
+      appConfig.value.experimental.clash_api.access_control_allow_origin = v?.trim() ? v.split(',').map(origin => origin.trim()).filter(Boolean) : undefined
     }
 })
 </script>

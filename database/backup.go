@@ -2,6 +2,7 @@ package database
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -176,7 +177,7 @@ func restoreFallbackDB(fallbackPath string) error {
 }
 
 func ImportDB(file multipart.File) error {
-	return importDB(file, SendSighup)
+	return ImportDBContext(context.Background(), file)
 }
 
 // Import is recovery, not first boot. Require the core schema shared by legacy
@@ -259,22 +260,45 @@ func closedDBChangeID(dbPath string) (uint64, error) {
 
 func recordDBImportChange(originalRevision, uploadedRevision uint64) error {
 	floor := max(originalRevision, uploadedRevision)
-	// One atomic statement also includes changes committed to the new database
-	// since restart, without a SELECT/INSERT race or a deferred read transaction.
-	result := db.Exec(`INSERT INTO changes (id, date_time, actor, key, action, obj)
+	secret, err := common.RandomWithError(32)
+	if err != nil {
+		return fmt.Errorf("rotate session signing key after database import: %w", err)
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		// A backup can contain the same session key but different administrators.
+		// Rebuilding the HTTP server alone would keep removed users' cookies valid.
+		// Rotate every matching row, including legacy duplicate keys, atomically
+		// with the successful import marker; do not rotate on a failed marker.
+		settings := tx.Model(&model.Setting{}).Where("key = ?", "secret").Update("value", secret)
+		if settings.Error != nil {
+			return settings.Error
+		}
+		if settings.RowsAffected == 0 {
+			if err := tx.Create(&model.Setting{Key: "secret", Value: secret}).Error; err != nil {
+				return err
+			}
+		}
+		// One atomic statement also includes changes committed to the new database
+		// since restart, without a SELECT/INSERT race or a deferred read transaction.
+		result := tx.Exec(`INSERT INTO changes (id, date_time, actor, key, action, obj)
 		SELECT max(?, COALESCE(MAX(id), 0)) + 1, ?, 'system', 'database', 'import', ?
 		FROM changes HAVING max(?, COALESCE(MAX(id), 0)) < ?`,
-		floor, time.Now().Unix(), []byte(`{"operation":"database-import"}`), floor, maxSQLiteChangeID)
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected != 1 {
-		return errors.New("database import change revision exhausted")
-	}
-	return nil
+			floor, time.Now().Unix(), []byte(`{"operation":"database-import"}`), floor, maxSQLiteChangeID)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return errors.New("database import change revision exhausted")
+		}
+		return nil
+	})
 }
 
 func importDB(file multipart.File, restart func() error) (resultErr error) {
+	return importDBBeforeClose(file, restart, nil)
+}
+
+func importDBBeforeClose(file multipart.File, restart func() error, beforeClose func() error) (resultErr error) {
 	backupMu.Lock()
 	defer backupMu.Unlock()
 	// Check if the file is a SQLite database
@@ -360,6 +384,11 @@ func importDB(file multipart.File, restart func() error) (resultErr error) {
 	}
 	if err := os.Remove(fallbackPath); err != nil {
 		return err
+	}
+	if beforeClose != nil {
+		if err := beforeClose(); err != nil {
+			return err
+		}
 	}
 	if err := closeCurrentDB(); err != nil {
 		return err
@@ -464,6 +493,14 @@ func IsSQLiteDB(file io.Reader) (bool, error) {
 }
 
 func SendSighup() error {
+	decision := make(chan bool, 1)
+	decision <- true
+	return scheduleImportRestart(decision)
+}
+
+// Register the signal before recording success, but wait for the final import
+// outcome so a slow marker/cleanup cannot race a three-second reload timer.
+func scheduleImportRestart(decision <-chan bool) error {
 	// Get the current process
 	process, err := os.FindProcess(os.Getpid())
 	if err != nil {
@@ -472,6 +509,10 @@ func SendSighup() error {
 
 	// Send SIGHUP to the current process
 	go func() {
+		defer process.Release()
+		if !<-decision {
+			return
+		}
 		time.Sleep(3 * time.Second)
 		var err error
 		if runtime.GOOS == "windows" {

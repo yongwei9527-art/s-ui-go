@@ -1,5 +1,5 @@
 <template>
-  <v-dialog :model-value="visible" @update:model-value="$emit('update:visible', $event)" transition="dialog-bottom-transition" width="90%" max-width="400">
+  <v-dialog :model-value="visible" @update:model-value="setVisible" transition="dialog-bottom-transition" width="90%" max-width="400">
     <v-card class="rounded-lg" :loading="loading">
       <v-card-title>
         <v-row>
@@ -7,7 +7,7 @@
           <v-spacer></v-spacer>
           <v-col cols="auto">
             <v-icon icon="mdi-refresh" class="me-2" @click="refresh" v-tooltip:top="$t('actions.update')" />
-            <v-icon icon="mdi-close" @click="$emit('update:visible', false)" />
+            <v-icon icon="mdi-close" @click="setVisible(false)" />
           </v-col>
         </v-row>
       </v-card-title>
@@ -30,7 +30,8 @@
 </template>
 
 <script lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, onBeforeUnmount } from 'vue'
+import { push } from 'notivue'
 import HttpUtils from '@/plugins/httputil'
 import { HumanReadable } from '@/plugins/utils'
 import { i18n } from '@/locales'
@@ -40,7 +41,9 @@ export default {
     visible: { type: Boolean, default: false },
   },
   emits: ['update:visible'],
-  setup(props) {
+  setup(props, { emit }) {
+    let requestId = 0
+    let closed = !props.visible
     const loading = ref(false)
     const info = ref<{
       clients?: number
@@ -75,17 +78,34 @@ export default {
     })
 
     const refresh = async () => {
+      if (!props.visible || closed) return
+      const current = ++requestId
       loading.value = true
-      const data = await HttpUtils.get('api/status', { r: 'db' })
-      if (data.success && data.obj) {
-        info.value = data.obj.db ?? data.obj
+      try {
+        const data = await HttpUtils.get('api/status', { r: 'db' })
+        if (current !== requestId || closed || !props.visible) return
+        if (data?.success && data.obj) info.value = data.obj.db ?? data.obj
+      } catch {
+        if (current === requestId && !closed && props.visible) push.error({ message: i18n.global.t('failed') })
+      } finally {
+        if (current === requestId) loading.value = false
       }
-      loading.value = false
+    }
+
+    const setVisible = (visible: boolean) => {
+      if (!visible) { closed = true; ++requestId; loading.value = false; info.value = {} }
+      emit('update:visible', visible)
     }
 
     watch(() => props.visible, (v) => {
+      closed = !v
+      ++requestId
+      loading.value = false
+      info.value = {}
       if (v) refresh()
-    })
+    }, { immediate: true })
+
+    onBeforeUnmount(() => { closed = true; ++requestId })
 
     return {
       loading,
@@ -95,6 +115,7 @@ export default {
       totalUsage,
       tableRows,
       refresh,
+      setVisible,
     }
   },
 }

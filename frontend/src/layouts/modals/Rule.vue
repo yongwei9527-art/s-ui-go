@@ -176,6 +176,7 @@ export default {
   emits: ['close', 'save'],
   data() {
     return {
+      closed: false,
       title: 'add',
       loading: false,
       ruleData: <any>{
@@ -217,43 +218,53 @@ export default {
   },
   methods: {
     updateData() {
-      if (this.$props.index != -1) {
-        const newData = JSON.parse(this.$props.data)
-        if (newData.type) {
-          this.ruleData = newData
-        } else {
-          this.ruleData = {
-            type: 'simple',
-            mode: 'and',
-            rules: <rule[]>[{}],
-          }
-          Object.keys(newData).forEach(key => {
-            if (actionKeys.includes(key)) {
-              this.ruleData[key] = newData[key]
-            } else {
-              this.ruleData.rules[0][key] = newData[key]
+      try {
+        if (this.$props.index != -1) {
+          const newData = JSON.parse(this.$props.data)
+          if (!newData || typeof newData !== 'object' || Array.isArray(newData)) throw new Error('Invalid rule')
+          if (newData.type === 'logical') {
+            if (!Array.isArray(newData.rules) || newData.rules.length === 0) newData.rules = [{}]
+            const validRule = (rule: any): boolean => rule && typeof rule === 'object' && !Array.isArray(rule) &&
+              (rule.type !== 'logical' || (Array.isArray(rule.rules) && rule.rules.every(validRule)))
+            if (!newData.rules.every(validRule)) throw new Error('Invalid logical rule')
+            this.ruleData = newData
+          } else {
+            this.ruleData = {
+              type: 'simple',
+              mode: 'and',
+              rules: <rule[]>[{}],
             }
-          })
-        }
-        this.title = 'edit'
-      }
-      else {
-        this.ruleData = <logicalRule>{
-            type: 'simple',
-            mode: 'and',
-            rules: <rule[]>[{}],
-            invert: false,
-            action: 'route',
-            outbound: this.$props.outTags[0]?? 'direct',
+            Object.keys(newData).forEach(key => {
+              if ([...actionKeys, 'network_strategy', 'fallback_delay'].includes(key)) {
+                this.ruleData[key] = newData[key]
+              } else {
+                this.ruleData.rules[0][key] = newData[key]
+              }
+            })
           }
-        this.title = 'add'
+          this.title = 'edit'
+        }
+        else {
+          this.ruleData = <logicalRule>{
+              type: 'simple',
+              mode: 'and',
+              rules: <rule[]>[{}],
+              invert: false,
+              action: 'route',
+              outbound: this.$props.outTags?.[0]?? 'direct',
+            }
+          this.title = 'add'
+        }
+      } catch {
+        this.closeModal()
       }
     },
     closeModal() {
-      this.updateData() // reset
+      this.closed = true
       this.$emit('close')
     },
     saveChanges() {
+      if (!this.$props.visible || this.closed) return
       this.loading = true
       let newRule = <any>{
         action: this.ruleData.action,
@@ -296,7 +307,7 @@ export default {
         newRule.mode = this.ruleData.mode
         newRule.rules = this.ruleData.rules
       }
-      this.$emit('save', newRule)
+      this.$emit('save', JSON.parse(JSON.stringify(newRule)))
       this.loading = false
     },
     deleteRule(index:number) {
@@ -311,11 +322,14 @@ export default {
       }
     }
   },
+  beforeUnmount() { this.closed = true },
   watch: {
-    visible(newValue) {
-      if (newValue) {
-        this.updateData()
-      }
+    visible: {
+      immediate: true,
+      handler(v: boolean) {
+        this.closed = !v
+        if (v) this.updateData()
+      },
     },
   },
   components: { RuleOptions }

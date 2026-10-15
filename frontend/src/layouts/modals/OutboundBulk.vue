@@ -67,6 +67,8 @@
 
 <script lang="ts">
 import HttpUtils from '@/plugins/httputil'
+import { push } from 'notivue'
+import { i18n } from '@/locales'
 import RandomUtil from '@/plugins/randomUtil';
 import Data from '@/store/modules/data'
 import { createOutbound, Outbound } from '@/types/outbounds'
@@ -76,6 +78,8 @@ export default {
   emits: ['close'],
   data() {
     return {
+      requestId: 0,
+      closed: false,
       loading: false,
       link: "",
       outbounds: <Outbound[]>[],
@@ -85,6 +89,7 @@ export default {
   },
   methods: {
     resetData() {
+      ++this.requestId
       this.outbounds = []
       this.outChecks = []
       this.link = ""
@@ -92,63 +97,95 @@ export default {
       this.loading = false
     },
     closeModal() {
+      this.closed = true
       this.resetData()
       this.$emit('close')
     },
     async linkCheck() {
+      if (!this.$props.visible || this.closed) return
+      const requestId = ++this.requestId
+      const link = this.link
+      const addUrlTest = this.addUrlTest
       this.loading = true
       this.outbounds = []
-      const msg = await HttpUtils.post('api/subConvert', { link: this.link })
-      if (msg.success) {
-        if (msg.obj?.length>0) {
-          msg.obj.forEach((o:any, index:number) => {
-            if (this.newOutboundTags.includes(o.tag)) o.tag = o.tag + "-" + (index+1)
-            this.outbounds.push(createOutbound(o.type, o))
-            this.outChecks.push(0)
+      this.outChecks = []
+      try {
+        const msg = await HttpUtils.post('api/subConvert', { link })
+        if (requestId !== this.requestId || this.closed || !this.$props.visible) return
+        if (msg?.success && Array.isArray(msg.obj)) {
+          const usedTags = new Set<string>(this.outboundTags ?? [])
+          const uniqueTag = (tag: string) => {
+            let unique = tag
+            let suffix = 1
+            while (usedTags.has(unique)) unique = tag + '-' + suffix++
+            usedTags.add(unique)
+            return unique
+          }
+          this.outbounds = msg.obj.filter((o: any) => o && typeof o.type === 'string').map((o: any) => {
+            const data = JSON.parse(JSON.stringify(o))
+            data.tag = uniqueTag(typeof data.tag === 'string' && data.tag ? data.tag : data.type)
+            return createOutbound(data.type, data)
           })
-          if (this.addUrlTest) {
-            const urlTestTsg = "urltest-" + RandomUtil.randomSeq(3)
+          if (addUrlTest && this.outbounds.length) {
             this.outbounds.push(createOutbound("urltest", {
-              tag: urlTestTsg,
-              outbounds: this.outbounds.map((o:Outbound) => o.tag),
-              interrupt_exist_connections: false,
-              interval: "30s"
+              tag: uniqueTag("urltest-" + RandomUtil.randomSeq(3)),
+              outbounds: this.outbounds.map((o: Outbound) => o.tag),
+              interrupt_exist_connections: false, interval: "30s",
             }))
           }
+          this.outChecks = this.outbounds.map(() => 0)
         }
+      } catch {
+        if (requestId === this.requestId && !this.closed && this.$props.visible) push.error({ message: i18n.global.t('failed') })
+      } finally {
+        if (requestId === this.requestId) this.loading = false
       }
-      this.loading = false
     },
     async saveChanges() {
-      if (!this.$props.visible) return
-      // check duplicate tag
-      this.outbounds.forEach((o:Outbound, index:number) => {
-        const isDuplicatedTag = Data().checkTag("outbound",0, o.tag)
-        this.outChecks[index] = isDuplicatedTag ? 2 : 0
-      })
-
-      // save data
+      if (!this.$props.visible || this.closed || this.loading || !this.outbounds.length) return
+      const requestId = ++this.requestId
+      const outbounds: Outbound[] = JSON.parse(JSON.stringify(this.outbounds))
       this.loading = true
-      this.outbounds.forEach(async (o:Outbound, index:number) => {
-        if (this.outChecks[index] == 2) return
-        this.outChecks[index] = 3
-        const success = await Data().save("outbounds",  "new", o)
-        if (success) this.outChecks[index] = 1
-        else this.outChecks[index] = 2
-      })
-      this.loading = false
-    }
+      try {
+        const tags = new Set<string>()
+        for (let index = 0; index < outbounds.length; index++) {
+          if (requestId !== this.requestId || this.closed || !this.$props.visible) return
+          const outbound = outbounds[index]
+          if (this.outChecks[index] === 1) { tags.add(outbound.tag); continue }
+          if (tags.has(outbound.tag) || Data().checkTag("outbound", 0, outbound.tag)) {
+            this.outChecks[index] = 2
+            continue
+          }
+          tags.add(outbound.tag)
+          this.outChecks[index] = 3
+          try {
+            const success = await Data().save("outbounds", "new", outbound)
+            if (requestId !== this.requestId || this.closed || !this.$props.visible) return
+            this.outChecks[index] = success ? 1 : 2
+          } catch {
+            if (requestId !== this.requestId || this.closed || !this.$props.visible) return
+            this.outChecks[index] = 2
+            push.error({ message: i18n.global.t('failed') })
+          }
+        }
+      } finally {
+        if (requestId === this.requestId) this.loading = false
+      }
+    },
   },
   computed: {
     newOutboundTags(): string[] {
       return this.outbounds.map((o:Outbound) => o.tag)
     }
   },
+  beforeUnmount() { ++this.requestId; this.closed = true },
   watch: {
-    visible(v) {
-      if (v) {
+    visible: {
+      immediate: true,
+      handler(v: boolean) {
+        this.closed = !v
         this.resetData()
-      }
+      },
     },
   },
 }

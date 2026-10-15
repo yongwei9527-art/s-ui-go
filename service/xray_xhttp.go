@@ -302,7 +302,10 @@ func (s *XrayXHTTPService) StartIfEnabled() error {
 }
 
 // ReloadAfterClientChange uses the current database snapshot, never a cached
-// config. A queued reload must not reopen the runtime after APP.Stop.
+// config. Call synchronously inside the API/cron caller's database access lease.
+// A nested acquisition would fail while recovery drains that very caller and
+// lose committed revocations if recovery is then canceled or validation fails.
+// A reload must not reopen the runtime after APP.Stop.
 func (s *XrayXHTTPService) ReloadAfterClientChange() error {
 	xrayXHTTPProcess.mu.Lock()
 	defer xrayXHTTPProcess.mu.Unlock()

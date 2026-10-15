@@ -109,7 +109,7 @@ import EndpointVue from '@/layouts/modals/Endpoint.vue'
 import Stats from '@/layouts/modals/Stats.vue'
 import QrCode from '@/layouts/modals/WgQrCode.vue'
 import { Endpoint } from '@/types/endpoints'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 const endpoints = computed((): Endpoint[] => {
   return <Endpoint[]> Data().endpoints
@@ -120,7 +120,7 @@ const endpointTags = computed((): any[] => {
 })
 
 const onlines = computed(() => {
-  return [...Data().onlines.inbound?? [], ...Data().onlines.outbound??[] ]
+  return [...Data().onlines?.inbound?? [], ...Data().onlines?.outbound??[] ]
 })
 
 const modal = ref({
@@ -130,10 +130,16 @@ const modal = ref({
 })
 
 let delOverlay = ref(new Array<boolean>)
+// Index-based confirmations cannot survive a row deletion/reorder.
+watch(() => endpoints.value.map(item => [item.id, item.tag]), () => {
+  delOverlay.value = []
+}, { flush: 'sync' })
 
 const showModal = (id: number) => {
+  const item = endpoints.value.findLast(o => o.id === id)
+  if (id !== 0 && !item) return
   modal.value.id = id
-  modal.value.data = id == 0 ? '' : JSON.stringify(endpoints.value.findLast(o => o.id == id))
+  modal.value.data = id === 0 ? '' : JSON.stringify(item)
   modal.value.visible = true
 }
 
@@ -148,9 +154,10 @@ const stats = ref({
 })
 
 const delEndpoint = async (tag: string) => {
-  const index = endpoints.value.findIndex(i => i.tag == tag)
-  const success = await Data().save("endpoints", "del", tag)
-  if (success) delOverlay.value[index] = false
+  const item = endpoints.value.find(item => item.tag === tag)
+  if (!item) return
+  const success = await Data().save('endpoints', 'del', item.tag)
+  if (success) delOverlay.value = []
 }
 
 const showStats = (tag: string) => {

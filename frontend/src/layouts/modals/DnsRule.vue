@@ -161,6 +161,7 @@ export default {
   emits: ['close', 'save'],
   data() {
     return {
+      closed: false,
       title: 'add',
       loading: false,
       ruleData: <any>{
@@ -195,42 +196,53 @@ export default {
   },
   methods: {
     updateData() {
-      if (this.$props.index != -1) {
-        const newData = JSON.parse(this.$props.data)
-        if (newData.type) {
-          this.ruleData = newData
-        } else {
-          this.ruleData = {
-            type: 'simple',
-            mode: 'and',
-            rules: <dnsRule[]>[{}],
-          }
-          Object.keys(newData).forEach(key => {
-            if (actionDnsRuleKeys.includes(key)) {
-              this.ruleData[key] = newData[key]
-            } else {
-              this.ruleData.rules[0][key] = newData[key]
+      try {
+        if (this.$props.index != -1) {
+          const newData = JSON.parse(this.$props.data)
+          if (!newData || typeof newData !== 'object' || Array.isArray(newData)) throw new Error('Invalid rule')
+          if (newData.type === 'logical') {
+            if (!Array.isArray(newData.rules) || newData.rules.length === 0) newData.rules = [{}]
+            const validRule = (rule: any): boolean => rule && typeof rule === 'object' && !Array.isArray(rule) &&
+              (rule.type !== 'logical' || (Array.isArray(rule.rules) && rule.rules.every(validRule)))
+            if (!newData.rules.every(validRule)) throw new Error('Invalid logical rule')
+            this.ruleData = newData
+          } else {
+            this.ruleData = {
+              type: 'simple',
+              mode: 'and',
+              rules: <dnsRule[]>[{}],
             }
-          })
-        }
-        this.title = 'edit'
-      }
-      else {
-        this.ruleData = <logicalDnsRule>{
-            type: 'simple',
-            mode: 'and',
-            rules: <dnsRule[]>[{}],
-            invert: false,
-            action: 'route',
-            server: this.$props.serverTags[0]?? 'local',
+            Object.keys(newData).forEach(key => {
+              if (actionDnsRuleKeys.includes(key)) {
+                this.ruleData[key] = newData[key]
+              } else {
+                this.ruleData.rules[0][key] = newData[key]
+              }
+            })
           }
-        this.title = 'add'
+          this.title = 'edit'
+        }
+        else {
+          this.ruleData = <logicalDnsRule>{
+              type: 'simple',
+              mode: 'and',
+              rules: <dnsRule[]>[{}],
+              invert: false,
+              action: 'route',
+              server: this.$props.serverTags?.[0]?? 'local',
+            }
+          this.title = 'add'
+        }
+      } catch {
+        this.closeModal()
       }
     },
     closeModal() {
+      this.closed = true
       this.$emit('close')
     },
     saveChanges() {
+      if (!this.$props.visible || this.closed) return
       this.loading = true
       let newRule = <any>{
         action: this.ruleData.action,
@@ -243,12 +255,12 @@ export default {
           newRule.server = this.ruleData.server
           newRule.strategy = this.ruleData.strategy?.length > 0 ? this.ruleData.strategy : undefined
           newRule.disable_cache = this.ruleData.disable_cache? true : undefined
-          newRule.rewrite_ttl = this.ruleData.rewrite_ttl > 0 ? this.ruleData.rewrite_ttl : undefined
+          newRule.rewrite_ttl = typeof this.ruleData.rewrite_ttl === 'number' && Number.isFinite(this.ruleData.rewrite_ttl) && this.ruleData.rewrite_ttl >= 0 ? this.ruleData.rewrite_ttl : undefined
           newRule.client_subnet = this.ruleData.client_subnet?.length > 0 ? this.ruleData.client_subnet : undefined
           break
         case 'route-options':
           newRule.disable_cache = this.ruleData.disable_cache? true : undefined
-          newRule.rewrite_ttl = this.ruleData.rewrite_ttl > 0 ? this.ruleData.rewrite_ttl : undefined
+          newRule.rewrite_ttl = typeof this.ruleData.rewrite_ttl === 'number' && Number.isFinite(this.ruleData.rewrite_ttl) && this.ruleData.rewrite_ttl >= 0 ? this.ruleData.rewrite_ttl : undefined
           newRule.client_subnet = this.ruleData.client_subnet?.length > 0 ? this.ruleData.client_subnet : undefined
           break
         case 'reject':
@@ -273,7 +285,7 @@ export default {
         newRule.mode = this.ruleData.mode
         newRule.rules = this.ruleData.rules
       }
-      this.$emit('save', newRule)
+      this.$emit('save', JSON.parse(JSON.stringify(newRule)))
       this.loading = false
     },
     deleteRule(index:number) {
@@ -289,22 +301,25 @@ export default {
     },
     answer: {
       get() { return this.ruleData.answer?.length > 0 ? this.ruleData.answer.join(',') : "" },
-      set(v:string) { this.ruleData.answer = v.length > 0 ? v.split(',') : undefined }
+      set(v:string | null) { this.ruleData.answer = v?.length ? v.split(',').map(item => item.trim()).filter(Boolean) : undefined }
     },
     ns: {
       get() { return this.ruleData.ns?.length > 0 ? this.ruleData.ns.join(',') : "" },
-      set(v:string) { this.ruleData.ns = v.length > 0 ? v.split(',') : undefined }
+      set(v:string | null) { this.ruleData.ns = v?.length ? v.split(',').map(item => item.trim()).filter(Boolean) : undefined }
     },
     extra: {
       get() { return this.ruleData.extra?.length > 0 ? this.ruleData.extra.join(',') : "" },
-      set(v:string) { this.ruleData.extra = v.length > 0 ? v.split(',') : undefined }
+      set(v:string | null) { this.ruleData.extra = v?.length ? v.split(',').map(item => item.trim()).filter(Boolean) : undefined }
     },
   },
+  beforeUnmount() { this.closed = true },
   watch: {
-    visible(newValue) {
-      if (newValue) {
-        this.updateData()
-      }
+    visible: {
+      immediate: true,
+      handler(v: boolean) {
+        this.closed = !v
+        if (v) this.updateData()
+      },
     },
   },
   components: { RuleOptions }

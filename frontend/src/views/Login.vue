@@ -81,7 +81,8 @@
 </template>
 
 <script lang="ts" setup>
-import { ref } from "vue"
+import { ref, onBeforeUnmount } from "vue"
+import { push } from 'notivue'
 import { useLocale,useTheme } from 'vuetify'
 import { i18n, languages } from '@/locales'
 import { useRouter } from 'vue-router'
@@ -115,20 +116,26 @@ const passwordRules = [
 
 const loading = ref(false)
 const router = useRouter()
+let active = true
+onBeforeUnmount(() => { active = false; loading.value = false })
 
 const login = async () => {
-  if (username.value == '' || password.value == '') return
-  loading.value=true
-  const response = await HttpUtil.post('api/login',{user: username.value, pass: password.value})
-  if(response.success){
-    localStorage.setItem('s-ui-authenticated', 'true')
-    setTimeout(() => {
-      loading.value=false
-      router.push('/')
-    }, 500)
-  } else {
-    localStorage.removeItem('s-ui-authenticated')
-    loading.value=false
+  if (!active || loading.value || username.value === '' || password.value === '') return
+  loading.value = true
+  try {
+    const response = await HttpUtil.post('api/login', { user: username.value, pass: password.value })
+    if (!active) return
+    if (response.success) {
+      localStorage.setItem('s-ui-authenticated', 'true')
+      password.value = ''
+      await router.replace('/')
+    } else {
+      localStorage.removeItem('s-ui-authenticated')
+    }
+  } catch {
+    if (active) push.error({ title: i18n.global.t('failed') })
+  } finally {
+    loading.value = false
   }
 }
 const changeLocale = (l: any) => {

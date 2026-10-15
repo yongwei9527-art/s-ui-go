@@ -60,6 +60,8 @@ import Ccm from '@/components/services/Ccm.vue'
 import InTLS from '@/components/tls/InTLS.vue'
 import SSMapi from '@/components/services/SSMAPI.vue'
 import Data from '@/store/modules/data'
+import { push } from 'notivue'
+import { i18n } from '@/locales'
 export default {
   props: ['visible', 'data', 'id', 'inTags', 'tsTags', 'ssTags', 'tlsConfigs'],
   emits: ['close'],
@@ -68,28 +70,35 @@ export default {
       srv: createSrv("derp",{ "tag": "" }),
       title: "add",
       tab: "t1",
+      requestId: 0,
+      closed: false,
       loading: false,
       srvTypes: SrvTypes,
       HasTls: [SrvTypes.DERP, SrvTypes.SSMAPI, SrvTypes.OCM, SrvTypes.CCM],
     }
   },
   methods: {
-    async updateData(id: number) {
-      if (id > 0) {
-        const newData = JSON.parse(this.$props.data)
-        this.srv = createSrv(newData.type, newData)
-        this.title = "edit"
-      }
-      else {
-        const port = RandomUtil.randomIntRange(10000, 60000)
-        this.srv = createSrv("derp", {
-          tag: "derp-" + RandomUtil.randomSeq(3),
-          listen: '::',
-          listen_port: port,
-        })
-        this.title = "add"
-      }
-      this.tab = "t1"
+    updateData(id: number) {
+      ++this.requestId
+      this.loading = false
+      try {
+        if (id > 0) {
+          const newData = JSON.parse(this.$props.data)
+          if (!newData || typeof newData !== 'object' || Array.isArray(newData)) throw new Error('Invalid service')
+          this.srv = createSrv(newData.type, newData)
+          this.title = "edit"
+        }
+        else {
+          const port = RandomUtil.randomIntRange(10000, 60000)
+          this.srv = createSrv("derp", {
+            tag: "derp-" + RandomUtil.randomSeq(3),
+            listen: '::',
+            listen_port: port,
+          })
+          this.title = "add"
+        }
+        this.tab = "t1"
+      } catch { this.closeModal() }
     },
     changeType() {
       // Tag change only in add service
@@ -99,29 +108,43 @@ export default {
       this.srv = createSrv(this.srv.type, prevConfig)
     },
     closeModal() {
-      this.updateData(0) // reset
+      ++this.requestId
+      this.closed = true
+      this.loading = false
       this.$emit('close')
     },
     async saveChanges() {
-      if (!this.$props.visible) return
+      if (!this.$props.visible || this.closed || this.loading) return
 
       // check duplicate tag
       const isDuplicatedTag = Data().checkTag("service",this.srv.id, this.srv.tag)
       if (isDuplicatedTag) return
 
       // save data
+      const requestId = ++this.requestId
+      const id = this.$props.id
       this.loading = true
-      const success = await Data().save("services", this.$props.id == 0 ? "new" : "edit", this.srv)
-      if (success) this.closeModal()
-      this.loading = false
-    },
-  },
-  watch: {
-    visible(v) {
-      if (v) {
-        this.updateData(this.$props.id)
+      try {
+        const success = await Data().save("services", id == 0 ? "new" : "edit", JSON.parse(JSON.stringify(this.srv)))
+        if (requestId === this.requestId && !this.closed && this.$props.visible && id === this.$props.id && success) this.closeModal()
+      } catch {
+        if (requestId === this.requestId && !this.closed && this.$props.visible) push.error({ message: i18n.global.t('failed') })
+      } finally {
+        if (requestId === this.requestId) this.loading = false
       }
     },
+  },
+  beforeUnmount() { ++this.requestId; this.closed = true },
+  watch: {
+    visible: {
+      immediate: true,
+      handler(v: boolean) {
+        this.closed = !v
+        if (v) this.updateData(this.$props.id)
+        else { ++this.requestId; this.loading = false }
+      },
+    },
+    id() { if (this.$props.visible && !this.closed) this.updateData(this.$props.id) },
   },
   components: { Listen, InTLS, Derp, Ocm, Ccm, SSMapi },
 }

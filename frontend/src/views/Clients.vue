@@ -378,7 +378,7 @@ import ClientEditBulk from '@/layouts/modals/ClientEditBulk.vue'
 import QrCode from '@/layouts/modals/QrCode.vue'
 import Stats from '@/layouts/modals/Stats.vue'
 import { Client } from '@/types/clients'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { HumanReadable } from '@/plugins/utils'
 import { i18n, locale } from '@/locales'
 import { useDisplay } from 'vuetify'
@@ -405,7 +405,6 @@ const inboundTags = computed((): any[] => {
 
 const groups = computed((): string[] => {
   if (!clients.value) return []
-  if (filterSettings?.value.enabled) return Array.from(new Set(filterSettings.value.filteredClients?.map(c => c.group)))
   return Array.from(new Set(clients.value?.map(c => c.group)))
 })
 
@@ -455,6 +454,10 @@ const modal = ref({
 })
 
 const delOverlay = ref(new Array<boolean>(clients.value.length).fill(false))
+// Index-based confirmations cannot survive a row deletion/reorder.
+watch(() => clients.value.map(item => [item.id, item.name]), () => {
+  delOverlay.value = []
+}, { flush: 'sync' })
 
 const showModal = async (id: number) => {
   modal.value.id = id
@@ -465,9 +468,10 @@ const closeModal = () => {
 }
 
 const delClient = async (id: number) => {
-  const index = clients.value.findIndex(c => c.id === id)
-  const success = await Data().save("clients", "del", id)
-  if (success) delOverlay.value[index] = false
+  const item = clients.value.find(item => item.id === id)
+  if (!item) return
+  const success = await Data().save('clients', 'del', id)
+  if (success) delOverlay.value = []
 }
 
 const qrcode = ref({
@@ -497,7 +501,7 @@ const closeStats = () => {
   stats.value.visible = false
 }
 
-const doFilter = () => {
+const applyFilter = () => {
   let filteredClients = clients.value.slice()
   if (filterSettings.value.group != '-') {
     filteredClients = filteredClients.filter(c => c.group == filterSettings.value.group)
@@ -521,9 +525,16 @@ const doFilter = () => {
       break
   }
   filterSettings.value.filteredClients = filteredClients
+}
+
+const doFilter = () => {
+  applyFilter()
   filterSettings.value.enabled = true
   filterMenu.value = false
 }
+watch(() => [clients.value, Data().onlines?.user], () => {
+  if (filterSettings.value.enabled) applyFilter()
+}, { deep: true })
 
 const clearFilter = () => {
   filterSettings.value = {

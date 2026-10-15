@@ -376,6 +376,11 @@ func restartWorkerCanceled(cancel <-chan struct{}) bool {
 var errConfigRestartSuperseded = errors.New("queued core restart canceled or superseded")
 
 func (s *ConfigService) restartQueuedConfig(config json.RawMessage, version uint64, cancel <-chan struct{}) error {
+	release, ok := database.TryAcquireAccess()
+	if !ok {
+		return database.ErrRecoveryInProgress
+	}
+	defer release()
 	coreOperationMu.Lock()
 	defer coreOperationMu.Unlock()
 	// Lock order is always coreOperationMu -> configRestartMu. Never acquire
@@ -505,6 +510,22 @@ func (s *ConfigService) StopCore() error {
 	}
 	configRestartMu.Unlock()
 	return s.stopCoreLocked()
+}
+
+// Recovery replaces the settings database. Unlike an ordinary Stop/Start, its
+// old queued JSON is no longer the latest configuration and must not survive.
+func (s *ConfigService) DiscardQueuedConfigForRecovery() {
+	coreOperationMu.Lock()
+	defer coreOperationMu.Unlock()
+	lastSuccessfulConfig = nil
+	startCoreMu.Lock()
+	lastStartFailTime = time.Time{}
+	startFailCount = 0
+	startCoreMu.Unlock()
+	configRestartMu.Lock()
+	defer configRestartMu.Unlock()
+	pendingConfigRestart = nil
+	pendingConfigRestartVersion++
 }
 
 func (s *ConfigService) stopCoreLocked() error {
@@ -649,11 +670,11 @@ func (s *ConfigService) Save(obj string, act string, data json.RawMessage, initU
 	publishLastUpdate(change.Id)
 
 	if reloadXrayAfterCommit {
-		go func() {
-			if err := (&XrayXHTTPService{}).ReloadAfterClientChange(); err != nil {
-				logger.Warning("unable to refresh Xray XHTTP clients: ", err)
-			}
-		}()
+		// Complete the authorization update before releasing the request's DB
+		// lease. Detached work could be dropped by a canceled recovery drain.
+		if err := (&XrayXHTTPService{}).ReloadAfterClientChange(); err != nil {
+			return objs, fmt.Errorf("client changes were saved, but Xray authorization refresh failed: %w", err)
+		}
 	}
 	if !needsCoreUpdate && corePtr != nil && !corePtr.IsRunning() {
 		if err := s.startCoreLocked(); err != nil {

@@ -340,6 +340,8 @@ export default {
     return {
       tls: <tls>{ id: 0, name: '', server: <iTls>{ enabled: true }, client: <oTls>{} },
       title: "add",
+      requestId: 0,
+      closed: false,
       loading: false,
       menu: false,
       tlsType: 0,
@@ -389,11 +391,24 @@ export default {
   },
   methods: {
     updateData(id: number) {
+      ++this.requestId
+      this.loading = false
+      this.menu = false
+      try {
       if (id > 0) {
         const newData = <tls>JSON.parse(this.$props.data)
+        if (!newData || typeof newData !== 'object' || Array.isArray(newData)) throw new Error('Invalid TLS config')
         this.tls = newData
         if (this.tls.server == null) this.tls.server = { enabled: true }
         if (this.tls.client == null) this.tls.client = {}
+        if (this.tls.server.reality) {
+          this.tls.server.reality = {
+            ...this.tls.server.reality,
+            handshake: Object.assign({ server: '', server_port: 443 }, this.tls.server.reality.handshake),
+            short_id: this.tls.server.reality.short_id ?? [],
+          }
+          this.tls.client.reality = { ...structuredClone(defaultOutTls.reality!), ...this.tls.client.reality }
+        }
         this.tlsType = newData.server?.reality == undefined ? 0 : 1
         this.usePath = newData.server?.key == undefined ? 0 : 1
         this.title = "edit"
@@ -404,93 +419,94 @@ export default {
         this.usePath = 0
         this.title = "add"
       }
+      } catch { this.closeModal() }
     },
     changeTlsType(){
+      if (!this.$props.visible || this.closed) return
+      ++this.requestId
+      this.loading = false
       if (this.tlsType) {
         this.tls.server = <iTls>{
           enabled: true,
           reality: { enabled: true, handshake: { server_port: 443 }, short_id: RandomUtil.randomShortId() },
           server_name: ""
         }
-        this.tls.client = <oTls>{ reality: { public_key: "" }, utls: defaultOutTls.utls }
+        this.tls.client = <oTls>{ reality: structuredClone(defaultOutTls.reality!), utls: structuredClone(defaultOutTls.utls!) }
       } else {
         this.tls.server = <iTls>{ enabled: true }
         this.tls.client = <oTls>{}
       }
     },
     closeModal() {
-      this.updateData(0) // reset
+      ++this.requestId
+      this.closed = true
+      this.loading = false
+      this.menu = false
+      this.tls = <tls>{ id: 0, name: '', server: { enabled: true }, client: {} }
       this.$emit('close')
     },
     saveChanges() {
-      this.loading = true
-      this.$emit('save', this.tls)
-      this.loading = false
+      if (!this.$props.visible || this.closed || this.loading) return
+      this.$emit('save', JSON.parse(JSON.stringify(this.tls)))
     },
-    async genSelfSigned(){
+    async genSelfSigned() {
+      if (!this.$props.visible || this.closed || this.tlsType !== 0) return
+      const requestId = ++this.requestId
+      const server = this.inTls
+      const serverName = server.server_name
+      const key = server.key
+      const certificate = server.certificate
+      const keyPath = server.key_path
+      const certificatePath = server.certificate_path
+      const usePath = this.usePath
       this.loading = true
-      const msg = await HttpUtils.get('api/keypairs', { k: "tls", o: this.inTls.server_name?? "''" })
-      this.loading = false
-      if (msg.success) {
-        this.inTls.key_path=undefined
-        this.inTls.certificate_path=undefined
-        this.usePath = 1
-        if (msg.obj.length>0){
-          let privateKey = <string[]>[]
-          let publicKey = <string[]>[]
-          let isPrivateKey = false
-          let isPublicKey = false
-
-          msg.obj.forEach((line:string) => {
-              if (line === "-----BEGIN PRIVATE KEY-----") {
-                  isPrivateKey = true
-                  isPublicKey = false
-                  privateKey.push(line)
-              } else if (line === "-----END PRIVATE KEY-----") {
-                  isPrivateKey = false
-                  privateKey.push(line)
-              } else if (line === "-----BEGIN CERTIFICATE-----") {
-                  isPublicKey = true
-                  isPrivateKey = false
-                  publicKey.push(line)
-              } else if (line === "-----END CERTIFICATE-----") {
-                  isPublicKey = false
-                  publicKey.push(line)
-              } else if (isPrivateKey) {
-                  privateKey.push(line)
-              } else if (isPublicKey) {
-                  publicKey.push(line)
-              }
-          })
-          this.inTls.key = privateKey?? undefined
-          this.inTls.certificate = publicKey?? undefined
-
-        } else {
-          push.error({
-            message: i18n.global.t('error') + ": " + msg.obj
-          })
+      try {
+        const msg = await HttpUtils.get('api/keypairs', { k: "tls", o: serverName ?? "''" })
+        if (requestId !== this.requestId || this.closed || !this.$props.visible || server !== this.inTls ||
+            serverName !== server.server_name || key !== server.key || certificate !== server.certificate ||
+            keyPath !== server.key_path || certificatePath !== server.certificate_path || usePath !== this.usePath) return
+        if (!msg?.success || !Array.isArray(msg.obj) || msg.obj.some((line: any) => typeof line !== 'string')) throw new Error('Invalid certificate response')
+        const readPem = (begin: string, end: string): string[] => {
+          const start = msg.obj.indexOf(begin)
+          const finish = msg.obj.indexOf(end, start + 1)
+          if (start < 0 || finish <= start) throw new Error('Incomplete PEM')
+          return msg.obj.slice(start, finish + 1)
         }
+        const privateKey = readPem("-----BEGIN PRIVATE KEY-----", "-----END PRIVATE KEY-----")
+        const publicKey = readPem("-----BEGIN CERTIFICATE-----", "-----END CERTIFICATE-----")
+        server.key_path = undefined
+        server.certificate_path = undefined
+        server.key = privateKey
+        server.certificate = publicKey
+        this.usePath = 1
+      } catch {
+        if (requestId === this.requestId && !this.closed && this.$props.visible) push.error({ message: i18n.global.t('failed') })
+      } finally {
+        if (requestId === this.requestId) this.loading = false
       }
     },
-    async genRealityKey(){
+    async genRealityKey() {
+      if (!this.$props.visible || this.closed || this.tlsType !== 1 || !this.inTls.reality || !this.outTls.reality) return
+      const requestId = ++this.requestId
+      const server = this.inTls.reality
+      const client = this.outTls.reality
+      const oldPrivateKey = server.private_key
+      const oldPublicKey = client.public_key
       this.loading = true
-      const msg = await HttpUtils.get('api/keypairs', { k: "reality" })
-      this.loading = false
-      if (msg.success) {
-        msg.obj.forEach((line:string) => {
-          if (this.inTls.reality && this.outTls.reality){
-            if (line.startsWith("PrivateKey")){
-              this.inTls.reality.private_key = line.substring(12)
-            }
-            if (line.startsWith("PublicKey")){
-              this.outTls.reality.public_key = line.substring(11)
-            }
-          }
-        })
-      } else {
-        push.error({
-          message: i18n.global.t('error') + ": " + msg.obj
-        })
+      try {
+        const msg = await HttpUtils.get('api/keypairs', { k: "reality" })
+        if (requestId !== this.requestId || this.closed || !this.$props.visible || server !== this.inTls.reality || client !== this.outTls.reality ||
+            oldPrivateKey !== server.private_key || oldPublicKey !== client.public_key) return
+        if (!msg?.success || !Array.isArray(msg.obj)) throw new Error('Invalid key response')
+        const privateKey = msg.obj.find((line: any) => typeof line === 'string' && line.startsWith('PrivateKey:'))?.slice(11).trim()
+        const publicKey = msg.obj.find((line: any) => typeof line === 'string' && line.startsWith('PublicKey:'))?.slice(10).trim()
+        if (!privateKey || !publicKey) throw new Error('Incomplete key pair')
+        server.private_key = privateKey
+        client.public_key = publicKey
+      } catch {
+        if (requestId === this.requestId && !this.closed && this.$props.visible) push.error({ message: i18n.global.t('failed') })
+      } finally {
+        if (requestId === this.requestId) this.loading = false
       }
     },
     randomSID(){
@@ -506,11 +522,11 @@ export default {
     },
     certText: {
       get(): string { return this.inTls.certificate ? this.inTls.certificate.join('\n') : '' },
-      set(v:string) { this.inTls.certificate = v.split('\n') }
+      set(v:string | null) { this.inTls.certificate = v?.length ? v.split('\n') : undefined }
     },
     keyText: {
       get(): string { return this.inTls.key ? this.inTls.key.join('\n') : '' },
-      set(v:string) { this.inTls.key = v.split('\n') }
+      set(v:string | null) { this.inTls.key = v?.length ? v.split('\n') : undefined }
     },
     disableSni: {
       get() { return this.outTls.disable_sni ?? false },
@@ -524,15 +540,16 @@ export default {
       get() { return this.inTls.reality?.handshake?.server_port ? this.inTls.reality.handshake.server_port : 443 },
       set(v: any) {
         if (this.inTls.reality){
-          this.inTls.reality.handshake.server_port = v.length == 0 || v == 0 ? 443 : parseInt(v)
+          const port = Number(v)
+          this.inTls.reality.handshake.server_port = Number.isInteger(port) && port > 0 && port <= 65535 ? port : 443
         }
       }
     },
     short_id: {
       get() { return this.inTls.reality?.short_id ? this.inTls.reality.short_id.join(',') : undefined },
-      set(v: string) {
+      set(v: string | null) {
         if (this.inTls.reality){
-          this.inTls.reality.short_id = v.length > 0 ? v.split(',') : []
+          this.inTls.reality.short_id = v?.length ? v.split(',').map(id => id.trim()).filter(Boolean) : []
         }
       }
     },
@@ -550,7 +567,7 @@ export default {
     },
     optionALPN: {
       get(): boolean { return this.inTls.alpn != undefined },
-      set(v:boolean) { this.inTls.alpn = v ? defaultInTls.alpn : undefined }
+      set(v:boolean) { this.inTls.alpn = v ? structuredClone(defaultInTls.alpn!) : undefined }
     },
     optionMinV: {
       get(): boolean { return this.inTls.min_version != undefined },
@@ -562,11 +579,11 @@ export default {
     },
     optionCS: {
       get(): boolean { return this.inTls.cipher_suites != undefined },
-      set(v:boolean) { this.inTls.cipher_suites = v ? defaultInTls.cipher_suites : undefined }
+      set(v:boolean) { this.inTls.cipher_suites = v ? structuredClone(defaultInTls.cipher_suites!) : undefined }
     },
     optionFP: {
       get(): boolean { return this.outTls.utls != undefined },
-      set(v:boolean) { this.outTls.utls = v ? defaultOutTls.utls : undefined }
+      set(v:boolean) { this.outTls.utls = v ? structuredClone(defaultOutTls.utls!) : undefined }
     },
     optionStore: {
       get(): boolean { return this.inTls.store != undefined },
@@ -586,19 +603,24 @@ export default {
     },
     optionEch: {
       get(): boolean { return this.outTls.ech != undefined },
-      set(v:boolean) { this.outTls.ech = v ? defaultOutTls.ech : undefined }
+      set(v:boolean) { this.outTls.ech = v ? structuredClone(defaultOutTls.ech!) : undefined }
     },
     optionTime: {
       get(): boolean { return this.inTls?.reality?.max_time_difference != undefined },
       set(v:boolean) { if (this.inTls.reality) this.inTls.reality.max_time_difference = v ? "1m" : undefined }
     }
   },
+  beforeUnmount() { ++this.requestId; this.closed = true },
   watch: {
-    visible(v) {
-      if (v) {
-        this.updateData(this.$props.id)
-      }
+    visible: {
+      immediate: true,
+      handler(v: boolean) {
+        this.closed = !v
+        if (v) this.updateData(this.$props.id)
+        else { ++this.requestId; this.loading = false }
+      },
     },
+    id() { if (this.$props.visible && !this.closed) this.updateData(this.$props.id) },
   },
   components: { AcmeVue, EchVue }
 }

@@ -43,7 +43,8 @@
               variant="outlined"
               hide-details
               prepend-icon="mdi-file-document"
-              @change="onFileUpload"
+              @update:modelValue="onFileUpload"
+              @click:clear="tabChanged"
             ></v-file-input>
           </v-window-item>
         </v-window>
@@ -97,7 +98,7 @@
       </v-card-text>
       <v-divider />
       <v-card-actions class="pa-3">
-        <v-btn @click="parseImport" variant="tonal" :disabled="importRawText.trim().length === 0">
+        <v-btn @click="parseImport" variant="tonal" :disabled="(importRawText ?? '').trim().length === 0">
           <v-icon icon="mdi-magnify" class="mr-1" />{{ $t('rule.import.parse') }}
         </v-btn>
         <v-spacer />
@@ -111,6 +112,7 @@
 </template>
 
 <script lang="ts">
+import { push } from 'notivue'
 interface ImportItem { tag: string; url: string; format: string; exists: boolean }
 
 export default {
@@ -118,6 +120,8 @@ export default {
   emits: ['save', 'close'],
   data() {
     return {
+      requestId: 0,
+      closed: false,
       tab: 'text',
       importRawText: '',
       importFormat: 'binary',
@@ -136,6 +140,7 @@ export default {
   },
   methods: {
     tabChanged() {
+      ++this.requestId
       this.importPreview = []
       this.importRawText = ''
     },
@@ -149,39 +154,85 @@ export default {
       }
     },
     close() {
+      this.closed = true
+      this.tabChanged()
       this.$emit('close')
     },
     parseImport() {
-      const existingTags = new Set(this.rsTags)
-      const seen = new Set<string>()
-      this.importPreview = this.importRawText
-        .split('\n').map(l => l.trim()).filter(l => l.length > 0 && l.startsWith('http'))
-        .filter(url => { if (seen.has(url)) return false; seen.add(url); return true })
-        .map(url => ({ tag: this.urlToTag(url), url, format: this.importFormat, exists: existingTags.has(this.urlToTag(url)) }))
-    },
-    save() {
-      const toAdd = this.importPreview.filter(i => !i.exists).map(item => {
-        const rs: any = { type: 'remote', tag: item.tag, format: item.format, url: item.url }
-        if (this.importDetour) rs.download_detour = this.importDetour
-        if (this.importInterval > 0) rs.update_interval = this.importInterval + 'd'
-        return rs
-      })
-      this.$emit('save', toAdd)
-    },
-    async onFileUpload(event: Event) {
-      const file = (event.target as HTMLInputElement).files?.[0]
-      if (!file) return
-      this.importRawText = await file.text()
-      this.parseImport()
-    },
-  },
-  watch: {
-    visible(v) {
-      if (v) {
-        this.tab = 'text'
-        this.tabChanged()
+      if (!this.$props.visible || this.closed) return
+      ++this.requestId
+      const existingTags = new Set(this.rsTags ?? [])
+      const seenUrls = new Set<string>()
+      const seenTags = new Set<string>()
+      this.importPreview = []
+      for (const line of (this.importRawText ?? '').split('\n')) {
+        const url = line.trim()
+        try {
+          const parsed = new URL(url)
+          if (!['http:', 'https:'].includes(parsed.protocol) || seenUrls.has(url)) continue
+          const tag = this.urlToTag(url)
+          if (!tag) continue
+          seenUrls.add(url)
+          const exists = existingTags.has(tag) || seenTags.has(tag)
+          this.importPreview.push({ tag, url, format: this.importFormat, exists })
+          seenTags.add(tag)
+        } catch { /* Ignore lines that are not HTTP(S) URLs. */ }
       }
     },
+    save() {
+      if (!this.$props.visible || this.closed) return
+      const seenTags = new Set<string>(this.rsTags ?? [])
+      const toAdd = this.importPreview.filter(item => {
+        if (item.exists || seenTags.has(item.tag)) return false
+        seenTags.add(item.tag)
+        return true
+      }).map(item => {
+        const rs: any = { type: 'remote', tag: item.tag, format: this.importFormat, url: item.url }
+        if (this.importDetour) rs.download_detour = this.importDetour
+        if (Number.isFinite(Number(this.importInterval)) && Number(this.importInterval) > 0) rs.update_interval = Number(this.importInterval) + 'd'
+        return rs
+      })
+      if (toAdd.length) this.$emit('save', toAdd)
+    },
+    async onFileUpload(files: File | File[] | null) {
+      if (!this.$props.visible || this.closed) return
+      ++this.requestId
+      this.importPreview = []
+      this.importRawText = ''
+      // The synchronous text watcher also invalidates the previous source.
+      const requestId = this.requestId
+      const file = Array.isArray(files) ? files[0] : files
+      if (!file) return
+      try {
+        const text = await file.text()
+        if (requestId !== this.requestId || this.closed || !this.$props.visible) return
+        this.importRawText = text
+        this.parseImport()
+      } catch {
+        if (requestId === this.requestId && !this.closed && this.$props.visible) push.error({ message: this.$t('failed') })
+      }
+    },
+  },
+  beforeUnmount() { ++this.requestId; this.closed = true },
+  watch: {
+    visible: {
+      immediate: true,
+      handler(v: boolean) {
+        this.closed = !v
+        this.tabChanged()
+        if (v) {
+          this.tab = 'text'
+          this.importFormat = 'binary'
+          this.importDetour = ''
+          this.importInterval = 1
+        }
+      },
+    },
+    importRawText: {
+      flush: 'sync' as const,
+      handler() { ++this.requestId; this.importPreview = [] },
+    },
+    importFormat() { this.importPreview.forEach(item => { item.format = this.importFormat }) },
   },
 }
 </script>

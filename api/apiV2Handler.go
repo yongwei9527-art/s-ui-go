@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/yongwei9527-art/s-ui-go/logger"
+	"github.com/yongwei9527-art/s-ui-go/middleware"
 	"github.com/yongwei9527-art/s-ui-go/util/common"
 
 	"github.com/gin-gonic/gin"
@@ -31,6 +32,7 @@ func NewAPIv2Handler(g *gin.RouterGroup) *APIv2Handler {
 }
 
 func (a *APIv2Handler) initRouter(g *gin.RouterGroup) {
+	g.Use(middleware.DatabaseAccess(true))
 	g.Use(func(c *gin.Context) {
 		a.checkToken(c)
 	})

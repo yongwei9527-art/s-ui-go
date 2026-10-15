@@ -131,11 +131,15 @@ export default {
         { title: i18n.global.t("bulk.random"), value: "random" },
         { title: i18n.global.t("bulk.order"), value: "order" },
       ],
+      requestId: 0,
+      closed: false,
       loading: false,
     }
   },
   methods: {
     resetData() {
+      ++this.requestId
+      this.loading = false
       this.count = 1,
       this.clients = [],
       this.bulkData = {
@@ -151,46 +155,51 @@ export default {
       }
     },
     closeModal() {
+      ++this.requestId
+      this.closed = true
+      this.loading = false
       this.$emit('close')
     },
     async saveChanges() {
-      if (!this.$props.visible) return
-      if (this.bulkData.name.findIndex(n => typeof(n) == 'object') == -1) {
+      if (!this.$props.visible || this.closed || this.loading) return
+      const count = Number(this.count)
+      const volume = Number(this.bulkData.Volume)
+      const resetDays = Number(this.bulkData.resetDays)
+      if (!Number.isInteger(count) || count < 1 || count > 100 || !Number.isFinite(volume) || volume < 0 ||
+          ((this.bulkData.delayStart || this.bulkData.autoReset) && (!Number.isInteger(resetDays) || resetDays < 1)) ||
+          !this.bulkData.name?.some(n => n && typeof n === 'object' && ['order', 'random'].includes(n.value))) {
         push.error(i18n.global.t('error.dplData'))
         return
       }
-      this.clients = []
+      const requestId = ++this.requestId
       this.loading = true
-      for(let i=0;i<this.count;i++){
-        const name = this.genByPattern(this.bulkData.name, i)
-        this.clients.push(createClient({
-          enable: true,
-          name: name,
-          config: randomConfigs(name),
-          inbounds: this.bulkData.clientInbounds.length > 0 ? this.bulkData.clientInbounds.sort() : [],
-          links: [],
-          volume: this.bulkData.Volume*(1024 ** 3),
-          expiry: (this.bulkData.delayStart && !this.bulkData.autoReset) ? 0 : this.bulkData.expiry,
-          up: 0,
-          down: 0,
-          desc: this.genByPattern(this.bulkData.desc, i),
-          group: this.bulkData.group,
-          delayStart: this.bulkData.delayStart,
-          autoReset: this.bulkData.autoReset,
-          resetDays: this.bulkData.resetDays,
-        }))
+      try {
+        this.clients = Array.from({ length: count }, (_, i) => {
+          const name = this.genByPattern(this.bulkData.name, i)
+          return createClient({
+            enable: true, name, config: randomConfigs(name),
+            inbounds: [...(this.bulkData.clientInbounds ?? [])].sort((a:number,b:number) => a-b),
+            links: [], volume: volume * (1024 ** 3),
+            expiry: (this.bulkData.delayStart && !this.bulkData.autoReset) ? 0 : this.bulkData.expiry,
+            up: 0, down: 0, desc: this.genByPattern(this.bulkData.desc, i), group: this.bulkData.group ?? '',
+            delayStart: this.bulkData.delayStart, autoReset: this.bulkData.autoReset,
+            resetDays: (this.bulkData.delayStart || this.bulkData.autoReset) ? resetDays : 0,
+          })
+        })
+        if (Data().checkBulkClientNames(this.clients.map(c => c.name))) return
+        const success = await Data().save("clients", "addbulk", JSON.parse(JSON.stringify(this.clients)))
+        if (requestId === this.requestId && !this.closed && this.$props.visible && success) this.closeModal()
+      } catch {
+        if (requestId === this.requestId && !this.closed && this.$props.visible) push.error({ message: i18n.global.t('failed') })
+      } finally {
+        if (requestId === this.requestId) this.loading = false
       }
-      // Check duplicate names
-      const isDuplicateName = Data().checkBulkClientNames(this.clients.map(c => c.name))
-      if (isDuplicateName) return
-      const success = await Data().save("clients", "addbulk", this.clients)
-      if (success) this.closeModal()
-      this.loading = false
     },
     genByPattern(pattern: any[], order :number){
-      if (pattern.length == 0) return RandomUtil.randomSeq(8)
+      if (!pattern?.length) return RandomUtil.randomSeq(8)
       let result = ''
       pattern.forEach(p => {
+        if (p == null) return
         switch(typeof p){
           case 'object':
             switch(p.value){
@@ -208,18 +217,22 @@ export default {
       return result
     },
     setDate(v:number){
-      this.bulkData.expiry = v
+      if (this.$props.visible && !this.closed) this.bulkData.expiry = v
     },
     setAllInbounds(){
-      this.bulkData.clientInbounds = this.inboundTags.map((i:any) => i.value).sort()
+      this.bulkData.clientInbounds = (this.inboundTags ?? []).map((i:any) => i.value).sort((a:number,b:number) => a-b)
     }
   },
   computed: {},
+  beforeUnmount() { ++this.requestId; this.closed = true },
   watch: {
-    visible(newValue) {
-      if (newValue) {
-        this.resetData()
-      }
+    visible: {
+      immediate: true,
+      handler(v: boolean) {
+        this.closed = !v
+        if (v) this.resetData()
+        else { ++this.requestId; this.loading = false }
+      },
     },
   },
   components: { DatePick },

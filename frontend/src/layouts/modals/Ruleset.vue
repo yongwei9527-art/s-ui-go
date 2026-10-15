@@ -82,6 +82,7 @@ export default {
   emits: ['close', 'save'],
   data() {
     return {
+      closed: false,
       title: "add",
       loading: false,
       rule_set: <ruleset>{},
@@ -89,13 +90,19 @@ export default {
   },
   methods: {
     updateData() {
-      if (this.$props.index != -1) {
-        this.title = "edit"
-        this.rule_set = <ruleset>JSON.parse(this.$props.data)
-      }
-      else {
-        this.title = "add"
-        this.rule_set = <ruleset>{type: 'local', tag: "rs-" + RandomUtil.randomSeq(3), format: 'binary'}
+      try {
+        if (this.$props.index != -1) {
+          this.title = "edit"
+          const data = JSON.parse(this.$props.data)
+          if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Invalid rule set')
+          this.rule_set = <ruleset>data
+        }
+        else {
+          this.title = "add"
+          this.rule_set = <ruleset>{type: 'local', tag: "rs-" + RandomUtil.randomSeq(3), format: 'binary'}
+        }
+      } catch {
+        this.closeModal()
       }
     },
     updateType(t:string) {
@@ -108,25 +115,36 @@ export default {
       }
     },
     closeModal() {
+      this.closed = true
       this.$emit('close')
     },
     saveChanges() {
+      if (!this.$props.visible || this.closed) return
       this.loading = true
-      this.$emit('save', this.rule_set)
+      this.$emit('save', JSON.parse(JSON.stringify(this.rule_set)))
       this.loading = false
     }
   },
   computed: {
     update_intervals: {
-      get() { return this.rule_set.update_interval != undefined ? parseInt(this.rule_set.update_interval.replace('d','')) : 0 },
-      set(v:number) { this.rule_set.update_interval = v>0 ?  v + 'd' : undefined }
+      get() {
+        const duration = this.rule_set.update_interval ?? ''
+        const units: Record<string, number> = { d: 86400, h: 3600, m: 60, s: 1, ms: 0.001, us: 0.000001, ns: 0.000000001 }
+        const parts = [...duration.matchAll(/(\d+(?:\.\d+)?)(ms|us|ns|d|h|m|s)/g)]
+        if (parts.map(part => part[0]).join('') !== duration) return 0
+        return parts.reduce((sum, part) => sum + Number(part[1]) * units[part[2]], 0) / 86400
+      },
+      set(v:number | null) { this.rule_set.update_interval = v != null && Number.isFinite(Number(v)) && Number(v)>0 ? Number(v) + 'd' : undefined }
     },
   },
+  beforeUnmount() { this.closed = true },
   watch: {
-    visible(newValue) {
-      if (newValue) {
-        this.updateData()
-      }
+    visible: {
+      immediate: true,
+      handler(v: boolean) {
+        this.closed = !v
+        if (v) this.updateData()
+      },
     },
   },
 }

@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/robfig/cron/v3"
+	"github.com/yongwei9527-art/s-ui-go/database"
 	"github.com/yongwei9527-art/s-ui-go/logger"
 )
 
@@ -19,7 +20,7 @@ func (c *CronJob) Start(loc *time.Location, trafficAge int) error {
 	c.cron = cron.New(
 		cron.WithLocation(loc),
 		cron.WithSeconds(),
-		cron.WithChain(cron.Recover(cron.DefaultLogger)),
+		cron.WithChain(cron.Recover(cron.DefaultLogger), databaseJob),
 	)
 
 	jobs := []struct {
@@ -46,6 +47,17 @@ func (c *CronJob) Start(loc *time.Location, trafficAge int) error {
 
 	c.cron.Start()
 	return nil
+}
+
+func databaseJob(job cron.Job) cron.Job {
+	return cron.FuncJob(func() {
+		release, ok := database.TryAcquireAccess()
+		if !ok {
+			return // Skip this tick while recovery drains/stops background work.
+		}
+		defer release()
+		job.Run()
+	})
 }
 
 func (c *CronJob) Stop() {

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yongwei9527-art/s-ui-go/middleware"
 	"github.com/yongwei9527-art/s-ui-go/service"
 	"github.com/yongwei9527-art/s-ui-go/util/common"
 
@@ -72,8 +73,12 @@ func (a *APIHandler) login(c *gin.Context) {
 }
 
 func (a *APIHandler) initRouter(g *gin.RouterGroup) {
+	g.Use(middleware.DatabaseAccess(true))
 	g.Use(func(c *gin.Context) {
 		path := c.Request.URL.Path
+		if c.Request.Method == http.MethodGet && c.Param("getAction") == "recovery-ready" {
+			return // Public, no DB contents; recovery admission above still applies.
+		}
 		if !strings.HasSuffix(path, "login") && !strings.HasSuffix(path, "logout") {
 			c.Set("s-ui-login-url", strings.TrimSuffix(g.BasePath(), "/api")+"/login")
 			checkLogin(c)
@@ -127,6 +132,9 @@ func (a *APIHandler) getHandler(c *gin.Context) {
 	action := c.Param("getAction")
 
 	switch action {
+	case "recovery-ready":
+		c.Header("Cache-Control", "no-store")
+		c.Status(http.StatusNoContent)
 	case "logout":
 		c.Header("Allow", http.MethodPost)
 		c.Status(http.StatusMethodNotAllowed)

@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/yongwei9527-art/s-ui-go/logger"
+	"github.com/yongwei9527-art/s-ui-go/middleware"
 	"github.com/yongwei9527-art/s-ui-go/service"
 
 	"github.com/gin-gonic/gin"
@@ -35,6 +36,7 @@ func NewSubHandler(g *gin.RouterGroup) {
 }
 
 func (s *SubHandler) initRouter(g *gin.RouterGroup) {
+	g.Use(middleware.DatabaseAccess(false))
 	g.GET("/:subid", s.subs)
 	g.HEAD("/:subid", s.subHeaders)
 }
